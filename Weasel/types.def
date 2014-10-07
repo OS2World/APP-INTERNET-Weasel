@@ -1,0 +1,39 @@
+DEFINITION MODULE Types;
+
+        (********************************************************)
+        (*                                                      *)
+        (*      Definitions of non-quite-portable types         *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Last edited:        11 September 2004               *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+FROM SYSTEM IMPORT BYTE, WORD, ADDRESS, CARD32, INT32;
+
+TYPE
+    (* Pointer types which must be "far" regardless of the memory model *)
+
+    FarPointer = ADDRESS;
+    FarBytePointer = POINTER TO BYTE;
+    FarWordPointer = POINTER TO WORD;
+    FarCharPointer = POINTER TO CHAR;
+    FarCardPointer = POINTER TO CARDINAL;
+    FarPointerPointer = POINTER TO ADDRESS;
+    FarProcPointer = POINTER TO PROCEDURE();
+
+    (* Remark: we make the CARD64 definition public because the main    *)
+    (* use of this type is in interacting with the C API.  Consistency  *)
+    (* then forces us to make INT64 public as well.                     *)
+
+    CARD64 = RECORD
+                 low, high: CARD32;
+             END (*RECORD*);
+
+    INT64  = RECORD
+                 low: CARD32;
+                 high: INT32;
+             END (*RECORD*);
+
+END Types.

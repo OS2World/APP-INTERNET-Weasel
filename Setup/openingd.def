@@ -1,0 +1,18 @@
+DEFINITION MODULE OpeningDialogue;
+
+        (****************************************************************)
+        (*                    PM Setup for Weasel                       *)
+        (*                      Opening dialogue                        *)
+        (*                                                              *)
+        (*    Started:        28 June 1999                              *)
+        (*    Last edited:    16 December 2009                          *)
+        (*    Status:         OK                                        *)
+        (*                                                              *)
+        (****************************************************************)
+
+PROCEDURE CreateMainDialogue (LocalRemote: CARDINAL;  TNImode: BOOLEAN);
+
+    (* Creates the main dialogue box. *)
+
+END OpeningDialogue.
+

@@ -1,0 +1,156 @@
+DEFINITION MODULE Delivery;
+
+        (********************************************************)
+        (*                                                      *)
+        (* Part of the SMTP server - makes the final delivery   *)
+        (*                   of the mail                        *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            12 May 1998                     *)
+        (*  Last edited:        27 December 2012                *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM FileOps IMPORT
+    (* type *)  ChanId,
+    (* type *)  FilePos;
+
+FROM Domains IMPORT
+    (* type *)  Domain;
+
+FROM Sockets IMPORT
+    (* type *)  Socket;
+
+FROM Names IMPORT
+    (* type *)  FilenameString, PathString, HostName;
+
+FROM TransLog IMPORT
+    (* type *)  LogContext, TransactionLogID;
+
+(************************************************************************)
+
+TYPE CombinedRecipientList;        (* is private *)
+
+
+PROCEDURE ReloadDeliveryINIData (FirstTime: BOOLEAN): BOOLEAN;
+
+    (* Loads that part of the INI data, for the Delivery module, that   *)
+    (* can be updated "on the run" without restarting the server.       *)
+    (* Returns the value of ExtraLogging.                               *)
+
+PROCEDURE StartOnlineChecker;
+
+    (* Allows the OnlineChecker task to start working. *)
+
+PROCEDURE GetOurHostName (S: Socket;  VAR (*OUT*) name: HostName);
+
+    (* Sets name to what we are currently calling our host name for our *)
+    (* end of the connection using socket S.  The answer might or might *)
+    (* not depend on S, depending on the options currently in force. If *)
+    (* we can't get a reasonable answer then we leave name unchanged.   *)
+
+PROCEDURE CreateCombinedRecipientList(): CombinedRecipientList;
+
+    (* Creates a new recipient list. *)
+
+PROCEDURE DiscardCombinedRecipientList (VAR (*INOUT*) RL: CombinedRecipientList);
+
+    (* Destroys a recipient list. *)
+
+PROCEDURE ClearCombinedRecipientList (RL: CombinedRecipientList);
+
+    (* Removes all entries from a recipient list, without destroying    *)
+    (* the list itself.                                                 *)
+
+PROCEDURE EmptyRecipientList (RL: CombinedRecipientList): BOOLEAN;
+
+    (* Returns TRUE iff the list of recipients is empty. *)
+
+PROCEDURE AddToLocalList (VAR (*INOUT*) CRL: CombinedRecipientList;
+                           VAR (*IN*) name, host: ARRAY OF CHAR;
+                           D: Domain;
+                           AllowPrivateAlias, AcceptIllegal,
+                           MarkAsOriginal: BOOLEAN;  ID: TransactionLogID): BOOLEAN;
+
+    (* Adds one local recipient to the list of recipients.  If          *)
+    (* AcceptIllegal = TRUE, we'll add the recipient to the list and    *)
+    (* return TRUE regardless of whether this is a legitimate local     *)
+    (* user.  If AcceptIllegal = FALSE, we reject the recipient and     *)
+    (* return FALSE if it's not a legal local recipient.                *)
+
+    (* MarkAsOriginal = TRUE means that this is an address as supplied  *)
+    (* by the sender, as distinct from one that was produced by         *)
+    (* alias expansion.                                                 *)
+
+PROCEDURE AddToRelayList (VAR (*INOUT*) CRL: CombinedRecipientList;
+                             VAR (*IN*) to: ARRAY OF CHAR;
+                             MarkAsOriginal: BOOLEAN);
+
+    (* Adds a new entry to a list of recipients. *)
+
+PROCEDURE WriteRecipientList (cid: ChanId;  p: CombinedRecipientList;
+                                       NewLines, FinalExpansion: BOOLEAN);
+
+    (* Writes a list of e-mail addresses to a file.  If NewLines is     *)
+    (* TRUE then each address goes on a new line; otherwise, the        *)
+    (* addresses are space-separated.  FinalExpansion=TRUE means that   *)
+    (* the list will not hold any aliases, only the final addresses     *)
+    (* for delivery.  FinalExpansion=FALSE means that the list should   *)
+    (* be as specified by the sender, before alias expansion.           *)
+
+PROCEDURE AddRecipient (RL: CombinedRecipientList;
+                        VAR (*IN*) name: ARRAY OF CHAR;
+                        AllowPrivateAliases, MarkAsOriginal: BOOLEAN;
+                        ID: TransactionLogID);
+
+    (* Checks whether "name" is local or non-local, and adds it to the  *)
+    (* appropriate list.  It is possible to add invalid recipients, but *)
+    (* this will be caught at the time of delivery.                     *)
+
+PROCEDURE SeparateFilter (VAR (*INOUT*) CRL: CombinedRecipientList;
+                          VAR (*OUT*) NewCRL: CombinedRecipientList;
+                          VAR (*INOUT*) FilterName: FilenameString): BOOLEAN;
+
+    (* Finds the first user in CRL that has a filter override.  If      *)
+    (* found, moves that user - and any other user with an identical    *)
+    (* override - to NewCRL, and sets FilterName to the override        *)
+    (* filter name (which could be the empty string, since an override  *)
+    (* may specify "no filtering").  In this case the function result   *)
+    (* is TRUE.  If there is no user in CRL with an override, the       *)
+    (* result is FALSE, CRL is unaltered, and NewCRL and FilterName     *)
+    (* do not contain any meaningful information.                       *)
+
+    (* Note also: we search only the local users in CRL, but the ones   *)
+    (* we move to NewCRL are redefined to be remote users so that we    *)
+    (* can recirculate them.                                            *)
+
+PROCEDURE ChooseIncomingFileDirectory (CRL: CombinedRecipientList;
+                                      VAR (*OUT*) BaseName: FilenameString);
+
+    (* Sets BaseName to the mailbox of the first local recipient, or to *)
+    (* the name of the Forward directory if the first local recipient   *)
+    (* has no maibox.  In either case the name includes a trailing '\'. *)
+
+PROCEDURE CopyToRecipients (messagefile: FilenameString;
+                            returnpath: PathString;
+                            offset: FilePos;
+                            LogID: TransactionLogID;
+                            CRL: CombinedRecipientList;
+                            recirculate: BOOLEAN);
+
+    (* This procedure is to be called after a mail item has been        *)
+    (* received.  We assume that messagefile is a temporary file in     *)
+    (* the mailbox of the first local recipient, if any, and is a       *)
+    (* temporary file in the 'forward' directory otherwise.  This       *)
+    (* procedure makes copies for all local recipients, queues the mail *)
+    (* for the remote recipients, and then deletes the message file.    *)
+
+PROCEDURE LoadDeliveryINIData (TNImode: BOOLEAN);
+
+    (* Loads the values of this module's global variables that reside   *)
+    (* in the main INI file.  Also starts the transaction logging.      *)
+
+END Delivery.
+

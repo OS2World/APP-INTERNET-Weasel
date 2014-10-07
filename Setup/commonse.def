@@ -1,0 +1,63 @@
+DEFINITION MODULE CommonSettings;
+
+        (****************************************************************)
+        (*                                                              *)
+        (*                   Setup program for Weasel                   *)
+        (*            Data common to the main Setup notebook            *)
+        (*                                                              *)
+        (*    Started:        26 March 2004                             *)
+        (*    Last edited:    8 September 2014                          *)
+        (*    Status:         OK                                        *)
+        (*                                                              *)
+        (****************************************************************)
+
+
+FROM OS2 IMPORT WM_USER, HWND;
+FROM Languages IMPORT LangHandle;
+
+CONST
+    FONTCHANGED = WM_USER + 1;
+    LANGCHANGED = WM_USER + 2;
+    WM_MULTIDOMAIN_CHANGE = WM_USER + 3;
+    FontNameSize = 256;
+
+TYPE
+    FontName = ARRAY [0..FontNameSize-1] OF CHAR;
+    FontGroup = (NilFontGroup, MainNotebook, DomainNotebook);
+
+PROCEDURE EnableFontChanges (enable: BOOLEAN);
+
+    (* Enables or disables font updates.  We want to be able to ignore  *)
+    (* "new font" messages while notebooks are opening or closing.      *)
+
+PROCEDURE SetFonts (useTNI: BOOLEAN);
+
+    (* Sets initial fonts from Setup.INI or Setup.TNI. *)
+
+PROCEDURE CurrentFont (group: FontGroup;  VAR (*OUT*) fontname: FontName);
+
+    (* Returns the currently set font for this group. *)
+
+PROCEDURE UpdateFontFrom (hwnd: HWND;  group: FontGroup);
+
+    (* Takes the font setting from window hwnd and propagates it to the *)
+    (* entire group.  Note that this will often be a "no operation"     *)
+    (* because the font is no different from the presently active one.  *)
+    (* The new font is also saved to Setup.INI or Setup.TNI.            *)
+
+PROCEDURE SetInitialLanguage;
+
+    (* Sets the language from the Weasel INI or TNI file. *)
+
+PROCEDURE ChangeLanguageTo (name: ARRAY OF CHAR): BOOLEAN;
+
+    (* Changes the current language setting, but only if a suitable     *)
+    (* Admin.name.lng file exists.  Returns FALSE if no change.         *)
+
+PROCEDURE CurrentLanguage (VAR (*OUT*) lang: LangHandle;
+                                VAR (*OUT*) name: ARRAY OF CHAR);
+
+    (* Returns the current language setting. *)
+
+END CommonSettings.
+

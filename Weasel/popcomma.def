@@ -1,0 +1,79 @@
+DEFINITION MODULE POPCommands;
+
+        (********************************************************)
+        (*                                                      *)
+        (*       Command interpreter for POP3 server            *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            21 April 1998                   *)
+        (*  Last edited:        11 April 2012                   *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM SBuffers IMPORT
+    (* type *)  SBuffer;
+
+FROM Semaphores IMPORT
+    (* type *)  Semaphore;
+
+FROM TransLog IMPORT
+    (* type *)  TransactionLogID;
+
+FROM Names IMPORT
+    (* type *)  FilenameString;
+
+(********************************************************************************)
+
+TYPE Session;            (* is private *)
+
+(********************************************************************************)
+
+PROCEDURE SetBadPasswordLimit (limit: CARDINAL);
+
+    (* Sets the limit on the number of password failures before we forcibly     *)
+    (* terminate a POP3 session.  A value of 0 disables this check.             *)
+
+PROCEDURE SetPOPParameters (AuthTime: CARDINAL);
+
+    (* Sets the time (in minutes) that a POP-before-SMTP authorisation remains  *)
+    (* valid.  A zero value disables this form of authorisation.                *)
+
+PROCEDURE SetPopLogName (enable: BOOLEAN;  VAR (*IN*) name: FilenameString);
+
+    (* Sets the filename of the POP user log. *)
+
+PROCEDURE OpenSession (SB: SBuffer;  HostIPAddress, ClientIPAddress: CARDINAL;
+                                    KeepAlive: Semaphore;
+                                    LogID: TransactionLogID): Session;
+
+    (* Creates a new session state record.  During lengthy operations           *)
+    (* we have to do a Signal(KeepAlive) every so often in order to stop the    *)
+    (* session from timing out.                                                 *)
+
+PROCEDURE AppendTimeStamp (S: Session;  VAR (*INOUT*) buffer: ARRAY OF CHAR);
+
+    (* Appends the TimeStamp string to a string buffer. *)
+
+PROCEDURE CloseSession (S: Session);
+
+    (* Destroys the session state record. *)
+
+PROCEDURE HandleCommand (S: Session;  VAR (*IN*) Command: ARRAY OF CHAR;
+                                                      VAR (*OUT*) Quit: BOOLEAN);
+
+    (* Executes one user command.  Returns with Quit=TRUE if the command is one *)
+    (* that closes the session, or if the connection is lost.                   *)
+
+PROCEDURE RefreshSMTPAuthorisation (IPAddress: CARDINAL);
+
+    (* Notes that there has been a successful POP login from this address.      *)
+
+PROCEDURE POPbeforeSMTP (IPaddress: CARDINAL): BOOLEAN;
+
+    (* Returns TRUE iff a client at that address has done a successful POP      *)
+    (* login and the POP-before-SMTP timeout has not yet expired.               *)
+
+END POPCommands.
+

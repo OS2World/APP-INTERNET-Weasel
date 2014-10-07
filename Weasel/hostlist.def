@@ -1,0 +1,72 @@
+DEFINITION MODULE HostLists;
+
+        (********************************************************)
+        (*                                                      *)
+        (*           Lists of host names and addresses          *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            1 September 2002                *)
+        (*  Last edited:        11 April 2012                   *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+FROM Names IMPORT
+    (* type *)  FilenameString, HostName;
+
+FROM TransLog IMPORT
+    (* type *)  TransactionLogID;
+
+
+TYPE HostList;          (* is private *)
+
+
+PROCEDURE CreateHostList (LogName: ARRAY OF CHAR;  local: BOOLEAN): HostList;
+
+    (* Creates an empty list. *)
+
+PROCEDURE RefreshHostList (VAR (*IN*) INIFile: FilenameString;
+                           VAR (*IN*) app, key: ARRAY OF CHAR;
+                           UseTNI: BOOLEAN;
+                           VAR (*INOUT*) list: HostList;
+                           ExpandNumeric, Log: BOOLEAN);
+
+    (* Discards the existing contents of the list, then reloads it      *)
+    (* from INI file data.                                              *)
+
+PROCEDURE RefreshHostList2 (VAR (*IN*) INIFile: FilenameString;
+                           VAR (*IN*) app, key: ARRAY OF CHAR;
+                           UseTNI: BOOLEAN;
+                           VAR (*INOUT*) list: HostList;
+                           InitialAddresses: ARRAY OF CARDINAL;
+                           ExpandNumeric, Log: BOOLEAN);
+
+    (* Like RefreshHostList, but uses the IP addresses from a given     *)
+    (* array to preload the list before adding the INI file data.       *)
+    (* A zero address terminates the InitialAddresses array.            *)
+
+PROCEDURE DestroyHostList (VAR (*INOUT*) list: HostList);
+
+    (* Empties the list, then discards it. *)
+
+PROCEDURE FindAllAddresses (list: HostList;
+                             VAR (*OUT*) address: ARRAY OF CARDINAL);
+
+    (* Sets address to contain all the numeric addresses in list.  The  *)
+    (* terminator is a zero address.                                    *)
+
+PROCEDURE MatchHostName (list: HostList;  VAR (*IN*) name: HostName;
+                  ExtraLogging: BOOLEAN;  LogID: TransactionLogID): BOOLEAN;
+
+    (* Returns TRUE if name matches a name in the list, either as a     *)
+    (* text string or as a numeric x.x.x.x name.                        *)
+
+PROCEDURE MatchAnAddress (list: HostList;  IPAddress: CARDINAL): BOOLEAN;
+
+    (* Returns TRUE if either the address IPAddress, or the hostname    *)
+    (* obtained by rDNS lookup is in the list.  In the second case we   *)
+    (* look up only the primary name, i.e. we don't bother with things  *)
+    (* like aliases.  IPAddress is in network byte order.               *)
+
+END HostLists.
+

@@ -1,0 +1,86 @@
+DEFINITION MODULE Authentication;
+
+        (********************************************************)
+        (*                                                      *)
+        (*           SASL authentication mechanisms             *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            31 January 2003                 *)
+        (*  Last edited:        15 April 2012                   *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+(************************************************************************)
+(*                                                                      *)
+(*                SUPPORTED SASL AUTHENTICATION MECHANISMS              *)
+(*                                                                      *)
+(*   CHEAT      For testing, always gives success with no negotiation.  *)
+(*   PLAIN      See RFC2595                                             *)
+(*   LOGIN      (not covered by a standard, it seems, but still the     *)
+(*                most popular method)                                  *)
+(*   CRAM-MD5   See RFC2195                                             *)
+(*                                                                      *)
+(* SASL is described in RFC 2222, with applications to IMAP and with    *)
+(* definitions of some mechanisms.  Its application to SMTP is defined  *)
+(* in RFC2554.  Because we are using this module only for SMTP and      *)
+(* IMAP4, we assume that challenge/response strings are Base64 encoded. *)
+(*                                                                      *)
+(************************************************************************)
+
+FROM Domains IMPORT (*type*) Domain;
+
+
+TYPE AuthenticationState;       (* is private *)
+
+
+PROCEDURE SetAuthMethods (mask: CARDINAL);
+
+    (* Initialisation procedure: the mask is a Boolean bit-mask that    *)
+    (* specifies which of the AUTH mechanisms are enabled.              *)
+
+PROCEDURE GetAuthNames (VAR (*OUT*) list: ARRAY OF CHAR; labelled: BOOLEAN);
+
+    (* Sets list to a space-separated list of mechanism names.  If the  *)
+    (* list is nonempty, it always starts with a space character.  If   *)
+    (* labelled is specified, each name is preceded by 'AUTH='.         *)
+
+PROCEDURE StartAuthentication (VAR (*OUT*) state: AuthenticationState;
+                               ServerIPaddress, mask: CARDINAL;
+                               VAR (*IN*) mechanism,
+                                   initialstring: ARRAY OF CHAR): BOOLEAN;
+
+    (* Starts an authentication exchange.  The initialstring is the     *)
+    (* initial response from the client, if this is a mechanism that    *)
+    (* requires the client to start the exchange, but it will be the    *)
+    (* null string for most mechanisms.  Returns FALSE if we don't      *)
+    (* support the mechanism or if the corresponding bit of 'mask'      *)
+    (* is zero.                                                         *)
+
+PROCEDURE AuthenticationIncomplete (state: AuthenticationState;
+                                    VAR (*OUT*) success: BOOLEAN): BOOLEAN;
+
+    (* Returns TRUE iff the authentication operation still has more     *)
+    (* steps.  When the result is finally FALSE, the success parameter  *)
+    (* says whether the authentication is successful.                   *)
+
+PROCEDURE CreateNextChallenge (state: AuthenticationState;
+                               VAR (*OUT*) challenge: ARRAY OF CHAR);
+
+    (* Generates the next challenge that the server must send. *)
+
+PROCEDURE CheckResponse (state: AuthenticationState;
+                                VAR (*IN*) response: ARRAY OF CHAR);
+
+    (* Checks whether the response is valid, and updates the internal   *)
+    (* state such that AuthenticationIncomplete will show the outcome.  *)
+
+PROCEDURE AuthenticationDone (VAR (*INOUT*) state: AuthenticationState;
+                              VAR (*OUT*)   username: ARRAY OF CHAR;
+                              VAR (*OUT*)   domain: Domain);
+
+    (* Disposes of the state record, and tells the caller the name and  *)
+    (* domain of the user who has been authenticated.                   *)
+
+END Authentication.
+

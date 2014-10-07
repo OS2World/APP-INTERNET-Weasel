@@ -1,0 +1,47 @@
+DEFINITION MODULE UserPage;
+
+        (****************************************************************)
+        (*                                                              *)
+        (*                      PM Setup for Weasel                     *)
+        (*                  User page of the notebook                   *)
+        (*                                                              *)
+        (*        Started:        8 July 1999                           *)
+        (*        Last edited:    12 September 2014                     *)
+        (*        Status:         OK                                    *)
+        (*                                                              *)
+        (****************************************************************)
+
+
+FROM OS2 IMPORT HWND;
+FROM CommonSettings IMPORT FontName, FontGroup;
+FROM Languages IMPORT LangHandle;
+
+
+PROCEDURE CreatePage (notebook: HWND;  AfterPage: CARDINAL;
+                      group: FontGroup;  TNImode: BOOLEAN;
+                      VAR (*OUT*) pageID: CARDINAL): HWND;
+
+    (* Creates the user page and adds it to the notebook. *)
+
+PROCEDURE SetLanguage (lang: LangHandle);
+
+    (* Relabels this page in the new language. *)
+
+PROCEDURE SetFont (VAR (*IN*) name: FontName);
+
+    (* Sets the font of the text on this page. *)
+
+PROCEDURE Close (notebook, hwnd: HWND);
+
+    (* Shuts down this window and removes it from the notebook. *)
+
+PROCEDURE CheckUserDirectories (VAR (*IN*) MailRoot: ARRAY OF CHAR);
+
+    (* Makes sure that MailRoot has a subdirectory for every user in    *)
+    (* the user database.  (We don't have to check for the existence of *)
+    (* the MailRoot directory itself, because this has been done in an  *)
+    (* earlier step.)  Also creates the 'postmaster' username and       *)
+    (* directory if they don't already exist.                           *)
+
+END UserPage.
+

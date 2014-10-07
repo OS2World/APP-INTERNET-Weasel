@@ -1,0 +1,37 @@
+DEFINITION MODULE MXCheck;
+
+        (********************************************************)
+        (*                                                      *)
+        (*      Extracting MX information from nameserver.      *)
+        (*           This version discards everything           *)
+        (*          except the MX responses themselves.         *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            03 July 1998                    *)
+        (*  Last edited:        28 February 2000                *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM Names IMPORT (*type*) HostName;
+
+PROCEDURE DoMXLookup (VAR (*IN*) domain: HostName;
+                      VAR (*OUT*) address: ARRAY OF CARDINAL): CARDINAL;
+
+    (* Checks the MX records on the nameserver for the given domain,    *)
+    (* and returns an array (ordered by preference) of IP addresses for *)
+    (* hosts that will handle mail for that domain.  If the address     *)
+    (* array is not filled, the end of the list is marked by a zero     *)
+    (* address.  An empty list means that the nameserver lookup failed  *)
+    (* to find an answer.  The function result is an error code:        *)
+    (*      0    all OK, no error                                       *)
+    (*      1    hard error, name not found                             *)
+    (*      2    soft error, try again later                            *)
+    (*      3    nameserver unreachable, try again later                *)
+    (* The addresses are in network byte order.  Note: if no MX records *)
+    (* exist, we default back to interpreting the domain as a host      *)
+    (* name.                                                            *)
+
+END MXCheck.
+

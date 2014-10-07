@@ -1,0 +1,56 @@
+DEFINITION MODULE SHA1;
+
+        (********************************************************)
+        (*                                                      *)
+        (*             SECURE HASH ALGORITHM SHA-1              *)
+        (*                                                      *)
+        (*     Implementation of SHA-1 secure hash standard     *)
+        (*             as defined in FIPS PUB 180-1             *)
+        (*                                                      *)
+        (*  Processes a data sequence of arbitrary length,      *)
+        (*  producing a 20-byte "digest" as a secure signature  *)
+        (*  of this data sequence.                              *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            14 February 2005                *)
+        (*  Last edited:        16 February 2005                *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (*  Restriction: for efficiency, we impose the          *)
+        (*  following restrictions on the data length:          *)
+        (*    1. Integral multiple of 8 bits, i.e. data are     *)
+        (*       presented as a sequence of bytes.              *)
+        (*    2. Length is limited to < 2^32 bits.              *)
+        (*                                                      *)
+        (********************************************************)
+
+FROM SYSTEM IMPORT CARD32, LOC;
+
+TYPE
+    SHA1_CTX;    (* is private *)
+    SHA1_DigestType = ARRAY [0..4] OF CARD32;
+
+
+PROCEDURE SHA1Init(): SHA1_CTX;
+
+    (* SHA-1 initialization. Begins a SHA-1 operation, creating a new context. *)
+
+PROCEDURE SHA1Update (context: SHA1_CTX;  data: ARRAY OF LOC;  length: CARDINAL);
+
+    (* SHA1 block update operation. Continues a SHA-1 message-digest operation, *)
+    (* adding more data to what has already been processed for this context.    *)
+
+PROCEDURE SHA1Final (VAR (*INOUT*) context: SHA1_CTX;
+                     VAR (*OUT*) digest: SHA1_DigestType);
+
+    (* SHA-1 finalization. Ends a SHA-1 message-digest operation, returning    *)
+    (* the message digest and discarding the context.                          *)
+
+PROCEDURE SHA1DigestToString (VAR (*IN*) digest: SHA1_DigestType;
+                             VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Converts the digest to a 40-character string.  If there is not enough    *)
+    (* space for 40 characters, produces a leading substring of the full result.*)
+
+END SHA1.
+

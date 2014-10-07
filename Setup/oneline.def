@@ -1,0 +1,24 @@
+DEFINITION MODULE OneLine;
+
+        (************************************************************)
+        (*                                                          *)
+        (*                    PM Setup for Weasel                   *)
+        (*            Dialogue to edit a one-line string            *)
+        (*                                                          *)
+        (*    Started:        11 July 1999                          *)
+        (*    Last edited:    16 December 2009                      *)
+        (*    Status:         OK                                    *)
+        (*                                                          *)
+        (************************************************************)
+
+
+FROM OS2 IMPORT HWND;
+
+PROCEDURE Edit (owner: HWND;  title: ARRAY OF CHAR;
+                       VAR (*INOUT*) item: ARRAY OF CHAR;
+                       UseTNI: BOOLEAN);
+
+    (* Edits the one-line string "item". *)
+
+END OneLine.
+

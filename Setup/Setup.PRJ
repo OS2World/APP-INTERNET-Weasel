@@ -1,0 +1,21 @@
+-lineno+
+-gendebug+
++pm
++m2extensions
+-multithread+
+-heaplimit  =  4000000
+-gcthreshold=  4000000
+-stacklimit =   200000
+
+-TRACKTNIUSAGE:-
+
+-INCL_BASE:+
+-INCL_PM:+
+-INCL_DOSDEVIOCTL:+
+
+!module Setup.mod
+!module SO32DLL.lib
+!module TCP32DLL.lib
+!module DID.res
+%!module TCPIP32.lib  -- apparently not needed now that I don't use os2_ioctl
+

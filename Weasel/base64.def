@@ -1,0 +1,30 @@
+DEFINITION MODULE Base64;
+
+        (********************************************************)
+        (*                                                      *)
+        (*         Encoding and decoding Base64 strings         *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            31 January 2003                 *)
+        (*  Last edited:        15 April 2012                   *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM SYSTEM IMPORT (* type *) LOC;
+
+
+PROCEDURE Encode (VAR (*IN*) data: ARRAY OF LOC;  N: CARDINAL;
+                           VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Translates N bytes of data to Base64. *)
+
+PROCEDURE Decode (VAR (*IN*) data: ARRAY OF CHAR;
+                      VAR (*OUT*) result: ARRAY OF LOC): CARDINAL;
+
+    (* Translates Base64 to a string of bytes.  The function result is the  *)
+    (* number of bytes in the decoded result.                               *)
+
+END Base64.
+

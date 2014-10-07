@@ -1,0 +1,33 @@
+The programs in this package were built using the XDS Modula-2 compiler,
+but they should compile with any Modula-2 compiler compatible with the
+current language standard.  The project options are specified in
+the included files *.prj.  See also the file makezip.cmd, which
+is the batch file that was used to generate the zip file that you
+received when you obtained this program.  The line in makezip.cmd
+that says
+      xc =p ftpd.prj
+is the command that compiles and links all the modules for FTPD.EXE;
+and similarly for the other programs.
+
+Note that makezip.cmd is included for information only. It will not
+work for you "as is", because you probably don't have the same
+directory layout as the machine on which this zip file was created.
+
+The required files SO32DLL.LIB and TCP32DLL.LIB can be found in
+the OS2TK45 directory of most eCS installations.  If you don't have that
+directory, search for the OS/2 development toolkit on the usual OS/2
+software sites.
+
+The IMPORTS program that is referred to in makezip.cmd is not needed
+to make this program, only to zip up the sources.  If you want a copy,
+it can be found at the same place you downloaded this package.
+
+The makezip.cmd also invokes a program called LxLite. This is a utility,
+available on the usual OS/2 archive sites, that reduces the size of
+EXE files (and some others) by removing non-essential information.
+Its use is optional.
+
+The script also invokes Perl, but only to create symbol files for
+debugging purposes, so it too is optional.
+
+

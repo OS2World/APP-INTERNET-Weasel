@@ -1,0 +1,129 @@
+DEFINITION MODULE POPData;
+
+        (********************************************************)
+        (*                                                      *)
+        (*        Main data operations on a POP mailbox         *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            22 April 1998                   *)
+        (*  Last edited:        19 July 2013                    *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM SBuffers   IMPORT (*type*) SBuffer;
+FROM Semaphores IMPORT (*type*) Semaphore;
+FROM TransLog   IMPORT (*type*) TransactionLogID;
+FROM MD5        IMPORT (*type*) MD5_DigestType;
+FROM Domains    IMPORT (*type*) Domain;
+
+
+TYPE Mailbox;                      (* is private *)
+
+PROCEDURE MarkForThrottling (IPAddress: CARDINAL);
+
+    (* Records this IP address as one that, because of undesirable      *)
+    (* behaviour, should be locked out for the next 10 seconds.         *)
+
+PROCEDURE ThrottlePOP (IPAddress: CARDINAL): BOOLEAN;
+
+    (* Returns TRUE iff this IP address is on the list of addresses to  *)
+    (* be blocked because of suspect behaviour in the past 10 seconds.  *)
+
+PROCEDURE OpenMailbox (VAR (*INOUT*) M: Mailbox;
+                               VAR (*IN*) username: ARRAY OF CHAR;
+                                         OurIPAddress: CARDINAL): BOOLEAN;
+
+    (* Creates a new Mailbox structure, throwing away any existing      *)
+    (* user data in M.  Returns TRUE iff successful.                    *)
+
+PROCEDURE DiscardMailbox (VAR (*INOUT*) M: Mailbox);
+
+    (* Throws away all data belonging to this Mailbox, and sets the     *)
+    (* argument to NILMailbox.                                          *)
+
+PROCEDURE PasswordOK (M: Mailbox;  VAR (*IN*) password: ARRAY OF CHAR;
+                                   VAR (*OUT*) D: Domain): CARDINAL;
+
+    (* Locks the mailbox if the password is correct.  The possible      *)
+    (* results are                                                      *)
+    (*       0     OK, you have exclusive access to the mailbox         *)
+    (*       1     password not acceptable                              *)
+    (*       2     can't access mailbox, it's already locked            *)
+    (*       3     password is OK but user directory does not exist     *)
+
+PROCEDURE APOPCheck (M: Mailbox;  LogID: TransactionLogID;
+                       VAR (*IN*) digeststring, TimeStamp: ARRAY OF CHAR;
+                       VAR (*OUT*) D: Domain): CARDINAL;
+
+    (* Locks the mailbox if the MD5 digest string is correct.  The      *)
+    (* possible results are                                             *)
+    (*       0     OK, you have exclusive access to the mailbox         *)
+    (*       1     digest string not acceptable                         *)
+    (*       2     can't access mailbox, it's already locked            *)
+    (*       3     password is OK but user directory does not exist     *)
+
+PROCEDURE ClaimMailbox (VAR (*INOUT*) M: Mailbox;
+                               LogID: TransactionLogID;
+                               VAR (*IN*) username: ARRAY OF CHAR;
+                               domain: Domain): CARDINAL;
+
+    (* Like OpenMailbox followed by LockMailbox, but for the case where *)
+    (* we've already authenticated the user. The possible results are   *)
+    (*       0     OK, you have exclusive access to the mailbox         *)
+    (*       1     not used                                             *)
+    (*       2     can't access mailbox, it's already locked            *)
+    (*       3     user directory does not exist                        *)
+
+PROCEDURE NumberAndSize (M: Mailbox;  VAR (*OUT*) N, size: CARDINAL);
+
+    (* Sets N to the number of messages in the mailbox, and size to     *)
+    (* the total number of bytes in the messages.                       *)
+
+PROCEDURE MaxMessageNumber (M: Mailbox): CARDINAL;
+
+    (* Returns the message number of the last undeleted message in the  *)
+    (* mailbox.                                                         *)
+
+PROCEDURE SizeOfMessage (M: Mailbox;  MessageNumber: CARDINAL;
+                                   VAR (*OUT*) size: CARDINAL): BOOLEAN;
+
+    (* If message MessageNumber exists, sets size to its size and       *)
+    (* returns TRUE.  Otherwise result is FALSE and size is undefined.  *)
+
+PROCEDURE GetUID (M: Mailbox;  MessageNumber: CARDINAL;
+                                   VAR (*OUT*) UID: MD5_DigestType;
+                                   ID: TransactionLogID): BOOLEAN;
+
+    (* If message MessageNumber exists, sets UID to a persistent and    *)
+    (* unique identifier for this message, and returns TRUE.  Otherwise *)
+    (* result is FALSE and UID is undefined.                            *)
+
+PROCEDURE SendMessage (SB: SBuffer;  sem: Semaphore;  M: Mailbox;
+                   N, MaxLines: CARDINAL;  id: TransactionLogID): BOOLEAN;
+
+    (* Sends message N in mailbox N via SB.  The caller must            *)
+    (* already have confirmed that this message exists.                 *)
+    (* MaxLines refers to the number of non-header lines to be sent.    *)
+    (* We must Signal(sem) every so often to ensure that the operation  *)
+    (* does not time out.                                               *)
+    (* A FALSE result means a communications failure.                   *)
+
+PROCEDURE MarkForDeletion (M: Mailbox;  N: CARDINAL;
+                              VAR (*OUT*) MessageSize: CARDINAL): BOOLEAN;
+
+    (* Marks message number N for deletion.  (The actual deletion       *)
+    (* won't happen until a clean logout from the client.)  A return    *)
+    (* value of FALSE means "no such message".                          *)
+
+PROCEDURE UndeleteAll (M: Mailbox);
+
+    (* Any messages in M that are marked for deletion are unmarked.     *)
+
+PROCEDURE CommitChanges (M: Mailbox);
+
+    (* Deletes all files that have been marked for deletion.            *)
+
+END POPData.
+

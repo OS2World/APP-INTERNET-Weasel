@@ -1,0 +1,106 @@
+DEFINITION MODULE SUDomains;
+
+    (****************************************************************)
+    (*                                                              *)
+    (*                      PM Setup for Weasel                     *)
+    (*                     Operations on domains                    *)
+    (*                                                              *)
+    (*        Started:        11 January 2002                       *)
+    (*        Last edited:    24 January 2009                       *)
+    (*        Status:         OK                                    *)
+    (*                                                              *)
+    (*    IMPORTANT CONVENTION: The procedures in this module       *)
+    (*    assume that all domain names are in lower case.           *)
+    (*                                                              *)
+    (****************************************************************)
+
+
+FROM Names IMPORT
+    (* type *)  UserName, DomainName, FilenameString;
+
+FROM Languages IMPORT
+    (* type *)  LangHandle;
+
+FROM OS2 IMPORT
+    (* type *)  HWND;
+
+PROCEDURE SetMasterININame (name: FilenameString;  TNImode: BOOLEAN);
+
+    (* Initialisation: sets the name of the INI or TNI file to use. *)
+
+PROCEDURE LoadOriginalDomainName;
+
+    (* Gets the default domain name from the INI file. *)
+
+PROCEDURE ResetOriginal (VAR (*OUT*) NewOriginalName: DomainName);
+
+    (* Recovery procedure to use if the original domain has been        *)
+    (* deleted.  Finds the first domain that does exist and changes     *)
+    (* our record of the original domain name to match that first       *)
+    (* domain.  Returns that name as NewOriginalName.  If, however, no  *)
+    (* domains exist, NewOriginalName is returned as the empty string   *)
+    (* but our internal record of the original name is left unchanged.  *)
+
+PROCEDURE StoreOriginalDomainName;
+
+    (* Writes the default domain name back to the INI file. *)
+
+PROCEDURE GetOriginalDomainName (VAR (*OUT*) OriginalName: DomainName);
+
+    (* Returns the current original domain name, i.e. the       *)
+    (* domain that will be migrated back if we switch back to   *)
+    (* single-domain mode, and the domain that will be used     *)
+    (* when migrating in the other direction.                   *)
+
+PROCEDURE SetOriginalDomainName (VAR (*IN*) name: DomainName);
+
+    (* Called by another module that wishes to set the name that will   *)
+    (* be recorded as the original domain name.                         *)
+
+PROCEDURE DomainExists (domainname: DomainName): BOOLEAN;
+
+    (* Returns TRUE iff this domain exists. *)
+
+PROCEDURE SetMailRoot (CurrentMailRoot: FilenameString);
+
+    (* The caller gives us an updated value of the mail root. *)
+
+PROCEDURE CreateDomain (domainname: DomainName);
+
+    (* Creates a directory for this domain, also adds this name *)
+    (* to the list of domain names in the master INI file.      *)
+    (* Does nothing if the domain already exists.               *)
+
+PROCEDURE RenameDomain (oldname, newname: DomainName);
+
+    (* Changes the name of a domain, including the renaming     *)
+    (* of its mail directory.                                   *)
+
+PROCEDURE DeleteDomain (domainname: DomainName;
+                               hwnd: HWND;  lang: LangHandle);
+
+    (* Removes this domain from the INI file, also deletes its          *)
+    (* directory if it's empty.  The hwnd parameter supplies an owner   *)
+    (* of a message box, and lang is the language to use in that        *)
+    (* message box, if we need one.                                     *)
+
+PROCEDURE UserCount (domain: DomainName): CARDINAL;
+
+    (* Returns the number of users in domain. *)
+
+PROCEDURE DeleteUser (user: UserName;  MailRoot: FilenameString);
+
+    (* Deletes one user in this domain from the INI file,               *)
+    (* and also deletes the user's mail directory provided that it is   *)
+    (* empty.  (If it is not empty, we want the directory deletion      *)
+    (* to fail, so that the system manager can decide what to do about  *)
+    (* the problem.)  Note: MailRoot includes a trailing '\'.           *)
+    (* Assumption: the INI file is already open.                        *)
+
+PROCEDURE MoveAllUsers (domain1, domain2: DomainName);
+
+    (* Removes all users from domain1 and puts them into domain2.  This *)
+    (* procedure also moves the local host names and the IMAP flag.     *)
+
+END SUDomains.
+

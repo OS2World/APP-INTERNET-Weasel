@@ -1,0 +1,45 @@
+DEFINITION MODULE AliasPage;
+
+        (****************************************************************)
+        (*                                                              *)
+        (*                      PM Setup for Weasel                     *)
+        (*                  Alias page of the notebook                  *)
+        (*                                                              *)
+        (*        Started:        10 July 1999                          *)
+        (*        Last edited:    16 December 2009                      *)
+        (*        Status:         OK                                    *)
+        (*                                                              *)
+        (****************************************************************)
+
+
+FROM OS2 IMPORT HWND;
+FROM CommonSettings IMPORT FontGroup, FontName;
+FROM Languages IMPORT LangHandle;
+
+
+PROCEDURE CreatePage (notebook: HWND;  AfterPage: CARDINAL;
+                      AddWildcardAlias, TNImode: BOOLEAN;
+                      group: FontGroup;  VAR (*OUT*) ID: CARDINAL): HWND;
+
+    (* Creates the alias page and adds it to the notebook. *)
+
+PROCEDURE SetLanguage (lang: LangHandle);
+
+    (* Relabels this page in the new language. *)
+
+PROCEDURE SetFont (VAR (*IN*) name: FontName);
+
+    (* Sets the font of the text on this page. *)
+
+PROCEDURE Close (notebook, hwnd: HWND);
+
+    (* Shuts down this window and removes it from the notebook. *)
+
+PROCEDURE AliasMatch (name: ARRAY OF CHAR): BOOLEAN;
+
+    (* Returns TRUE iff name matches (possibly as a wildcard match) an  *)
+    (* existing alias.  Alphabetic case is not significant.  We assume  *)
+    (* that the INI file is already open.                               *)
+
+END AliasPage.
+

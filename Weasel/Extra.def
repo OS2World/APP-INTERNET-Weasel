@@ -1,0 +1,31 @@
+DEFINITION MODULE Extra;
+
+        (********************************************************)
+        (*                                                      *)
+        (*      Weasel procedures that need to live at a        *)
+        (*             lower level than RelayMail               *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            25 April 2001                   *)
+        (*  Last edited:        16 October 2002                 *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+FROM Names IMPORT
+    (* type *)  UserName, HostName;
+
+
+PROCEDURE FullAddress (user: UserName;  domain: HostName;
+                                      VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Given user and domain, produces the string <user@domain>. *)
+
+PROCEDURE UserAndDomain (source: ARRAY OF CHAR;
+                            VAR (*OUT*) user: UserName;
+                            VAR (*OUT*) domain: HostName);
+
+    (* Extracts user and domain from a path string. *)
+
+END Extra.
+

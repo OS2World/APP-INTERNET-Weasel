@@ -1,0 +1,55 @@
+DEFINITION MODULE SMTPCommands;
+
+        (********************************************************)
+        (*                                                      *)
+        (*       Command interpreter for SMTP server            *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            27 April 1998                   *)
+        (*  Last edited:        11 April 2012                   *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM SBuffers IMPORT
+    (* type *)  SBuffer;
+
+FROM Semaphores IMPORT
+    (* type *)  Semaphore;
+
+FROM TransLog IMPORT
+    (* type *)  TransactionLogID;
+
+(********************************************************************************)
+
+TYPE Session;            (* is private *)
+
+(********************************************************************************)
+
+PROCEDURE SetAuthMask (SMTPAuthMask: CARDINAL);
+
+    (* The parameter is a bit mask that says which SMTP AUTH methods we are     *)
+    (* willing to accept on incoming mail.                                      *)
+
+PROCEDURE OpenSession (SB: SBuffer;  HostIPAddress, ClientIPAddress: CARDINAL;
+                       KeepAlive: Semaphore; LogID: TransactionLogID;
+                       MayRelay, MSAsession: BOOLEAN;
+                       VAR (*OUT*) success: BOOLEAN): Session;
+
+    (* Creates a new session state record. *)
+
+PROCEDURE CloseSession (S: Session);
+
+    (* Destroys the session state record. *)
+
+PROCEDURE HandleCommand (S: Session;  VAR (*IN*) Command: ARRAY OF CHAR;
+                                          VAR (*OUT*) Quit, ServerAbort: BOOLEAN);
+
+    (* Executes one user command.  Returns with ServerAbort=TRUE if we have     *)
+    (* unilaterally decided to kill the session.  Otherwise, returns with       *)
+    (* Quit=TRUE if the command is one that closes the session, or if the       *)
+    (* connection is lost.                                                      *)
+
+END SMTPCommands.
+

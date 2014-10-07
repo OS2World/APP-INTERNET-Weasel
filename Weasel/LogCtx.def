@@ -1,0 +1,20 @@
+DEFINITION MODULE LogCtx;
+
+        (********************************************************)
+        (*                                                      *)
+        (*      Defines an overall log context for Weasel       *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            28 January 2009                 *)
+        (*  Last edited:        28 January 2009                 *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+IMPORT TransLog;
+
+VAR WCtx: TransLog.LogContext;
+
+END LogCtx.
+

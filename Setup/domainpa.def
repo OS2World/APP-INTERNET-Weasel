@@ -1,0 +1,57 @@
+DEFINITION MODULE DomainPage;
+
+        (****************************************************************)
+        (*                                                              *)
+        (*                      PM Setup for Weasel                     *)
+        (*             The 'our domains' page of the notebook           *)
+        (*                                                              *)
+        (*        Started:        19 December 2001                      *)
+        (*        Last edited:    7 September 2014                      *)
+        (*        Status:         OK                                    *)
+        (*                                                              *)
+        (****************************************************************)
+
+
+FROM OS2 IMPORT HWND;
+FROM CommonSettings IMPORT FontName;
+FROM Names IMPORT (* type *) DomainName;
+FROM Languages IMPORT LangHandle;
+
+
+PROCEDURE StoreData;
+
+    (* Stores back the domain list if it has changed. *)
+
+PROCEDURE SetMailRoot (CurrentMailRoot: ARRAY OF CHAR);
+
+    (* The caller tells us what the global mail root directory is.    *)
+
+PROCEDURE CreatePage (notebook: HWND;  AfterPage: CARDINAL;
+                          CreateWildAliases, NewStyle, TNImode: BOOLEAN;
+                                      VAR (*OUT*) ID: CARDINAL): HWND;
+
+    (* Creates the domain list page, and adds it to the notebook.  *)
+
+PROCEDURE SetLanguage (lang: LangHandle);
+
+    (* Relabels this page in the new language. *)
+
+PROCEDURE SetFont (VAR (*IN*) name: FontName);
+
+    (* Sets the font of the text on this page. *)
+
+PROCEDURE Close (notebook: HWND);
+
+    (* Shuts down this window and removes it from the notebook. *)
+
+PROCEDURE Add (name: DomainName);
+
+    (* Creates a new domain.  Should be called only after the page      *)
+    (* has been made visible by CreatePage.                             *)
+
+PROCEDURE Remove (name: DomainName);
+
+    (* Deletes a domain. *)
+
+END DomainPage.
+

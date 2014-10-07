@@ -1,0 +1,28 @@
+DEFINITION MODULE WV;
+
+        (****************************************************************)
+        (*                                                              *)
+        (*                    Weasel version number                     *)
+        (*                                                              *)
+        (*    Started:        6 March 2004                              *)
+        (*    Last edited:    10 September 2014                         *)
+        (*    Status:         OK                                        *)
+        (*                                                              *)
+        (****************************************************************)
+
+
+CONST
+    version = "2.0";
+
+    (* The remaining declarations in this file are probably obsolete.   *)
+
+    TimedDemo = FALSE;
+
+    (* Expiry date for timed demo. *)
+
+    expyear = 2010;
+    expmonth = 1;
+    expday = 31;
+
+END WV.
+

@@ -1,0 +1,23 @@
+-CHECKNIL
+-INCL_BASE:+
+-INCL_PM:+
+-INCL_DOSDEVIOCTL:+
+-WOFF911-
+- GENDEBUG +
+- LINENO +
+- GENHISTORY +
+- MULTITHREAD +
+
+% Set heap size to be 64 less than a multiple of 2^16.
+% In this case 24 MB minus 64 bytes.
+
+- HEAPLIMIT=   17FFFC0H
+- GCTHRESHOLD= 17FFFC0H
+
+-link    = "xlink /MAP @%s",mkfname#mkfext;
+
+-TRACKTNIUSAGE:-
+
+!module Weasel
+!module SO32DLL.lib
+!module TCP32DLL.lib

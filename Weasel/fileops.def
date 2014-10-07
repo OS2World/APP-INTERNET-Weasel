@@ -1,0 +1,293 @@
+DEFINITION MODULE FileOps;
+
+        (********************************************************)
+        (*                                                      *)
+        (*                 File utilities                       *)
+        (*                                                      *)
+        (*       This is the 'long file pointer' version        *)
+        (*       that uses the WSeB API extensions that         *)
+        (*       permit file sizes bigger than 2 GiB.           *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            17 October 2001                 *)
+        (*  Last edited:        19 October 2013                 *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (*    The original version of this module used          *)
+        (*    the standard Modula-2 file I/O modules to do      *)
+        (*    its job, but I suspect that those modules have    *)
+        (*    an unresolved critical section problem, or        *)
+        (*    something similar.  The present version bypasses  *)
+        (*    those modules and goes directly to API calls.     *)
+        (*                                                      *)
+        (********************************************************)
+
+
+IMPORT OS2;
+
+FROM SYSTEM IMPORT
+    (* type *)  LOC, CARD16, CARD32;
+
+FROM Types IMPORT
+    (* type *)  CARD64;
+
+(************************************************************************)
+
+CONST
+    NoSuchChannel = MAX(CARDINAL);
+    FilenameLength = OS2.CCHMAXPATHCOMP;
+
+TYPE
+    FilenameString = ARRAY [0..FilenameLength-1] OF CHAR;
+
+    FileAttribute = (readonly,hidden,system,b3,directory,archive);
+    FileAttr = SET OF FileAttribute;
+
+    (* Note: the timePkd and datePkd fields in the following record     *)
+    (* are the "last write" date/time.  This is the only file date/time *)
+    (* information that is valid in all file systems supported by OS/2. *)
+    (* Our record also includes a creation date and time, since that    *)
+    (* is sometimes what an application needs, but be warned: that      *)
+    (* information is not available on a FAT volume, although it is     *)
+    (* available and valid for the more advanced file systems.          *)
+
+    DirectoryEntry =
+           RECORD
+               dirHandle : CARD32;    (* directory handle *)
+               attr      : FileAttr;  (* file attributes *)
+               timePkd   : CARD16;    (* packed time in DOS format *)
+               datePkd   : CARD16;    (* packed date in DOS format *)
+               timeCre   : CARD16;    (* creation time in DOS format *)
+               dateCre   : CARD16;    (* creation date in DOS format *)
+               size      : CARD64;    (* file length *)
+               name      : FilenameString;  (* file name   *)
+           END (*RECORD*);
+
+    ChanId = OS2.HFILE;
+    FilePos = CARD64;
+
+(************************************************************************)
+(*                         VOLUME INFORMATION                           *)
+(************************************************************************)
+
+PROCEDURE FreeSpace (drive: CHAR): CARDINAL;
+
+    (* Returns the amount of free space on the given drive.  The        *)
+    (* result is in kilobytes.                                          *)
+
+PROCEDURE GetCurrentDirectory (VAR (*OUT*) CurrentDir: ARRAY OF CHAR);
+
+    (* Returns the name of the current directory on the current volume. *)
+
+PROCEDURE GetEXEDirectory (VAR (*OUT*) Dir: ARRAY OF CHAR);
+
+    (* Returns the name of the directory holding this executable. *)
+
+(************************************************************************)
+(*                           OPEN/CLOSE/ETC                             *)
+(************************************************************************)
+
+PROCEDURE OpenOldFile (name: ARRAY OF CHAR;  WillWrite: BOOLEAN;
+                                             binary: BOOLEAN): ChanId;
+
+    (* Opens an existing file and returns its channel ID.  If the       *)
+    (* second parameter is TRUE we are requesting write as well as read *)
+    (* access; if it's FALSE, we want read-only access.                 *)
+    (* The 'binary' parameter is ignored in the OS/2 version, but is    *)
+    (* needed in the Windows version.                                   *)
+
+PROCEDURE OpenNewFile (name: ARRAY OF CHAR;  binary: BOOLEAN): ChanId;
+
+    (* Opens a new file and returns its channel ID.                     *)
+    (* The 'binary' parameter is ignored in the OS/2 version, but is    *)
+    (* needed in the Windows version.                                   *)
+
+PROCEDURE OpenNewFile1 (name: ARRAY OF CHAR;
+                         VAR (*OUT*) duplicate: BOOLEAN): ChanId;
+
+    (* Like OpenNewFile, but returns an indication of whether the       *)
+    (* file couldn't be created because of a name duplication.          *)
+
+PROCEDURE OpenNewHiddenFile (name: ARRAY OF CHAR;
+                         VAR (*OUT*) duplicate: BOOLEAN): ChanId;
+
+    (* Like OpenNewFile1, but creates the file hidden.  *)
+
+PROCEDURE OpenAtEnd (name: ARRAY OF CHAR): ChanId;
+
+    (* If the file already exists, opens it and positions the file      *)
+    (* pointer at the end of the file.  If the file doesn't already     *)
+    (* exist, opens a new file.                                         *)
+
+PROCEDURE CloseFile (cid: ChanId);
+
+    (* Closes a file. *)
+
+PROCEDURE Flush (cid: ChanId);
+
+    (* Sends all pending output to the file. *)
+
+(*PROCEDURE NameOf (f: ChanId);*)
+
+    (* Returns the name of the file. *)
+
+PROCEDURE HideFile (name: ARRAY OF CHAR;  HideIt: BOOLEAN);
+
+    (* Hides or unhides a file, depending on the second parameter. *)
+
+PROCEDURE Exists (name: ARRAY OF CHAR): BOOLEAN;
+
+    (* Returns TRUE iff 'name' already exists. *)
+
+PROCEDURE DeleteFile (name: ARRAY OF CHAR);
+
+    (* Deletes a named file. *)
+
+PROCEDURE MoveFile (oldname, newname: ARRAY OF CHAR): BOOLEAN;
+
+    (* Renames a file, returns TRUE iff successful.  The source and     *)
+    (* destination files must be on the same drive.  This procedure is  *)
+    (* also a mechanism for renaming a file.                            *)
+
+PROCEDURE CopyFile (src, dst: ARRAY OF CHAR): BOOLEAN;
+
+    (* Copies src to dst, returns TRUE iff successful. *)
+
+PROCEDURE AppendFile (src, dst: ARRAY OF CHAR): BOOLEAN;
+
+    (* Appends src to dst, returns TRUE iff successful. *)
+
+(************************************************************************)
+(*                         FILE POSITION/SIZE                           *)
+(************************************************************************)
+
+PROCEDURE CurrentPosition (cid: ChanId): FilePos;
+
+    (* Returns the current position within the file. *)
+
+PROCEDURE StartPosition (cid: ChanId): FilePos;
+
+    (* Returns the start-of-file position. *)
+
+PROCEDURE EndPosition (cid: ChanId): FilePos;
+
+    (* Returns the end-of-file position. *)
+
+PROCEDURE SetPosition (cid: ChanId;  position: FilePos);
+
+    (* Sets the current position within the file. *)
+
+PROCEDURE GetFileSize (name: ARRAY OF CHAR): CARD64;
+
+    (* Returns the file size.  The file should not already be open. *)
+
+PROCEDURE SetFileSize (cid: ChanId;  newsize: CARD64);
+
+    (* Changes the size of a file.  The file must already be open in    *)
+    (* a mode that permits writing.  If the operation fails the file    *)
+    (* keeps its old size.                                              *)
+
+(************************************************************************)
+(*                              INPUT                                   *)
+(************************************************************************)
+
+PROCEDURE ReadRaw (cid: ChanId;  VAR (*OUT*) data: ARRAY OF LOC;
+                   limit: CARDINAL;  VAR (*OUT*) NumberRead: CARDINAL);
+
+    (* Reads a buffer-full of information from a file. *)
+
+PROCEDURE ReadLine (cid: ChanId;  VAR (*OUT*) data: ARRAY OF CHAR);
+
+    (* Reads a line of text from a file.  Assumption: a line ends with  *)
+    (* CRLF.  To avoid having to keep a lookahead character, I take     *)
+    (* the LF as end of line and skip the CR.  At end of file we        *)
+    (* return with data[0] = Ctrl/Z.                                    *)
+
+(************************************************************************)
+(*                              OUTPUT                                  *)
+(************************************************************************)
+
+PROCEDURE WriteRaw (cid: ChanId;  VAR (*IN*) data: ARRAY OF LOC;
+                                            amount: CARDINAL);
+
+    (* Writes a binary string to a file. *)
+
+PROCEDURE WriteRawV (cid: ChanId;  data: ARRAY OF LOC;  amount: CARDINAL);
+
+    (* Like WriteRaw, but data passed by value. *)
+
+PROCEDURE FWriteChar (cid: ChanId;  character: CHAR);
+
+    (* Writes a single character to a file. *)
+
+PROCEDURE FWriteString (cid: ChanId;  string: ARRAY OF CHAR);
+
+    (* Writes a string to a file. *)
+
+PROCEDURE FWriteLn (cid: ChanId);
+
+    (* Writes end-of-line to the file. *)
+
+PROCEDURE FWriteHexByte (cid: ChanId;  value: CARDINAL);
+
+    (* Writes a two digit hexadecimal number to a file. *)
+
+PROCEDURE FWriteCard (cid: ChanId;  value, fieldwidth: CARDINAL);
+
+    (* Converts value to decimal and writes it to the file. *)
+
+PROCEDURE FWriteCard64 (cid: ChanId;  value: CARD64;  fieldwidth: CARDINAL);
+
+    (* Converts value to decimal and writes it to the file. *)
+
+PROCEDURE FWriteZCard (cid: ChanId;  value, fieldwidth: CARDINAL);
+
+    (* Like FWriteCard, but with 0 fill at the left. *)
+
+PROCEDURE FWriteLJCard (cid: ChanId;  value: CARDINAL);
+
+    (* Converts value to decimal and writes it left justified. *)
+
+PROCEDURE FWriteLJCard64 (cid: ChanId;  value: CARD64);
+
+    (* Converts value to decimal and writes it left justified. *)
+
+(************************************************************************)
+(*                       DIRECTORY SEARCHES                             *)
+(************************************************************************)
+
+PROCEDURE FirstDirEntry (mask: ARRAY OF CHAR;
+                             Subdirectory, AllowHidden: BOOLEAN;
+                                  VAR (*OUT*) D: DirectoryEntry): BOOLEAN;
+
+    (* Gets the first directory entry satisfying the conditions:        *)
+    (*  (a) if Subdirectory is FALSE, we want the first entry that      *)
+    (*      matches "mask".                                             *)
+    (*  (b) if Subdirectory is TRUE, we want the first directory that   *)
+    (*      matches "mask".                                             *)
+    (* In either case "mask" is a filename specification that may       *)
+    (* include wildcards.  Hidden files are included in the search iff  *)
+    (* AllowHidden is TRUE.                                             *)
+
+PROCEDURE NextDirEntry (VAR (*INOUT*) D: DirectoryEntry): BOOLEAN;
+
+    (* Read the next directory entry satisfying the search criteria     *)
+    (* specified by the FirstDirEntry call.                             *)
+
+PROCEDURE DirSearchDone (VAR (*INOUT*) D: DirectoryEntry);
+
+    (* Close the directory that D represents. *)
+
+(************************************************************************)
+(*                           MISCELLANEOUS                              *)
+(************************************************************************)
+
+PROCEDURE GetProgName (VAR (*OUT*) name: ARRAY OF CHAR);
+
+    (* Returns the name of this executable, with path and extension     *)
+    (* removed.                                                         *)
+
+(************************************************************************)
+
+END FileOps.
+

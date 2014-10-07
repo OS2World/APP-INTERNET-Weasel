@@ -1,0 +1,55 @@
+DEFINITION MODULE Heap;
+
+        (************************************************************)
+        (*                                                          *)
+        (*      Heap storage, with a way to log the amount used     *)
+        (*                                                          *)
+        (*    Started:        22 July 2012                          *)
+        (*    Last edited:    19 January 2013                       *)
+        (*    Status:         OK                                    *)
+        (*                                                          *)
+        (************************************************************)
+
+
+IMPORT SYSTEM, TransLog;
+
+TYPE Track;      (* is private *)
+
+PROCEDURE ALLOCATE (VAR (*OUT*) addr: SYSTEM.ADDRESS; amount: CARDINAL);
+
+    (* Allocates storage for a variable of size amount and assigns the  *)
+    (* address of this variable to addr. If there is insufficient       *)
+    (* unallocated storage to do this, the value NIL is assigned to addr.*)
+
+PROCEDURE DEALLOCATE (VAR (*INOUT*) addr: SYSTEM.ADDRESS; amount: CARDINAL);
+
+    (* Deallocates amount locations allocated by ALLOCATE for the       *)
+    (* storage of the variable addressed by addr and assigns the value  *)
+    (* NIL to addr.                                                     *)
+
+<* IF pm = "FALSE" THEN *>
+
+PROCEDURE EnableHeapLogging (ID: TransLog.TransactionLogID);
+
+    (* Activates the task that puts out use counts to a log file. *)
+
+PROCEDURE StopHeapLogging;
+
+    (* Stops the heap-logging task, if it was running. *)
+
+PROCEDURE SayHeapCount (ID: TransLog.TransactionLogID;  label: ARRAY OF CHAR);
+
+    (* Debugging: display current heap count. *)
+
+<* END *>
+
+PROCEDURE StartTracking (message: ARRAY OF CHAR): Track;
+
+    (* Introduces a new user of memory tracking. *)
+
+PROCEDURE TrackUpdate (T: Track;  amount: INTEGER);
+
+    (* Updates the count for this particular track. *)
+
+END Heap.
+

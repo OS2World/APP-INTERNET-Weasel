@@ -1,0 +1,86 @@
+DEFINITION MODULE TransLog;
+
+        (********************************************************)
+        (*                                                      *)
+        (*               Transaction logging                    *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            16 March 1999                   *)
+        (*  Last edited:        4 September 2012                *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+TYPE TransactionLogID;          (* is private *)
+     LogContext;                (* is private *)
+
+
+PROCEDURE SetProcname (name: ARRAY OF CHAR;  facility: CARDINAL);
+
+    (* Sets process name and facility number for use in syslog messages *)
+    (* and for making the pipe name if we use a pipe.  Must be called   *)
+    (* before StartTransactionLogging if you plan to use syslog and/or  *)
+    (* a pipe for the log messages.                                     *)
+
+PROCEDURE SetSyslogHost (hostname: ARRAY OF CHAR);
+
+    (* Sets syslogaddress to the IP address, in network byte order, of  *)
+    (* the specified host.  If the lookup fails, leaves syslogaddress   *)
+    (* unchanged.                                                       *)
+
+PROCEDURE UpdateTopScreenLine (pos: CARDINAL; newstring: ARRAY OF CHAR);
+
+    (* Puts newstring at position pos in our record of what should go   *)
+    (* into the top screen line.  Rewrites that part of the screen if   *)
+    (* the default context has the screen enabled.                      *)
+
+PROCEDURE OpenLogContext(): LogContext;
+
+    (* Creates a new context in which logfile IDs can then be created. *)
+
+PROCEDURE CloseLogContext (VAR (*INOUT*) ctx: LogContext);
+
+    (* Closes and discards a log context. *)
+
+PROCEDURE StartTransactionLogging (ctx: LogContext;
+                            LogfileName: ARRAY OF CHAR;  level: CARDINAL);
+
+    (* Sets the transaction log file name, and enables logging.  The    *)
+    (* level parameter means: 0 for none, 1 for disk, 2 for screen, 4   *)
+    (* for pipe, 8 for syslog, and sums of these for multiple log       *)
+    (* targets.  This can be called more than once, to change the log   *)
+    (* file name or level.  On a second or later call the existing log  *)
+    (* file is closed and the next log entry will cause it to be        *)
+    (* reopened, possibly as a new file with a new name.  Similarly,    *)
+    (* the pipe and syslog socket will be opened or closed if the       *)
+    (* change in level requires this.                                   *)
+
+PROCEDURE GetLogPrefix (LogID: TransactionLogID;  VAR (*OUT*) code: ARRAY OF CHAR);
+
+    (* Returns the code used as a sessin ID prefix in the log. *)
+
+PROCEDURE DummyLogID (): TransactionLogID;
+
+    (* Returns a NIL result of the correct type. *)
+
+PROCEDURE CreateLogID (ctx: LogContext;  code: ARRAY OF CHAR): TransactionLogID;
+
+    (* Creates a new logfile ID within the given log context. *)
+
+PROCEDURE DiscardLogID (VAR (*INOUT*) id: TransactionLogID);
+
+    (* Discards a previously created logfile ID. *)
+
+PROCEDURE LogTransaction (id: TransactionLogID;
+                          VAR (*IN*) text: ARRAY OF CHAR);
+
+    (* Puts id+text in the transaction log (if logging enabled). *)
+
+PROCEDURE LogTransactionL (id: TransactionLogID;
+                          text: ARRAY OF CHAR);
+
+    (* Like LogTransaction, but for a literal text string. *)
+
+END TransLog.
+

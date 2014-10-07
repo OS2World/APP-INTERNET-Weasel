@@ -1,0 +1,172 @@
+DEFINITION MODULE RINIData;
+
+        (************************************************************)
+        (*                                                          *)
+        (*                    INI File Operations                   *)
+        (*                                                          *)
+        (*     This module reads/writes user INI data either        *)
+        (*     remotely (using INIServe) or locally.  The present   *)
+        (*     version is intended for applications where           *)
+        (*     only one INI file is open at any one time, so        *)
+        (*     we can afford to store the handle as private         *)
+        (*     data rather than requiring the caller to supply      *)
+        (*     a handle on every call.                              *)
+        (*                                                          *)
+        (*      Started:        13 January 2002                     *)
+        (*      Last edited:    24 June 2009                        *)
+        (*      Status:         OK                                  *)
+        (*                                                          *)
+        (************************************************************)
+
+FROM SYSTEM IMPORT LOC, INT16;
+
+TYPE StringReadState;      (* is private *)
+
+PROCEDURE ServerIPAddress(): CARDINAL;
+
+    (* The IP address of the local host or the INIServe server, as      *)
+    (* appropriate.  The result is in network byte order.               *)
+
+PROCEDURE SetRemote (option: BOOLEAN);
+
+    (* Establishes remote operation if option = TRUE, local otherwise. *)
+
+PROCEDURE RemoteOperation(): BOOLEAN;
+
+    (* Returns TRUE iff we are working with a remote INI file. *)
+
+PROCEDURE OpenINIFile (filename: ARRAY OF CHAR;  useTNI: BOOLEAN): BOOLEAN;
+
+    (* Opens the INI or TNI file. *)
+
+PROCEDURE CloseINIFile;
+
+    (* Closes the INI or TNI file. *)
+
+PROCEDURE INIPut (app, key: ARRAY OF CHAR;  VAR (*IN*) variable: ARRAY OF LOC);
+
+    (* Writes data to the INI file. *)
+
+PROCEDURE INIPutBinary (app, key: ARRAY OF CHAR;  VAR (*IN*) variable: ARRAY OF LOC;
+                                                  NumberOfBytes: CARDINAL);
+
+    (* Writes a binary string of the specified length to the INI file. *)
+
+PROCEDURE INIPutString (app, key: ARRAY OF CHAR;
+                           VAR (*IN*) variable: ARRAY OF CHAR);
+
+    (* Writes a character string to the INI file. *)
+
+PROCEDURE ItemSize (app, key: ARRAY OF CHAR;  VAR (*OUT*) size: CARDINAL): BOOLEAN;
+
+    (* Returns the number of bytes in the specified INI item.  If the item does *)
+    (* not exist, returns FALSE with size set to zero.                          *)
+
+PROCEDURE INIFetch (app, key: ARRAY OF CHAR;
+                    VAR (*OUT*) variable: ARRAY OF LOC): BOOLEAN;
+
+    (* Reads data from the INI file. *)
+
+PROCEDURE INIFetchBinary (app, key: ARRAY OF CHAR;
+                          VAR (*OUT*) result: ARRAY OF LOC;
+                                            size: CARDINAL): BOOLEAN;
+
+    (* Retrieves the value of a variable from the INI file.  Returns FALSE if   *)
+    (* the variable was not found.  This the version in which we trust the      *)
+    (* caller to have ensured that the size is correct.                         *)
+
+PROCEDURE INIGetCard (app, key: ARRAY OF CHAR;
+                          VAR (*OUT*) val: CARDINAL): BOOLEAN;
+
+    (* Gets a single cardinal value from the INI file, returns true if OK. *)
+
+PROCEDURE INIGetTwoShort (app, key: ARRAY OF CHAR;
+                          VAR (*OUT*) val1, val2: INT16): BOOLEAN;
+
+    (* Gets a two-number pair from the INI file, returns true if OK. *)
+    (* Note: each number takes 4 bytes in INI file, but we have to   *)
+    (* restrict ourselves to INT16 values because of limitations of  *)
+    (* the PM dialogue interface.                                    *)
+
+(*
+PROCEDURE INIGetThreeShort (app, key: ARRAY OF CHAR;
+                          VAR (*OUT*) val1, val2, val3: INT16): BOOLEAN;
+*)
+
+    (* Gets a three-cardinal value from the INI file, returns true if   *)
+    (* OK.  Note: each number takes 4 bytes in INI file, but we have to *)
+    (* restrict ourselves to INT16 values because of limitations of     *)
+    (* the PM dialogue interface.                                       *)
+
+PROCEDURE INIGetString (app, key: ARRAY OF CHAR;
+                          VAR (*OUT*) val: ARRAY OF CHAR): BOOLEAN;
+
+    (* Gets a string value from the INI file, returns true if OK. *)
+
+PROCEDURE GetStringList (app, key: ARRAY OF CHAR;
+                                   VAR (*OUT*) state: StringReadState);
+
+    (* Initialisation in preparation for a "NextString" operation. *)
+
+PROCEDURE NextString (state: StringReadState;  VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Reads the next character string from a string-of-strings field.  *)
+    (* An empty string is returned when we have run out of strings.     *)
+
+PROCEDURE CloseStringList (VAR (*INOUT*) state: StringReadState);
+
+    (* Must be called to release the memory used in fetching a  *)
+    (* string of strings.                                       *)
+
+PROCEDURE AppExists (app: ARRAY OF CHAR): BOOLEAN;
+
+    (* Returns TRUE iff this application exists. *)
+
+PROCEDURE KeyExists (app, key: ARRAY OF CHAR): BOOLEAN;
+
+    (* Returns TRUE iff this key exists. *)
+
+PROCEDURE INIDeleteApp (app: ARRAY OF CHAR);
+
+    (* Deletes an application from the INI file. *)
+
+PROCEDURE INIDeleteKey (app, key: ARRAY OF CHAR);
+
+    (* Deletes a key from the INI file. *)
+
+PROCEDURE INIRenameApp (oldapp, newapp: ARRAY OF CHAR);
+
+    (* Changes the name of an application, retaining the data. *)
+
+PROCEDURE INIRenameKey (app, oldkey, newkey: ARRAY OF CHAR);
+
+    (* Changes the name of a key, retaining the data. *)
+
+PROCEDURE OurDirectory (VAR (*OUT*) DirectoryName: ARRAY OF CHAR);
+
+    (* Returns either the remote current directory or the local current *)
+    (* directory, as appropriate.                                       *)
+
+PROCEDURE MakeDirectory (dirname: ARRAY OF CHAR);
+
+    (* Creates a directory on either the local or remote machine, as    *)
+    (* appropriate.  Has no effect if the directory already exists.     *)
+
+PROCEDURE MoveDirectory (srcname, dstname: ARRAY OF CHAR);
+
+    (* Executes a "move srcname, dstname" on either the local or remote *)
+    (* machine, as appropriate.                                         *)
+
+PROCEDURE DeleteFile (filename: ARRAY OF CHAR): BOOLEAN;
+
+    (* Deletes a file on either the local or remote machine, as         *)
+    (* appropriate.  Returns FALSE if the deletion failed.              *)
+
+PROCEDURE DeleteDirectory (dirname: ARRAY OF CHAR): BOOLEAN;
+
+    (* Deletes a directory on either the local or remote machine, as    *)
+    (* appropriate.  Returns FALSE if the deletion failed.  Note that   *)
+    (* only empty directories can be deleted.                           *)
+
+END RINIData.
+

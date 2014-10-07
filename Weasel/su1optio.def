@@ -1,0 +1,16 @@
+DEFINITION MODULE SU1Options;
+
+        (********************************************************)
+        (*                                                      *)
+        (*     'Options 1' page in Weasel VIOSetup utility      *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            16 September 2003               *)
+        (*  Last edited:        16 September 2003               *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+END SU1Options.
+

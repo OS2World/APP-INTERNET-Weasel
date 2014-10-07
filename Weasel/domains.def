@@ -1,0 +1,148 @@
+DEFINITION MODULE Domains;
+
+        (********************************************************)
+        (*                                                      *)
+        (*        The local domains that Weasel is hosting      *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            22 July 2002                    *)
+        (*  Last edited:        16 January 2013                 *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+FROM Names IMPORT
+    (* type *)  UserName, PassString, HostName, DomainName, FilenameString;
+
+FROM TransLog IMPORT
+    (* type *)  LogContext, TransactionLogID;
+
+FROM INIData IMPORT
+    (* type *)  HINI;
+
+
+CONST LockFileName = "LOCK.!!!";
+
+TYPE Domain;          (* is private *)
+
+
+PROCEDURE CheckRegistration (TNImode: BOOLEAN);
+
+    (* Sets TNI mode, checks whether this is a registered copy. *)
+
+PROCEDURE StartDebugLogging (ctx: LogContext);
+
+    (* Temporary code for debugging the Domains module. Starts     *)
+    (* transaction logging for this module.                        *)
+
+PROCEDURE EnableDomainExtraLogging (enable: BOOLEAN);
+
+    (* Enables the option of putting extra detail into the log file. *)
+
+PROCEDURE RefreshMasterDomainList (LogIt: BOOLEAN);
+
+    (* Discards then re-creates the list of all domains, updates        *)
+    (* the global variables MailRoot and RelayEverything, and updates   *)
+    (* our list of IP addresses.  This procedure is to be called during *)
+    (* initialisation, and subsequently whenever there is a chance that *)
+    (* the INI data might have been updated.                            *)
+
+PROCEDURE ClearMailboxLocks;
+
+    (* Clears the POP lock in every mailbox, in case it was left set    *)
+    (* by an improper shutdown.                                         *)
+
+PROCEDURE RefreshOurIPAddresses(): BOOLEAN;
+
+    (* Updates the internal list of our local IP addresses.             *)
+    (* Returns TRUE iff one of these is an active dial-up interface.    *)
+
+PROCEDURE RecomputeLocalDomainNames (VAR (*OUT*) IPAddress: CARDINAL;
+                                                          LogIt: BOOLEAN);
+
+    (* This procedure is to be called when our host name or IP address  *)
+    (* might have changed, e.g. because we've just come on-line.        *)
+    (* Refreshes the master domain list, and returns the IP address     *)
+    (* for our primary interface.                                       *)
+
+PROCEDURE AddressIsLocal (IPAddress: CARDINAL): BOOLEAN;
+
+    (* Returns TRUE if the argument is the IP address of an     *)
+    (* interface on the local host.                             *)
+
+PROCEDURE NameOfDomain (D: Domain;  VAR (*OUT*) name: DomainName);
+
+    (* Returns the name of domain D in name. *)
+
+PROCEDURE DomainIsLocal (VAR (*IN*) name: DomainName;
+                         VAR (*OUT*) D: Domain): BOOLEAN;
+
+    (* If name is one of our own domains, or an acceptable alias for    *)
+    (* it, identifies the domain and returns TRUE.  We assume the       *)
+    (* name is in lower case.                                           *)
+
+PROCEDURE IsValidUsername (VAR (*IN*) name: ARRAY OF CHAR;  D: Domain;
+                                       LogID: TransactionLogID): BOOLEAN;
+
+    (* Returns TRUE iff this is the name of a mailbox in domain D.  We  *)
+    (* assume that 'name' is already in lower case.  This merely does   *)
+    (* a quick existence check, it does not load any user data.         *)
+
+PROCEDURE SMTPAuthAllowed (VAR (*IN*) name: ARRAY OF CHAR;  D: Domain): BOOLEAN;
+
+    (* Returns TRUE iff this user is allowed to authenticate SMTP       *)
+    (* transactions using the AUTH command.                             *)
+(*
+PROCEDURE SetFilterOverride (name: ARRAY OF CHAR;  D: Domain;
+                              VAR (*INOUT*)
+                                     FilterName: FilenameString): BOOLEAN;
+*)
+    (* Returns TRUE and alters FilterName iff this user has a filter    *)
+    (* override.                                                        *)
+
+PROCEDURE MailDirectoryFor (D: Domain;  VAR (*OUT*) DirName: FilenameString);
+
+    (* Returns the 'mail root' directory for this domain. *)
+    (* A trailing '\' is included in the result.          *)
+
+PROCEDURE OpenDomainINI (D: Domain): HINI;
+
+    (* Opens the INI or TNI file for this domain, as appropriate. *)
+
+(*PROCEDURE LogDomainInfo (LID: TransactionLogID;  D: Domain);*)
+
+    (* Puts some information about domain D into the transaction log.   *)
+    (* (But only if extra logging has been specified.)                  *)
+
+(*PROCEDURE POPFetchLatestOption (D: Domain): BOOLEAN;*)
+
+    (* Returns TRUE iff the "POP fetch latest messages" option is set   *)
+    (* for this domain.  (Obsolete option.)                             *)
+
+        (********************************************************)
+        (*            MATCHING A USER TO A DOMAIN               *)
+        (********************************************************)
+
+TYPE DomainSearchState;    (* is private*)
+
+PROCEDURE StartDomainSearch (VAR (*IN*) user: ARRAY OF CHAR;
+                                   VAR (*IN*) domainstring: DomainName;
+                                      IPaddr: CARDINAL): DomainSearchState;
+
+    (* Sets up the initial state for a search.  The DomainSearchState   *)
+    (* is set up in such a way that the search will find all domains    *)
+    (* for which IPaddr is a valid address AND which have user as a     *)
+    (* valid username.                                                  *)
+
+PROCEDURE NextDomain (VAR (*INOUT*) state: DomainSearchState;
+                              VAR (*OUT*) D: Domain;
+                              VAR (*OUT*) password: PassString): BOOLEAN;
+
+    (* Finds one domain, returns FALSE if we have run out of possibilities. *)
+
+PROCEDURE EndDomainSearch (VAR (*INOUT*) state: DomainSearchState);
+
+    (* Final tidying-up at the end of a search. *)
+
+END Domains.
+

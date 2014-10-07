@@ -1,0 +1,11 @@
+- GENDEBUG +
+- LINENO +
+- GENHISTORY +
+-multithread+
+
+-INCL_BASE:+
+-INCL_PM:+
+-INCL_DOSDEVIOCTL:+
+
+!module Decode64
+

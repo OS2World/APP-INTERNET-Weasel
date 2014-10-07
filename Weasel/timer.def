@@ -1,0 +1,40 @@
+DEFINITION MODULE Timer;
+
+        (********************************************************)
+        (*                                                      *)
+        (*                 Timed operations                     *)
+        (*                                                      *)
+        (*      Author:         P. Moylan                       *)
+        (*      Last edited:    21 March 2014                   *)
+        (*      Status:         Working                         *)
+        (*                                                      *)
+        (********************************************************)
+
+FROM Semaphores IMPORT
+    (* type *)  Semaphore;
+
+PROCEDURE Sleep (milliseconds: CARDINAL);
+
+    (* Puts the caller to sleep for approximately the given number of   *)
+    (* milliseconds.                                                    *)
+
+PROCEDURE TimedWait (s: Semaphore;  TimeLimit: INTEGER;
+                                        VAR (*OUT*) TimedOut: BOOLEAN);
+
+    (* Like a semaphore Wait, except that it returns with TimedOut TRUE *)
+    (* if the corresponding Signal does not occur within TimeLimit      *)
+    (* milliseconds.                                                    *)
+
+PROCEDURE TimedWaitSpecial (s: Semaphore;  TimeLimit: INTEGER;
+                                        VAR (*OUT*) TimedOut: BOOLEAN);
+
+    (* Like TimedWait, but uses up all "credit" that the semaphore has  *)
+    (* accumulated by possible multiple Signal operations.              *)
+
+    (* This violates the usual semaphore property that Wait and Signal  *)
+    (* operations are, in effect, paired. Thus this procedure should    *)
+    (* not normally be used, although it is helpful for implementing    *)
+    (* things like watchdog threads.                                    *)
+
+END Timer.
+

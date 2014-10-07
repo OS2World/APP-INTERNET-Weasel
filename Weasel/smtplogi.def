@@ -1,0 +1,42 @@
+DEFINITION MODULE SMTPLogin;
+
+        (********************************************************)
+        (*                                                      *)
+        (*         Logging in to another SMTP server in         *)
+        (*             order to send outbound mail              *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            5 February 2003                 *)
+        (*  Last edited:        18 May 2005                     *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM SBuffers IMPORT  (*type*) SBuffer;
+FROM Names    IMPORT  (*type*) UserName, PassString, HostName;
+FROM TransLog IMPORT  (*type*) TransactionLogID;
+
+
+PROCEDURE DoLogin (SB: SBuffer;  LocalHostName: HostName;
+                   UseAuth: BOOLEAN;  user: UserName;  pass: PassString;
+                   VAR (*OUT*) ConnectionLost: BOOLEAN;
+                   LogIt: BOOLEAN;  LogID: TransactionLogID): BOOLEAN;
+
+    (* Assumption: we already have a connection to the server via SB.   *)
+    (* We now do an EHLO login if possible, or a HELO if the EHLO is    *)
+    (* not recognised.  Returns FALSE if we can't log in.               *)
+    (* If UseAuth is TRUE, we authenticate with the AUTH command        *)
+    (* provided that the server will accept one of the AUTH methods     *)
+    (* that we support.                                                 *)
+
+PROCEDURE DoPOPLogin (IPAddr, port: CARDINAL;
+                           user: UserName;  pass: PassString;
+                           LogIt: BOOLEAN;  LogID: TransactionLogID);
+
+    (* Attempts a POP3 login to the given address.  We do not need to   *)
+    (* record whether the attempt succeeded, because if it failed       *)
+    (* this would not change our actions.                               *)
+
+END SMTPLogin.
+

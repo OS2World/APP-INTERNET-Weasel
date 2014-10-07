@@ -1,0 +1,32 @@
+DEFINITION MODULE Users;
+
+        (********************************************************)
+        (*                                                      *)
+        (*                User data editor                      *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            24 April 1998                   *)
+        (*  Last edited:        2 November 2001                 *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+FROM MultiScreen IMPORT
+    (* type *)  VirtualScreen;
+
+(************************************************************************)
+
+PROCEDURE EditUserData (Screen: VirtualScreen;  VAR (*INOUT*) name: ARRAY OF CHAR);
+
+    (* Editor for the user permission data. *)
+
+PROCEDURE FindUser (UserName: ARRAY OF CHAR): BOOLEAN;
+
+    (* Returns TRUE iff the user data exists.        *)
+
+PROCEDURE RemoveUser (name: ARRAY OF CHAR);
+
+    (* Deletes this user's permission file. *)
+
+END Users.
+

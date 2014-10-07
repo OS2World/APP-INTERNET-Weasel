@@ -1,0 +1,38 @@
+DEFINITION MODULE HMAC;
+
+        (********************************************************)
+        (*                                                      *)
+        (*    HMAC: Keyed hashing for message authentication    *)
+        (*                                                      *)
+        (*     Implementation of HMAC as defined in RFC2104     *)
+        (*                                                      *)
+        (*     This module implements the variants HMAC-MD5     *)
+        (*     and HMAC-SHA1.  It could be extended to other    *)
+        (*                 variants if desired.                 *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            18 February 2005                *)
+        (*  Last edited:        19 February 2005                *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM SYSTEM IMPORT LOC;
+FROM MD5    IMPORT MD5_DigestType;
+FROM SHA1   IMPORT SHA1_DigestType;
+
+PROCEDURE HMAC_MD5 (text: ARRAY OF LOC;  textlength: CARDINAL;
+                     key: ARRAY OF LOC;  keylength: CARDINAL;
+                     VAR (*OUT*) Digest: MD5_DigestType);
+
+    (* Performs the HMAC-MD5 hashing method, with Digest as the result. *)
+
+PROCEDURE HMAC_SHA1 (text: ARRAY OF LOC;  textlength: CARDINAL;
+                     key: ARRAY OF LOC;  keylength: CARDINAL;
+                     VAR (*OUT*) Digest: SHA1_DigestType);
+
+    (* Performs the HMAC-SHA1 hashing method, with Digest as the result. *)
+
+END HMAC.
+

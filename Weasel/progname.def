@@ -1,0 +1,32 @@
+DEFINITION MODULE ProgName;
+
+        (****************************************************************)
+        (*                                                              *)
+        (*       A module that lets low-level modules obtain            *)
+        (*       application-specific information.  We achieve          *)
+        (*       this by putting this module in a directory             *)
+        (*       reserved for application-specific source files,        *)
+        (*       while the library modules still live at                *)
+        (*       "library" level of the source structure.               *)
+        (*                                                              *)
+        (*      Programmer:     P. Moylan                               *)
+        (*      Last edited:    27 December 2012                        *)
+        (*      Status:         OK                                      *)
+        (*                                                              *)
+        (****************************************************************)
+
+
+PROCEDURE GetProgramName (VAR (*OUT*) name: ARRAY OF CHAR);
+
+    (* Returns a name and version string.  This is the version used     *)
+    (* by low-level client modules such as exceptq.                     *)
+
+PROCEDURE GetWeaselVersion (IsProVersion: BOOLEAN;
+                               VAR (*OUT*) Version: ARRAY OF CHAR);
+
+    (* Returns a full version string.  This cannot be used by exceptq   *)
+    (* because exceptq has to be initialised before we have access to   *)
+    (* INI/TNI file data.                                               *)
+
+END ProgName.
+

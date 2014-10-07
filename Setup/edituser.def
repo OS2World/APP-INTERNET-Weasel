@@ -1,0 +1,33 @@
+DEFINITION MODULE EditUser;
+
+        (************************************************************)
+        (*                                                          *)
+        (*                    PM Setup for Weasel                   *)
+        (*            Dialogue to edit username/password            *)
+        (*                                                          *)
+        (*    Started:        8 July 1999                           *)
+        (*    Last edited:    16 December 2009                      *)
+        (*    Status:         OK                                    *)
+        (*                                                          *)
+        (************************************************************)
+
+
+FROM OS2 IMPORT HWND;
+FROM Languages IMPORT LangHandle;
+
+
+PROCEDURE NameClash (name: ARRAY OF CHAR): CARDINAL;
+
+    (* Returns 1 if this is the name of an existing user, and 2 if it   *)
+    (* is the name of an existing alias, and 0 otherwise.  We assume    *)
+    (* that the INI file is already open.                               *)
+
+PROCEDURE Edit (owner: HWND;  lang: LangHandle;
+                     IMAPvisible, IMAPasDefault,
+                      HideSMTPAuth, TNImode: BOOLEAN): BOOLEAN;
+
+    (* Edit username and password, taking the username from the listbox whose   *)
+    (* handle is "owner".  Returns TRUE iff the username was changed.           *)
+
+END EditUser.
+

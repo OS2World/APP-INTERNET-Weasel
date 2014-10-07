@@ -1,0 +1,33 @@
+DEFINITION MODULE PMInit;
+
+        (****************************************************************)
+        (*                                                              *)
+        (*        Initialisation code for a PM application              *)
+        (*                                                              *)
+        (*        Started:        17 January 2002                       *)
+        (*        Last edited:    11 June 2002                          *)
+        (*        Status:         OK                                    *)
+        (*                                                              *)
+        (****************************************************************)
+
+
+IMPORT OS2;
+
+PROCEDURE OurHab(): OS2.HAB;
+
+    (* Returns this program's anchor block handle. *)
+
+PROCEDURE [OS2.APIENTRY] MessageBox(hwndOwner : OS2.HWND
+                                   ;szText    : ARRAY OF CHAR
+                                   ;fsStyle   : OS2.ULONG
+                                   ;fBeep     : OS2.BOOL
+                                   ): OS2.ULONG;
+
+    (* Puts up a standard message box. *)
+
+PROCEDURE WarningBox (owner: OS2.HWND;  text: ARRAY OF CHAR);
+
+    (* Pops up a warning message, with beep. *)
+
+END PMInit.
+

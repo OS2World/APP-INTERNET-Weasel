@@ -1,0 +1,39 @@
+DEFINITION MODULE OptionP2;
+
+        (****************************************************************)
+        (*                                                              *)
+        (*                      PM Setup for Weasel                     *)
+        (*                 Option page 2 of the notebook                *)
+        (*                                                              *)
+        (*        Started:        12 October 2002                       *)
+        (*        Last edited:    7 April 2004                          *)
+        (*        Status:         OK                                    *)
+        (*                                                              *)
+        (****************************************************************)
+
+
+IMPORT OS2, CommonSettings, Languages;
+
+PROCEDURE CreatePage (notebook: OS2.HWND;  VAR (*OUT*) PageID: CARDINAL);
+
+    (* Creates option page 2 and adds it to the notebook. *)
+
+PROCEDURE SetLanguage (lang: Languages.LangHandle);
+
+    (* Relabels this page in the new language. *)
+
+PROCEDURE SetFont (VAR (*IN*) name: CommonSettings.FontName);
+
+    (* Sets the font of the text on this page. *)
+
+PROCEDURE StoreData;
+
+    (* Stores the values on option page 2 back into the INI file. *)
+
+PROCEDURE SetPOP3Visible (visible: BOOLEAN);
+
+    (* Makes the POP3 SingleMatch option visible or invisible, depending  *)
+    (* on the parameter.                                                  *)
+
+END OptionP2.
+

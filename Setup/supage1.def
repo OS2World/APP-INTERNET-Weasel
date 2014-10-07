@@ -1,0 +1,57 @@
+DEFINITION MODULE SUPage1;
+
+        (****************************************************************)
+        (*                                                              *)
+        (*                      PM Setup for Weasel                     *)
+        (*                    Page 1 of the notebook                    *)
+        (*                                                              *)
+        (*        Started:        30 June 1999                          *)
+        (*        Last edited:    19 July 2013                          *)
+        (*        Status:         OK                                    *)
+        (*                                                              *)
+        (****************************************************************)
+
+
+IMPORT OS2, CommonSettings, Languages;
+
+PROCEDURE CreatePage (notebook: OS2.HWND;  VAR (*OUT*) PageID: CARDINAL): OS2.HWND;
+
+    (* Creates page 1 and adds it to the notebook. *)
+
+PROCEDURE SetLanguage (lang: Languages.LangHandle);
+
+    (* Relabels this page in the new language. *)
+
+PROCEDURE SetFont (VAR (*IN*) name: CommonSettings.FontName);
+
+    (* Sets the font of the text on this page. *)
+
+PROCEDURE OutputThreadCountIs (N: CARDINAL);
+
+    (* The caller tells us how many output threads there are. *)
+
+PROCEDURE GetIMAPParameters (VAR (*OUT*) port, timeout, maxusers: CARDINAL;
+                                           VAR (*OUT*) enable: BOOLEAN);
+
+    (* Returns the IMAP settings that this module has loaded from the   *)
+    (* INI file.                                                        *)
+
+PROCEDURE SetIMAPParameters (port, timeout, maxusers: CARDINAL;
+                                            enable: BOOLEAN);
+
+    (* Inform this module of the IMAP settings, so that they can be     *)
+    (* saved on exit with this module's settings.                       *)
+
+PROCEDURE StoreData (hwnd1: OS2.HWND;  Multidomain: BOOLEAN);
+
+    (* Stores the values on page 1 back into the INI file.  *)
+
+PROCEDURE CommitMailRoot (VAR (*OUT*) MailRootDir: ARRAY OF CHAR);
+
+    (* Stores the current MailRoot value back to the INI file, if it    *)
+    (* has changed; ensures that this directory exists; and returns the *)
+    (* directory name (including a final '\') to the caller.  We assume *)
+    (* that the caller has already opened the INI file.                 *)
+
+END SUPage1.
+

@@ -1,0 +1,21 @@
+DEFINITION MODULE BigFrame;
+
+        (****************************************************************)
+        (*                                                              *)
+        (*                        PM Setup for Weasel                   *)
+        (*                                                              *)
+        (*        Started:        28 June 1999                          *)
+        (*        Last edited:    5 November 2008                       *)
+        (*        Status:         OK                                    *)
+        (*                                                              *)
+        (****************************************************************)
+
+
+IMPORT OS2;
+
+PROCEDURE OpenBigFrame (owner: OS2.HWND;  TNImode: BOOLEAN);
+
+    (* Creates the main dialogue box. *)
+
+END BigFrame.
+

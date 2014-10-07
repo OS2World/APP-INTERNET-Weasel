@@ -1,0 +1,50 @@
+DEFINITION MODULE WSession;
+
+        (********************************************************)
+        (*                                                      *)
+        (*     Part of the Weasel server - handles a session    *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            28 April 1998                   *)
+        (*  Last edited:        22 December 2013                *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM Names IMPORT
+    (* type *)  CardArray, ServiceType;
+
+FROM Sockets IMPORT
+    (* type *)  Socket, SockAddr;
+
+
+PROCEDURE SetSessionParameters (MaxUserLimit, TimeoutLimit: CardArray;
+                                BadPasswordLimit: CARDINAL;
+                                AuthTime, SMTPAuthMask: CARDINAL);
+
+    (* Sets some parameters specified by the INI file: maximum nunber   *)
+    (* of simultaneous users; how long a session can be idle before it  *)
+    (* is forcibly closed; the number of bad login attempts that will   *)
+    (* be tolerated before a POP3 session is forcibly terminated; how   *)
+    (* long a POP-before-SMTP authorisation remains valid; and a mask   *)
+    (* to say which SMTP AUTH options are enabled for incoming mail.    *)
+    (* Also gets module SMTPData to reread the filter names.            *)
+
+(*PROCEDURE UpdateTitleBar;*)
+
+    (* Sets the program title bar to reflect the number of users. *)
+
+PROCEDURE NumberOfUsers(): CARDINAL;
+
+    (* Returns the total number of users who are currently logged on. *)
+
+PROCEDURE NewSession (service: ServiceType;
+                                S: Socket;  addr: SockAddr): BOOLEAN;
+
+    (* Starts and runs a client session.  The session runs in a         *)
+    (* separate thread; this procedure returns after starting the       *)
+    (* session, it does not wait until the session is over.             *)
+
+END WSession.
+

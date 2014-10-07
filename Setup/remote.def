@@ -1,0 +1,113 @@
+DEFINITION MODULE Remote;
+
+        (************************************************************)
+        (*                                                          *)
+        (*          PM Setup for my networking applications         *)
+        (*                Communication with INIRemote              *)
+        (*                                                          *)
+        (*    Started:        2 July 1999                           *)
+        (*    Last edited:    6 July 2012                           *)
+        (*    Status:         OK                                    *)
+        (*                                                          *)
+        (************************************************************)
+
+
+FROM OS2       IMPORT (* type *) HWND;
+FROM Languages IMPORT (* type *) LangHandle;
+
+
+PROCEDURE InitialSetup (lang: LangHandle;  AppTitle, SetupName,
+                                       DefaultRemoteDir: ARRAY OF CHAR;
+                                       textmode: BOOLEAN): BOOLEAN;
+
+    (* Sets the local INI file name to AppName.INI, or to AppName.TNI   *)
+    (* if textmode is TRUE; then reads the INIServe access information  *)
+    (* from that INI file or TNI file.  The function result is TRUE     *)
+    (* iff we're defaulting to remote editing.                          *)
+
+PROCEDURE OurDirectory (Remote: BOOLEAN;
+                        VAR (*OUT*) DirectoryName: ARRAY OF CHAR);
+
+    (* Returns either the remote current directory or the local current *)
+    (* directory, depending on the first parameter.                     *)
+
+PROCEDURE OurIPAddress (Remote: BOOLEAN): CARDINAL;
+
+    (* Returns either the IP address of the remote machine, or our own  *)
+    (* IP address, depending on the first parameter.  In either case    *)
+    (* the address returned is in network byte order.                   *)
+
+PROCEDURE OpenSetupDialogue (owner: HWND);
+
+    (* Modal open of the setup dialogue box. *)
+
+PROCEDURE SaveRemoteFlag (flag: BOOLEAN);
+
+    (* Saves the "remote editing" option in our INI file. *)
+
+PROCEDURE SetInitialWindowPosition (hwnd: HWND;  label: ARRAY OF CHAR);
+
+    (* If this window has a previously stored position in our INI file, *)
+    (* positions the window to that position.  Ditto for font.          *)
+
+PROCEDURE StoreWindowPosition (hwnd: HWND;  label: ARRAY OF CHAR;
+                                                storefont: BOOLEAN);
+
+    (* Saves the location and (optionally) font of this window in our INI file. *)
+
+PROCEDURE ConnectToServer (hwnd: HWND;  statusbox: CARDINAL): BOOLEAN;
+
+    (* Opens the connection to the remote INI server.  The parameters   *)
+    (* identify a dialogue window in which we can report progress.      *)
+
+PROCEDURE SelectRemoteFile (filename: ARRAY OF CHAR): BOOLEAN;
+
+    (* Tells the remote server which INI or TNI file to work on.  The   *)
+    (* filename is either an absolute file name, or a name relative to  *)
+    (* the current working directory, on the remote server.             *)
+
+    (* NOTE: INIServe does not yet support TNI mode.  *)
+
+PROCEDURE SendCommand (cmd: ARRAY OF CHAR): BOOLEAN;
+
+    (* Executes an INIServe command. *)
+
+PROCEDURE ExecCommand (cmd: ARRAY OF CHAR): BOOLEAN;
+
+    (* Executes an INIServe command and checks for an acknowledgement. *)
+
+PROCEDURE ExecCommand2 (part1: ARRAY OF CHAR;
+                        VAR (*IN*) part2: ARRAY OF CHAR): BOOLEAN;
+
+    (* Like ExecCommand, but we're allowed to supply the command in     *)
+    (* two parts.                                                       *)
+
+PROCEDURE ReceiveLine (VAR (*OUT*) buffer: ARRAY OF CHAR): BOOLEAN;
+
+    (* Receives a line of response from the server. *)
+
+PROCEDURE PostSemaphore (semName: ARRAY OF CHAR): BOOLEAN;
+
+    (* Posts on a public event semaphore. *)
+
+PROCEDURE StartDirectoryListing (dirname: ARRAY OF CHAR): BOOLEAN;
+
+    (* Assumption: we are already connected to the INIServe server.     *)
+    (* Sends a request to the server to give us a listing of            *)
+    (* directory "dirname", returns TRUE if a positive response is      *)
+    (* received.  The actual entries must be retrieved by repeated      *)
+    (* calls to NextDirectoryEntry.                                     *)
+
+PROCEDURE NextDirectoryEntry (VAR (*OUT*) filename: ARRAY OF CHAR): BOOLEAN;
+
+    (* Assumption: StartDirectoryListing has already been called.       *)
+    (* Returns the next line of the listing.  Returns FALSE if we       *)
+    (* have run off the end of the listing.                             *)
+
+PROCEDURE FinishDirectoryListing;
+
+    (* Flushes the remaining lines, if any, of the server response      *)
+    (* that was initiated by a StartDirectoryListing call.              *)
+
+END Remote.
+

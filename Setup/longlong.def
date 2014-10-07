@@ -1,0 +1,81 @@
+DEFINITION MODULE LONGLONG;
+
+        (********************************************************)
+        (*                                                      *)
+        (*            Support for 64-bit integers               *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            17 October 2001                 *)
+        (*  Last edited:        28 May 2011                     *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM Types IMPORT CARD64, INT64;
+
+CONST
+    Zero64 = CARD64{0, 0};
+    Max64 = CARD64{MAX(CARDINAL), MAX(CARDINAL)};
+
+
+PROCEDURE Compare64 (A, B: CARD64): INTEGER;
+
+    (* Returns >0 if A>B, =0 if A=B, <0 if A<B.  *)
+
+PROCEDURE Add64 (VAR (*INOUT*) A: CARD64;  B: CARDINAL);
+
+    (* Computes  A := A + B.  This differs from Sum64 (below) in the    *)
+    (* type of B, and in the way the result is returned.                *)
+
+PROCEDURE Sub64 (VAR (*INOUT*) A: CARD64;  B: CARDINAL);
+
+    (* Computes  A := A - B.  This differs from Diff64 (below) in the   *)
+    (* type of B, and in the way the result is returned.                *)
+
+PROCEDURE ShortSub (A, B: CARD64): CARDINAL;
+
+    (* Returns A-B as a CARDINAL value, or MAX(CARDINAL) in the case of *)
+    (* overflow.                                                        *)
+
+PROCEDURE Sum64 (A, B: CARD64): CARD64;
+
+    (* Returns A+B. *)
+
+PROCEDURE Diff64 (A, B: CARD64): INT64;
+
+    (* Returns A-B. *)
+
+PROCEDURE Mul64 (A, B: CARD64): CARD64;
+
+    (* Returns A*B. *)
+
+PROCEDURE ShortMul64 (A: CARD64;  B: CARDINAL): CARD64;
+
+    (* Returns A*B, for the case where the second operand is a CARDINAL. *)
+
+PROCEDURE LongDiv64 (A: CARD64;  B: CARDINAL;  VAR (*OUT*) quotient: CARD64;
+                                  VAR (*OUT*) remainder: CARDINAL);
+
+    (* Divides A by B, returns quotient and remainder. *)
+
+PROCEDURE ShortDiv (A: CARD64;  B: CARDINAL): CARDINAL;
+
+    (* Returns A DIV B as a CARDINAL value, or MAX(CARDINAL) if the     *)
+    (* result overflows.                                                *)
+
+PROCEDURE Div10 (number: CARD64;  VAR (*OUT*) quotient: CARD64;
+                                  VAR (*OUT*) remainder: CARDINAL);
+
+    (* Divides number by 10, returns quotient and remainder. *)
+
+PROCEDURE FLOAT64 (number: CARD64): REAL;
+
+    (* Converts CARD64 to REAL. *)
+
+PROCEDURE ORDL (number: INT64): CARDINAL;
+
+    (* Converts INT64 to CARDINAL. *)
+
+END LONGLONG.
+

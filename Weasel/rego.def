@@ -1,0 +1,40 @@
+DEFINITION MODULE Rego;
+
+        (********************************************************)
+        (*                                                      *)
+        (*        Checking a software registration code         *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            16 June 2002                    *)
+        (*  Last edited:        6 November 2008                 *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+PROCEDURE SetRegistrationParameters (INIFile: ARRAY OF CHAR;
+                                     TNImode: BOOLEAN;
+                                     NameKey, NumberKey: ARRAY OF CHAR;
+                                     code1, code2: ARRAY OF CHAR);
+
+    (* The caller specifies the parameters used in generating a         *)
+    (* registration code, and this module makes an internal record of   *)
+    (* whether the registration criterion has been satisfied.           *)
+
+PROCEDURE IsRegistered(): BOOLEAN;
+
+    (* Returns TRUE iff this is a registered copy of the software. *)
+
+PROCEDURE GenerateCode (string1, string2, string3: ARRAY OF CHAR): CARDINAL;
+
+    (* Generates a registration code.  This can be used to create new   *)
+    (* codes, but it is also used internally by this module in          *)
+    (* checking existing registration codes.                            *)
+
+PROCEDURE SetExpiryDate (year, month, day: CARDINAL);
+
+    (* This procedure replaces SetRegistrationParameters for the case   *)
+    (* where we want to create a time-expired demo.                     *)
+
+END Rego.
+

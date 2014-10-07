@@ -1,0 +1,38 @@
+DEFINITION MODULE Names;
+
+        (********************************************************)
+        (*                                                      *)
+        (*        Definitions of a few basic data types         *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            9 May 1998                      *)
+        (*  Last edited:        29 April 2005                   *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+TYPE
+    UserNameIndex = [0..255];
+    UserName = ARRAY UserNameIndex OF CHAR;
+    HostNameIndex = [0..255];
+    HostName = ARRAY HostNameIndex OF CHAR;
+    DomainName = HostName;
+    PassString = ARRAY [0..31] OF CHAR;
+    FilenameIndex = [0..511];
+    FilenameString = ARRAY FilenameIndex OF CHAR;
+    PathString = ARRAY [0..511] OF CHAR;
+    HostCategory = (mayrelay, relaydest, banned);
+    ServiceType = (SMTP, POP, IMAP, MSA);
+    CardArray2 = ARRAY ServiceType[SMTP..POP] OF CARDINAL;
+    CardArray3 = ARRAY ServiceType[SMTP..IMAP] OF CARDINAL;
+    CardArray = ARRAY ServiceType OF CARDINAL;
+
+    (* For IMAP4 we need very long command lines. *)
+
+    ArgStringIndex = [0..4095];
+    ArgString = ARRAY ArgStringIndex OF CHAR;
+    ArgPointer = POINTER TO ArgString;
+
+END Names.
+

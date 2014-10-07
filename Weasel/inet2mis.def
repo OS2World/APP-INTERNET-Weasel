@@ -1,0 +1,131 @@
+DEFINITION MODULE Inet2Misc;
+
+        (********************************************************)
+        (*                                                      *)
+        (* Miscellaneous procedures for networking applications *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            17 January 2002                 *)
+        (*  Last edited:        9 August 2004                   *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM SYSTEM IMPORT
+    (* type *)  LOC, CARD16, CARD32;
+
+FROM Sockets IMPORT
+    (* type *)  Socket;
+
+FROM Names IMPORT
+    (* type *)  HostName;
+
+TYPE
+    CharArrayPointer = POINTER TO ARRAY [0..MAX(CARDINAL) DIV 4] OF CHAR;
+    LocArrayPointer = POINTER TO ARRAY [0..MAX(CARDINAL) DIV 4] OF LOC;
+
+PROCEDURE EVAL (f: ARRAY OF LOC);
+
+    (* A do-nothing procedure - we use it for evaluating a function and *)
+    (* ignoring the result.                                             *)
+
+PROCEDURE StringMatch (str1, str2: ARRAY OF CHAR): BOOLEAN;
+
+    (* Checks if str1 and str2 are equal, modulo character case. *)
+
+PROCEDURE ToLower (VAR (*INOUT*) string: ARRAY OF CHAR);
+
+    (* Converts all letters in string to lower case. *)
+
+PROCEDURE SplitArg (VAR (*OUT*) first: ARRAY OF CHAR;
+                    VAR (*INOUT*) arg: ARRAY OF CHAR);
+
+    (* Finds the first space character in arg, and assigns everything   *)
+    (* before it to first, and everything after it to arg.  Leading and *)
+    (* trailing spaces are stripped.  If there is no internal space,    *)
+    (* arg is copied to first and arg then becomes the empty string.    *)
+
+PROCEDURE NameIsNumeric (VAR (*INOUT*) name: ARRAY OF CHAR): BOOLEAN;
+
+    (* Returns TRUE iff name has the form N.N.N.N or [N.N.N.N] where each N is  *)
+    (* a decimal number.  (The present version actually accepts an arbitrary    *)
+    (* number of numbers separated by dots.)  As a side-effect, we also strip   *)
+    (* the square brackets if they are present.                                 *)
+
+PROCEDURE IPToString (IP: ARRAY OF LOC;  EncloseInBrackets: BOOLEAN;
+                                VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Converts a four-byte IP address (in network byte order) to a             *)
+    (* human-readable form.  There must be at least 15 character positions      *)
+    (* available in the result array, or 17 if EncloseInBrackets is TRUE.       *)
+
+PROCEDURE AddressToHostName (address: CARDINAL;
+                             VAR (*OUT*) Name: HostName);
+
+    (* Converts a numeric IP address to a name.  *)
+
+PROCEDURE WaitForSocket (S: Socket;  timeout: CARDINAL): INTEGER;
+
+    (* Waits until something is available on socket S.  The possible return     *)
+    (* codes are +1 for OK, 0 for timeout, -1 for error (or cancel).            *)
+    (* Specify timeout=MAX(CARDINAL) if you don't want a timeout.               *)
+
+PROCEDURE Synch (S: Socket);
+
+    (* Ensures that outgoing data is sent right now rather than being   *)
+    (* buffered.  This reduces performance a little, but is needed to   *)
+    (* work around a bug in Netscape and MS FTP Exploder.               *)
+
+PROCEDURE StringToIP (name: ARRAY OF CHAR): CARDINAL;
+
+    (* Converts an N.N.N.N string to an address in network byte order.  We      *)
+    (* assume that the caller has already checked that the string is in this    *)
+    (* format.                                                                  *)
+
+PROCEDURE Swap2 (val: CARD16): CARD16;
+
+    (* Returns the argument value in byte-reversed order.  This is needed       *)
+    (* because network byte order is most significant byte first, whereas our   *)
+    (* local host order is least significant byte first.                        *)
+
+PROCEDURE Swap4 (val: CARD32): CARD32;
+
+    (* Returns the argument value in byte-reversed order.  This is needed       *)
+    (* because network byte order is most significant byte first, whereas our   *)
+    (* local host order is least significant byte first.                        *)
+
+PROCEDURE ConvertCard (number: CARDINAL;  VAR (*OUT*) result: ARRAY OF CHAR;
+                                          VAR (*INOUT*) pos: CARDINAL);
+
+    (* Converts number to decimal, left justified starting at result[pos].      *)
+    (* On return pos is updated to the next unused array index.                 *)
+
+PROCEDURE HexEncodeArray (VAR (*IN*) input: ARRAY OF LOC;  N: CARDINAL;
+                          VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Each byte of input becomes two hexadecimal digits. *)
+
+PROCEDURE DecodeHex (input: ARRAY OF CHAR): CARDINAL;
+
+    (* Converts a hexadecimal number to cardinal. *)
+
+PROCEDURE DecodeHexString (VAR (*IN*) input: ARRAY OF CHAR;
+                           VAR (*OUT*) result: ARRAY OF LOC);
+
+    (* Each two characters of input is interpreted as a pair of two hexadecimal digits. *)
+
+PROCEDURE AddEOL (VAR (*INOUT*) buffer: ARRAY OF CHAR): CARDINAL;
+
+    (* Appends a CRLF to the buffer contents, returns the total string length. *)
+
+PROCEDURE LockScreen;
+
+    (* Critical section protection for writing to the screen. *)
+
+PROCEDURE UnlockScreen;
+
+    (* Critical section protection for writing to the screen. *)
+
+END Inet2Misc.
+

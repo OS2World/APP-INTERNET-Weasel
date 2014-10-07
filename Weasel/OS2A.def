@@ -1,0 +1,133 @@
+<* M2EXTENSIONS +     *>
+<* IF __GEN_C__ THEN  *>
+<*   CSTDLIB    +     *>
+<*   NOHEADER   +     *>
+<*   GENTYPEDEF +     *>
+<* ELSE               *>
+<*   ALIGNMENT  = "4" *>
+<* END                *>
+
+DEFINITION MODULE ["SysCall"] OS2A;
+
+        (********************************************************)
+        (*                                                      *)
+        (*              Additional OS/2 API calls               *)
+        (*                                                      *)
+        (*       Rather than modify the OS2.DEF that was        *)
+        (*      supplied with my compiler, I have chosen        *)
+        (*         to create this separate module that          *)
+        (*       contains updates and corrections to the        *)
+        (*                 original OS2.DEF                     *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            04 April 2002                   *)
+        (*  Last edited:        09 April 2002                   *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+IMPORT SYSTEM;
+FROM Types IMPORT CARD64;
+FROM OS2 IMPORT HWND, BOOL, HRGN;
+
+(************************************************************************)
+
+TYPE UCHAR       = CHAR;           (* uch *)
+TYPE ULONG       = SYSTEM.CARD32;  (* ul  *)
+TYPE FTIME = SYSTEM.CARD16;  -- Temporary
+TYPE FDATE = SYSTEM.CARD16;  -- Temporary
+
+(*************************************************************************\
+ * CCHMAXPATH is the maximum fully qualified path name length including  *
+ * the drive letter, colon, backslashes and terminating NULL.            *
+\*************************************************************************)
+CONST CCHMAXPATH       =  260;
+
+(*************************************************************************\
+ * CCHMAXPATHCOMP is the maximum individual path component name length   *
+ * including a terminating NULL.                                         *
+\*************************************************************************)
+CONST CCHMAXPATHCOMP   =  256;
+
+(************************************************************************)
+(*              Support for files bigger than 2 GiB                     *)
+(************************************************************************)
+
+TYPE FILEFINDBUF3L = RECORD               (* findbuf3L *)
+   oNextEntryOffset:      ULONG   ;       (* new field *)
+   fdateCreation:         FDATE   ;
+   ftimeCreation:         FTIME   ;
+   fdateLastAccess:       FDATE   ;
+   ftimeLastAccess:       FTIME   ;
+   fdateLastWrite:        FDATE   ;
+   ftimeLastWrite:        FTIME   ;
+   cbFile:                CARD64  ;
+   cbFileAlloc:           CARD64  ;
+   attrFile:              ULONG   ;        (* widened field *)
+   cchName:               UCHAR   ;
+   achName:               ARRAY [0..CCHMAXPATHCOMP-1] OF CHAR;
+END;
+
+TYPE PFILEFINDBUF3L = POINTER TO FILEFINDBUF3L;
+
+   TYPE FILESTATUS3L = RECORD    (* fsts3L *)
+      fdateCreation:      FDATE  ;
+      ftimeCreation:      FTIME  ;
+      fdateLastAccess:    FDATE  ;
+      ftimeLastAccess:    FTIME  ;
+      fdateLastWrite:     FDATE  ;
+      ftimeLastWrite:     FTIME  ;
+      cbFile:             CARD64 ;
+      cbFileAlloc:        CARD64 ;
+      attrFile:           ULONG  ;
+   END;
+   TYPE PFILESTATUS3L = POINTER TO FILESTATUS3L;
+
+   TYPE FILESTATUS4L = RECORD     (* fsts4L *)
+      fdateCreation:      FDATE  ;
+      ftimeCreation:      FTIME  ;
+      fdateLastAccess:    FDATE  ;
+      ftimeLastAccess:    FTIME  ;
+      fdateLastWrite:     FDATE  ;
+      ftimeLastWrite:     FTIME  ;
+      cbFile:             CARD64 ;
+      cbFileAlloc:        CARD64 ;
+      attrFile:           ULONG  ;
+      cbList:             ULONG  ;
+   END;
+   TYPE PFILESTATUS4L = POINTER TO FILESTATUS4L;
+
+(************************************************************************)
+
+
+   (* Added 18/12/2001 PJM *)
+
+   CONST WM_VRNDISABLED             = 007EH;
+   CONST WM_VRNENABLED              = 007FH;
+
+   PROCEDURE WinSetVisibleRegionNotify(hwnd  : HWND
+                              ;fEnable : BOOL
+                              ): BOOL;
+
+   PROCEDURE WinQueryVisibleRegion(hwnd: HWND
+                                   ; hrgn: HRGN): ULONG;
+
+
+
+
+   (**********************************************************************)
+   (* Tab text justification                                             *)
+   (**********************************************************************)
+   CONST BKS_TABTEXTLEFT         = 000000000H;(* Left justify tab text *)
+   CONST BKS_TABTEXTRIGHT        = 000004000H;(* Right justify tab text*)
+   CONST BKS_TABTEXTCENTER       = 000008000H;(* Center tab text       *)
+
+   (**********************************************************************)
+   (* Tabbed dialog styles   (PJM 18/12/2001)                            *)
+   (**********************************************************************)
+   CONST BKS_TABBEDDIALOG        = 000000800H;  (* Tabbed dialog         *)
+   CONST BKS_BUTTONAREA          = 000000200H;  (* Reserve space for     *)
+
+END OS2A.
+

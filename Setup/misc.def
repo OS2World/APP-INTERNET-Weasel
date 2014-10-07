@@ -1,0 +1,19 @@
+DEFINITION MODULE Misc;
+
+        (********************************************************)
+        (*                                                      *)
+        (*         Miscellaneous definitions for WSU use        *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            4 July 1999                     *)
+        (*  Last edited:        21 May 2002                     *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+TYPE
+    HostCategory = (local, mayrelay, relaydest, banned);
+
+END Misc.
+

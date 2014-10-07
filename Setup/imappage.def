@@ -1,0 +1,42 @@
+DEFINITION MODULE IMAPPage;
+
+        (****************************************************************)
+        (*                                                              *)
+        (*                      PM Setup for Weasel                     *)
+        (*                The IMAP page of the notebook                 *)
+        (*                                                              *)
+        (*        Started:        25 March 2005                         *)
+        (*        Last edited:    19 July 2013                          *)
+        (*        Status:         OK                                    *)
+        (*                                                              *)
+        (****************************************************************)
+
+
+IMPORT OS2, CommonSettings, Languages;
+
+PROCEDURE CreatePage (notebook: OS2.HWND;
+                            VAR (*INOUT*) AfterPage: CARDINAL): OS2.HWND;
+
+    (* Creates this page and adds it to the notebook, also returns *)
+    (* the page ID of the new page in the second parameter.        *)
+
+PROCEDURE SetLanguage (lang: Languages.LangHandle);
+
+    (* Relabels this page in the new language. *)
+
+PROCEDURE SetFont (VAR (*IN*) name: CommonSettings.FontName);
+
+    (* Sets the font of the text on this page. *)
+
+PROCEDURE StoreData (hwnd: OS2.HWND);
+
+    (* Stores the values on this page back into the INI file.   *)
+    (* Note: this must be called before the corresponding Page1 *)
+    (* procedure.                                               *)
+
+PROCEDURE Close (hwnd: OS2.HWND);
+
+    (* Shuts down this window and removes it from the notebook. *)
+
+END IMAPPage.
+

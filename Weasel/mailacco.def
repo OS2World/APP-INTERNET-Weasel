@@ -1,0 +1,155 @@
+DEFINITION MODULE MailAccounts;
+
+        (********************************************************)
+        (*                                                      *)
+        (*      Looking up Weasel mail account information      *)
+        (*      We keep this separate from the rest of the      *)
+        (*      Weasel code because these procedures are        *)
+        (*      needed for SMTP and IMAP authentication.        *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            8 March 2003                    *)
+        (*  Last edited:        13 January 2013                 *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM Domains  IMPORT (*type*) Domain;
+FROM TransLog IMPORT (*type*) LogContext, TransactionLogID;
+FROM Names    IMPORT (*type*) HostName, FilenameString, PassString;
+
+
+TYPE
+    LocalUser;                  (* is private *)
+    PasswordSearchState;        (* is private *)
+
+    (* Circular list of domains.  For each domain we have a password.   *)
+    (* This is the set of domains to which this user might belong.      *)
+    (* We make it circular as an easy way to promote different elements *)
+    (* to the list head without losing the others.                      *)
+
+    DomainList;                 (* is private *)
+
+PROCEDURE ConfirmPassword (OurIPAddress: CARDINAL;
+                           VAR (*INOUT*) username: ARRAY OF CHAR;
+                           VAR (*IN*) password: ARRAY OF CHAR;
+                           VAR (*OUT*) domain: Domain): BOOLEAN;
+
+    (* Returns TRUE iff this is a valid username/password pair.  Unlike *)
+    (* normal POP3 operations, we do not retain the mailbox after the   *)
+    (* check is done; this is a simple validity check.  If the search   *)
+    (* is successful, the username has had its "@domain" part (if any)  *)
+    (* removed, with the domain information instead being encoded in    *)
+    (* the final parameter.                                             *)
+
+PROCEDURE LoadLocalUser (VAR (*IN*) username: ARRAY OF CHAR;  domain: Domain): LocalUser;
+
+    (* Loads the user data for one user into memory. *)
+
+PROCEDURE UnloadLocalUser (VAR (*INOUT*) U: LocalUser);
+
+    (* Discards the in-memory copy of the information we have are  *)
+    (* holding about this user.                                    *)
+
+PROCEDURE LockLocalUser (U: LocalUser);
+PROCEDURE UnlockLocalUser (U: LocalUser);
+
+    (* Critical section protection for operations on this user. *)
+
+PROCEDURE IsActiveUser (U: LocalUser;
+                        VAR (*OUT*) Active: CARDINAL;
+                        VAR (*OUT*) CopyTo: ARRAY OF CHAR): BOOLEAN;
+
+    (* Returns TRUE iff U is a valid and active local user.             *)
+
+    (* Possible values for 'Active' are:                                *)
+    (*   0   this user is absent or temporarily deactivated; in this    *)
+    (*       case we also return a FALSE result.                        *)
+    (*   1   normal user.                                               *)
+    (*   2   don't deliver to the user's account, instead               *)
+    (*       forward the mail to the CopyTo address.                    *)
+    (*   3   deliver one copy to user, another to CopyTo.               *)
+    (*                                                                  *)
+    (* If Active < 2, we always return with CopyTo = ''.                *)
+
+PROCEDURE IsIMAPUser (VAR (*IN*) username: ARRAY OF CHAR;  domain: Domain): BOOLEAN;
+
+    (* Returns TRUE iff this is an active user who may use IMAP. *)
+
+PROCEDURE NewMessageFilename (U: LocalUser;
+                              VAR (*OUT*) NewName: ARRAY OF CHAR);
+
+    (* Creates a file name of the form U^.DirName||xxx||.MSG, where xxx *)
+    (* us chosen such that a file of that name does not already exist.  *)
+    (* Assumption: the caller has made this operation indivisible.      *)
+
+PROCEDURE SetFilterOverride (U: LocalUser;
+                       VAR (*INOUT*) FilterName: FilenameString): BOOLEAN;
+
+    (* Returns TRUE and alters FilterName iff this user has a filter    *)
+    (* override.                                                        *)
+
+PROCEDURE BuildDomainList (VAR (*INOUT*) username: ARRAY OF CHAR;
+                                      OurIPAddress: CARDINAL): DomainList;
+
+    (* Strips the '@domain' part from the username, and builds a   *)
+    (* circular list of domains to which this user could belong.   *)
+
+PROCEDURE MakeSingletonList (D: Domain): DomainList;
+
+    (* Creates a DomainList with a single domain in it, and Nul password. *)
+
+PROCEDURE NonEmptyList (DL: DomainList): BOOLEAN;
+
+    (* Returns TRUE iff DL contains at least one domain. *)
+
+PROCEDURE StepToNextDomain (VAR (*INOUT*) DL: DomainList);
+
+    (* Moves forward one step in the circular list of domains. *)
+
+PROCEDURE CurrentDomain (DL: DomainList): Domain;
+
+    (* Returns the current head of the list. *)
+
+PROCEDURE CurrentPassword (DL: DomainList;  VAR (*OUT*) password: PassString);
+
+    (* Returns the password for the current head of the list. *)
+
+PROCEDURE DiscardDomainList (VAR (*INOUT*) DL: DomainList);
+
+    (* Disposes of the list of domain data. *)
+
+PROCEDURE CreateTimeStamp (ID: TransactionLogID;
+                                 VAR (*IN*) LocalHostName: HostName;
+                                              VAR (*OUT*) result: FilenameString);
+
+    (* Sets result to a string of the form <nnn.clock@hostname>, where nnn is   *)
+    (* derived from the ID, clock is derived from the current date and time,    *)
+    (* and hostname is our local host name.                                     *)
+
+PROCEDURE StartPasswordSearch (VAR (*INOUT*) username: ARRAY OF CHAR;
+                             OurIPAddress: CARDINAL): PasswordSearchState;
+
+    (* Starts a search for a username/password pair, where the username *)
+    (* is known but the password is not.  As a desired side-effect,     *)
+    (* strips off the '@domain' part of the username if present.        *)
+
+PROCEDURE NextPassword (s: PasswordSearchState;
+                                VAR (*OUT*) pass: ARRAY OF CHAR;
+                                VAR (*OUT*) domain: Domain): BOOLEAN;
+
+    (* Sets 'pass' to the next password that matches in this search.    *)
+    (* Returns FALSE if there is no next password.                      *)
+
+PROCEDURE EndPasswordSearch (VAR (*INOUT*) s: PasswordSearchState);
+
+    (* Discards the data structure used for a password search.  *)
+(*
+PROCEDURE StartDebugLogging (ctx: LogContext);
+
+    (* Temporary code for debugging the MailAccounts module. Starts     *)
+    (* transaction logging for this module.                             *)
+*)
+END MailAccounts.
+

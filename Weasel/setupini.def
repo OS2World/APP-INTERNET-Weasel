@@ -1,0 +1,23 @@
+DEFINITION MODULE SetupINI;
+
+        (********************************************************)
+        (*                                                      *)
+        (*            Opens/closes Weasel INI file              *)
+        (*   This module is used only by the VIOSetup program   *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            24 April 1998                   *)
+        (*  Last edited:        19 March 2009                   *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+FROM INIData IMPORT
+    (* type *)  HINI;
+
+PROCEDURE OurINIHandle(): HINI;
+
+    (* Returns the handle for our INI file, which this module has already opened. *)
+
+END SetupINI.
+

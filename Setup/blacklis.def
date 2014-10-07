@@ -1,0 +1,34 @@
+DEFINITION MODULE BlackLists;
+
+        (****************************************************************)
+        (*                                                              *)
+        (*                      PM Setup for Weasel                     *)
+        (*            The 'BlackLists' page of the notebook             *)
+        (*                                                              *)
+        (*        Started:        29 July 2001                          *)
+        (*        Last edited:    23 July 2007                          *)
+        (*        Status:         OK                                    *)
+        (*                                                              *)
+        (****************************************************************)
+
+
+IMPORT OS2, CommonSettings, Languages;
+
+PROCEDURE CreatePage (notebook: OS2.HWND;  VAR (*OUT*) pgID: CARDINAL): OS2.HWND;
+
+    (* Creates the blacklist page and adds it to the notebook. *)
+
+PROCEDURE SetLanguage (lang: Languages.LangHandle);
+
+    (* Relabels this page in the new language. *)
+
+PROCEDURE SetFont (VAR (*IN*) name: CommonSettings.FontName);
+
+    (* Sets the font of the text on this page. *)
+
+PROCEDURE StoreData (hwnd: OS2.HWND);
+
+    (* Stores the values on the blacklist page back into the INI file. *)
+
+END BlackLists.
+

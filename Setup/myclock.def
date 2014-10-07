@@ -1,0 +1,92 @@
+DEFINITION MODULE MyClock;
+
+        (********************************************************)
+        (*                                                      *)
+        (*       Conversion of date and time to string          *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            26 June 1998                    *)
+        (*  Last edited:        9 January 2013                  *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+(************************************************************************)
+(*                                                                      *)
+(*  NOTE: several of these procedures refer to a packed date/time       *)
+(*  format as used by the file system.  In this packed code, the date   *)
+(*  is encoded into 16 bits as                                          *)
+(*          yyyyyyymmmmddddd                                            *)
+(*  and the time is encoded into 16 bits as                             *)
+(*          hhhhhmmmmmmsssss                                            *)
+(* where all fields have their obvious meaning except that              *)
+(*    -- with only 7 bits available to encode the year, we actually     *)
+(*       store (year-1980) as an unsigned number that will overflow     *)
+(*       in 2108. That's long enough for our present purposes.          *)
+(*    -- in the seconds field we store (seconds/2), thus achieving      *)
+(*       a 2-second resolution.                                         *)
+(*                                                                      *)
+(************************************************************************)
+
+IMPORT SysClock;
+
+PROCEDURE CorrectToGMT (VAR (*INOUT*) date: SysClock.DateTime);
+
+    (* Adjusts a local time to the equivalent UTC. *)
+
+PROCEDURE StringToPackedDateTime (str: ARRAY OF CHAR;  pos: CARDINAL;  UTC: BOOLEAN;
+                                  VAR (*OUT*) date, time: CARDINAL): BOOLEAN;
+
+    (* Takes a 14-character string YYYYMMDDHHMMSS at str[pos] and       *)
+    (* converts it to a date and time in the packed format used by the  *)
+    (* file system.  The date/time are assumed to be UTC if UTC, and    *)
+    (* local time otherwise.  Returns FALSE on a format error.          *)
+
+PROCEDURE PackedDateTimeToString (date, time: CARDINAL;
+                                  VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* The date and time parameters are in the packed format used by the *)
+    (* file system.  We convert them to a date/time string in the format *)
+    (*         01-Jan-2000 00:00:00 +1000                                *)
+    (* The result array must have room for at least 26 characters.       *)
+
+PROCEDURE CurrentDateAndTime (VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Encodes the current date and time in the format                  *)
+    (*         01 Jan 2000 00:00:00 +1000                               *)
+    (* The result array must have room for at least 26 characters.      *)
+
+PROCEDURE PackedCurrentDateTime(): CARDINAL;
+
+    (* Encodes the current date and time as a 32-bit integer, using     *)
+    (* 16 bits for date and 16 bits for time.                           *)
+
+PROCEDURE CurrentTimeToString (VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Encodes the current date and time in the format                  *)
+    (*        2000-01-26 17:32:10                                       *)
+    (* The result array must have room for at least 19 characters.      *)
+
+PROCEDURE AppendDateString (VAR (*INOUT*) result: ARRAY OF CHAR);
+
+    (* Appends yyyymmdd to result, where yyyymmdd is a digit string     *)
+    (* (without any punctuation) representing the current date.         *)
+
+PROCEDURE AppendDateTimeString (VAR (*INOUT*) result: ARRAY OF CHAR);
+
+    (* Appends yyyymmddhhmm to result, where yyyymmddhhmm is a digit string     *)
+    (* (without any punctuation) representing the current date and time.        *)
+
+PROCEDURE AppendTimeString (VAR (*INOUT*) result: ARRAY OF CHAR);
+
+    (* Appends a 10-digit numeric string to result.  The number is time-based,  *)
+    (* but we are less concerned with its exact value that with having a        *)
+    (* high probability that the value will be different on each call.          *)
+
+PROCEDURE AppendSyslogDateTimeString (VAR (*INOUT*) result: ARRAY OF CHAR);
+
+    (* Appends Mmm dd hh:mm:ss to result (where Mmm is a month abbreviation and *)
+    (* the other fields are numeric) representing the current date and time.    *)
+
+END MyClock.
+

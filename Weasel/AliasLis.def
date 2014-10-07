@@ -1,0 +1,40 @@
+DEFINITION MODULE AliasLists;
+
+        (********************************************************)
+        (*                                                      *)
+        (*                Editor for alias lists                *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            7 July 1998                     *)
+        (*  Last edited:        9 January 2003                  *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+FROM MultiScreen IMPORT
+    (* type *)  VirtualScreen;
+
+(************************************************************************)
+
+PROCEDURE EditAliasData (Screen: VirtualScreen;  VAR (*INOUT*) name: ARRAY OF CHAR);
+
+    (* Editor for one alias. *)
+
+PROCEDURE RemoveAlias (name: ARRAY OF CHAR);
+
+    (* Deletes this alias from the system. *)
+
+PROCEDURE RenameAlias (oldname, newname: ARRAY OF CHAR);
+
+    (* Changes the name of an alias. *)
+
+PROCEDURE GetNumber (name: ARRAY OF CHAR): CARDINAL;
+
+    (* Returns the ordinal number of alias 'name'. *)
+
+PROCEDURE SetNumber (newnumber: CARDINAL;  name: ARRAY OF CHAR);
+
+    (* Updates the ordinal number of alias 'name'. *)
+
+END AliasLists.
+

@@ -1,0 +1,76 @@
+DEFINITION MODULE TNIData;
+
+        (************************************************************)
+        (*                                                          *)
+        (*            Looking after text-based INI data             *)
+        (*                                                          *)
+        (*    Started:        26 June 2005                          *)
+        (*    Last edited:    23 July 2012                          *)
+        (*    Status:         OK                                    *)
+        (*                                                          *)
+        (************************************************************)
+
+
+FROM SYSTEM   IMPORT (* type *) LOC;
+FROM TransLog IMPORT (* type *) TransactionLogID;
+
+
+TYPE THandle;        (* is private *)
+
+(*PROCEDURE DebugDump (app, key: ARRAY OF CHAR);*)
+
+    (* Writes a TNI file entry to the debug file. *)
+
+PROCEDURE OpenTNIFile (VAR (*IN*) fname: ARRAY OF CHAR): THandle;
+
+    (* Opens an existing TNI file, returns its handle.  The result is   *)
+    (* NIL if the file doesn't exist or can't be opened.                *)
+
+PROCEDURE CreateTNIFile (VAR (*IN*) filename: ARRAY OF CHAR): THandle;
+
+    (* Like OpenTNIFile, but creates an initially empty new file.  We   *)
+    (* assume that the caller has already verified that the file does   *)
+    (* not already exist.                                               *)
+
+PROCEDURE CloseTNIFile (VAR (*INOUT*) hini: THandle);
+
+    (* Closes a TNI file. *)
+
+PROCEDURE ItemSize (hini: THandle;  VAR (*IN*) application, key: ARRAY OF CHAR;
+                                VAR (*OUT*) size: CARDINAL): BOOLEAN;
+
+    (* Sets size to the size in bytes of the given INI file entry,      *)
+    (* or returns FALSE if there is no such entry.                      *)
+
+PROCEDURE INIGetTrusted (hini: THandle;
+                               VAR (*IN*) application, key: ARRAY OF CHAR;
+                                       VAR (*OUT*) result: ARRAY OF LOC;
+                                                         size: CARDINAL): BOOLEAN;
+
+    (* Retrieves the value of a variable from the INI file.  Returns FALSE if   *)
+    (* the variable was not found.  This the version in which we trust the      *)
+    (* caller to have ensured that the size is correct.                         *)
+
+PROCEDURE INIGetString (hini: THandle;
+                              VAR (*IN*) name1, name2: ARRAY OF CHAR;
+                                    VAR (*OUT*) variable: ARRAY OF CHAR): BOOLEAN;
+
+    (* Like INIGet, but we accept any size data that will fit in the variable,  *)
+    (* and we add a Nul terminator in the case of a size mismatch.              *)
+
+PROCEDURE INIPutBinary (hini: THandle;
+                        VAR (*IN*) name1, name2: ARRAY OF CHAR;
+                        VAR (*IN*) variable: ARRAY OF LOC;  amount: CARDINAL);
+
+    (* Writes data to the INI file. *)
+
+PROCEDURE INIDeleteApp (hini: THandle;  VAR (*IN*) app: ARRAY OF CHAR);
+
+    (* Deletes an application from the INI file. *)
+
+PROCEDURE INIDeleteKey (hini: THandle;  VAR (*IN*) app, key: ARRAY OF CHAR);
+
+    (* Deletes a key from the INI file. *)
+
+END TNIData.
+

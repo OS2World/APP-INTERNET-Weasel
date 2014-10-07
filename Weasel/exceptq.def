@@ -1,0 +1,165 @@
+DEFINITION MODULE Exceptq;
+
+        (********************************************************************)
+        (*                                                                  *)
+        (*             Translation to Modula-2 of exceptq.h                 *)
+        (*                                                                  *)
+        (*  Programmer:         P. Moylan                                   *)
+        (*  Started:            15 July 2012                                *)
+        (*  Last edited:        3 September 2012                            *)
+        (*  Status:             OK                                          *)
+        (*                                                                  *)
+        (*                                                                  *)
+        (*  Parts of this file are                                          *)
+        (*    Copyright (c) 2000-2010 Steven Levine and Associates, Inc.    *)
+        (*    Copyright (c) 2010-2011 Richard L Walsh                       *)
+        (*                                                                  *)
+        (********************************************************************)
+
+
+IMPORT OS2;
+
+(********************************************************************************)
+
+CONST
+    EXCEPTQ_DEBUG_EXCEPTION = 071785158H;
+
+    (* Non-fatal exception code ("XQxq") to force an Exceptq report *)
+
+(********************************************************************************)
+
+PROCEDURE EqSetInfo (Opts: ARRAY OF CHAR;  ID: ARRAY OF CHAR);
+
+    (* Sets two string parameters: the exceptq options, and the program         *)
+    (* identification.  This procedure must be called by the lowest-level       *)
+    (* module whose initialisation code starts a thread.                        *)
+
+PROCEDURE InstallExceptq (VAR (*IN*) ExRegRec: OS2.EXCEPTIONREGISTRATIONRECORD)
+                                                                        : BOOLEAN;
+
+    (* Installs Exceptq dynamically, for the current thread, so that the        *)
+    (* application can use it without being dependent on its presence.  By      *)
+    (* design, it will fail if it finds a version of Exceptq earlier than v7.0. *)
+
+    (* Important: you must call this function on thread entry and call          *)
+    (* UninstallExceptq() on thread exit, for EVERY thread including the main   *)
+    (* thread.                                                                  *)
+
+PROCEDURE UninstallExceptq (VAR (*IN*) ExRegRec: OS2.EXCEPTIONREGISTRATIONRECORD);
+
+    (* Uninstalls the Exceptq handler. *)
+
+END Exceptq.
+
+(********************************************************************************)
+
+          (* Some other functions have been left unimplemented. *)
+
+(********************************************************************************)
+(*                         MULTI-LINE COMMENT FOLLOWS                           *)
+(*                                                                              *)
+(*  I'll convert this to something more readable when I have the time.  For     *)
+(*  now I'm putting this at the bottom of the file to make it clearer that      *)
+(*  it's a comment and not code.                                                *)
+(*
+
+Function Arguments
+------------------
+
+These are the arguments used by InstallExceptq(), UninstallExceptq(), and
+SetExceptqOptions().  See below for info on the helper function LoadExceptq().
+
+* pExRegRec:  a pointer to an EXCEPTIONREGISTRATIONRECORD structure.  This
+    structure *must* be on the stack and *must* persist for the life of the
+    thread.  You do not have initialize it - Exceptq will do that for you.
+
+* pszOptions:  a string containing zero or more 1- or 2-character options.
+    If you don't want to change the default options (or provide a report
+    info string), you can pass a null pointer or a null string.
+
+* pszReportInfo:  a string of up to 80 characters (including the null) that
+    will be displayed at the top of Exceptq's report.  It can be used to
+    display the app's version number or build ID.  If you supply a string
+    to InstallExceptq(), you must also include the 'I' option in pszOptions;
+    it is not needed when calling SetExceptqOptions().  If you don't want
+    to provide a string, you can pass a null pointer or a null string.
+
+  Important:  InstallExceptq() uses the arguments in pszOptions and
+    pszReportInfo the first time you call it and *ignores* them on
+    subsequent calls. Consequently, you should supply them in main()
+    and set them to null in your threadproc(s).  If this isn't possible,
+    you can use SetExceptqOptions() to set or reset them at any time.
+
+  Note:  when calling SetExceptqOptions(), pass a null pointer or null
+    string in either pszOptions or pszReportInfo to leave that setting
+    unchanged.  To reset options to their default or erase the current
+    report info string, pass a string containing only whitespace (" ").
+    You do not need to use the 'I' option to (re)set pszReportInfo.
+
+Options
+-------
+All options (except 'I') can also be set in the environment using
+'SET EXCEPTQ=' and override conflicting options set by the application.
+For best results, do not change Exceptq's default options;  instead,
+ask your users to change them via the environment variable _if needed_.
+
+Report Verbosity:
+* VV  very verbose
+* V   verbose
+* C   concise (default)
+* T   terse
+* TT  terribly terse
+
+User Options:
+* B   beep (default)  - alert the user when creating a report
+* Q   quiet           - don't beep when creating a report
+
+* Y   yes (default)   - create a report
+* N   no              - don't create a report
+
+* D   debug           - report debug and fatal exceptions
+* F   fatal (default) - report fatal exceptions only
+
+App-only Option:
+* I   info           - pszReportInfo contains a valid string to display
+
+
+Exceptq Debug Exception
+-----------------------
+
+You can force Exceptq to generate a report at any point in your program by
+raising the non-fatal EXCEPTQ_DEBUG_EXCEPTION. If exceptq.dll is present, it
+will capture a snapshot of the app at the time you call DosRaiseException();
+if not, the exception will be ignored.  In either case, the app will continue
+executing.  To have the program terminate instead, set the EH_NONCONTINUABLE
+flag in EXCEPTIONREPORTRECORD.fHandlerFlags.
+
+Because this feature can generate a lot unnecessary reports it is disabled
+by default.  Instead of enabling it when you call InstallExceptq(), have your
+users enable it with 'SET EXCEPTQ=D' when needed.  To avoid creating too much
+output when it is enabled, consider using a static flag or counter to limit
+the number of times each exception is raised.
+
+To increase the reports' usefulness, you can pass debug info to the handler
+using the EXCEPTIONREPORTRECORD.ExceptionInfo[] array.  The data will be
+displayed toward the top of the report in either of two formats:
+
+* preformatted:  set ExceptionInfo[0] to zero, then place up to 3 arguments in
+  the remaining ExceptionInfo elements starting at index number 1.  Be sure to
+  set EXCEPTIONREPORTRECORD.cParameters correctly:  if you want to display two
+  values (in [1] & [2]), set cParameters to 3.  The report will look like this:
+    Cause:    Program requested an Exceptq debug report
+    Debug:    [1]= 00000005  [2]= 00040001  [3]= 26030a32
+
+* your format:  put a pointer to a printf format string in ExceptionInfo[0],
+  then put your arguments in the remaining array elements starting at index
+  number 1.  If you need more than 3 arguments, just extend the array beyond
+  the end of the structure.  Regardless of the number of arguments, set
+  EXCEPTIONREPORTRECORD.cParameters to 2.  The address of ExceptionInfo[1]
+  will be passed to vprintf() as a pointer to the array of arguments.  The
+  report will look something like this:
+    Cause:    Program requested an Exceptq debug report
+    Debug:    initialize - rv= 5  flags= 40001  file= places.sqlite
+
+*)
+

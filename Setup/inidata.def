@@ -1,0 +1,166 @@
+DEFINITION MODULE INIData;
+
+        (************************************************************)
+        (*                                                          *)
+        (*               Looking after INI file data                *)
+        (*                                                          *)
+        (*    Started:        30 March 2000                         *)
+        (*    Last edited:    9 June 2013                           *)
+        (*    Status:         Working                               *)
+        (*                                                          *)
+        (************************************************************)
+
+
+FROM SYSTEM IMPORT
+    (* type *)  LOC;
+
+FROM OS2 IMPORT
+    (* type *)  HWND;
+
+TYPE
+    HINI;                       (* is private *)
+    StringReadState;            (* is private *)
+
+PROCEDURE OpenINIFile (VAR (*IN*) filename: ARRAY OF CHAR; UseTextFile: BOOLEAN): HINI;
+
+    (* Opens an INI or TNI file, returns its handle. *)
+
+PROCEDURE CreateINIFile (VAR (*IN*) filename: ARRAY OF CHAR; UseTextFile: BOOLEAN): HINI;
+
+    (* Like OpenINIFile, but creates an initially empty new file. *)
+
+PROCEDURE INIValid (hini: HINI): BOOLEAN;
+
+    (* Returns TRUE iff hini <> NIL. *)
+
+PROCEDURE CloseINIFile (VAR (*INOUT*) hini: HINI);
+
+    (* Closes an INI file. *)
+
+PROCEDURE ItemSize (hini: HINI;  VAR (*IN*) application: ARRAY OF CHAR;
+                          key: ARRAY OF CHAR;
+                                VAR (*OUT*) size: CARDINAL): BOOLEAN;
+
+    (* Sets size to the size in bytes of the given INI file entry,      *)
+    (* or returns FALSE if there is no such entry.                      *)
+
+PROCEDURE INIGetTrusted (hini: HINI;  VAR (*IN*) application: ARRAY OF CHAR;
+                                       key: ARRAY OF CHAR;
+                                       VAR (*OUT*) result: ARRAY OF LOC;
+                                                         size: CARDINAL): BOOLEAN;
+
+    (* Retrieves the value of a variable from the INI file.  Returns FALSE if   *)
+    (* the variable was not found.  This the version in which we trust the      *)
+    (* caller to have ensured that the size is correct.                         *)
+
+PROCEDURE INIGet (hini: HINI;  VAR (*IN*) application: ARRAY OF CHAR;
+                        key: ARRAY OF CHAR;
+                            VAR (*OUT*) result: ARRAY OF LOC): BOOLEAN;
+
+    (* Retrieves the value of a variable from the INI file.  Returns    *)
+    (* FALSE if the variable was not found.                             *)
+
+PROCEDURE INIGetString (hini: HINI;  VAR (*IN*) name1: ARRAY OF CHAR;
+                              name2: ARRAY OF CHAR;
+                                    VAR (*OUT*) variable: ARRAY OF CHAR): BOOLEAN;
+
+    (* Like INIGet, but we accept any size data that will fit in the variable,  *)
+    (* and we add a Nul terminator in the case of a size mismatch.              *)
+
+PROCEDURE INIPut (hini: HINI;  VAR (*IN*) name1: ARRAY OF CHAR;  name2: ARRAY OF CHAR;
+                                   variable: ARRAY OF LOC);
+
+    (* Writes a fixed-size datum to the INI file. *)
+
+PROCEDURE INIPutBinary (hini: HINI;  VAR (*IN*) name1: ARRAY OF CHAR;
+                        name2: ARRAY OF CHAR;
+                        VAR (*IN*) variable: ARRAY OF LOC;  amount: CARDINAL);
+
+    (* Writes data to the INI file. *)
+
+PROCEDURE INIPutString (hini: HINI;  VAR (*IN*) name1: ARRAY OF CHAR;
+                                     name2: ARRAY OF CHAR;
+                                        VAR (*IN*) string: ARRAY OF CHAR);
+
+    (* Writes a character string to the INI file. *)
+
+PROCEDURE GetStringList (hini: HINI;  VAR (*IN*) app, key: ARRAY OF CHAR;
+                                   VAR (*OUT*) state: StringReadState);
+
+    (* Initialisation in preparation for a "NextString" operation. *)
+
+PROCEDURE NextString (state: StringReadState;  VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Reads the next character string from a string-of-strings field.  *)
+    (* An empty string is returned when we have run out of strings.     *)
+
+PROCEDURE CloseStringList (VAR (*INOUT*) state: StringReadState);
+
+    (* Must be called to release the memory used in fetching a  *)
+    (* string of strings.                                       *)
+
+PROCEDURE INIDeleteApp (hini: HINI;  VAR (*IN*) app: ARRAY OF CHAR);
+
+    (* Deletes an application from the INI file. *)
+
+PROCEDURE INIRenameApp (hini: HINI;  VAR (*IN*) oldapp, newapp: ARRAY OF CHAR);
+
+    (* Changes the name of an application, retaining the data. *)
+
+PROCEDURE INIDeleteKey (hini: HINI;  VAR (*IN*) app: ARRAY OF CHAR;
+                                         key: ARRAY OF CHAR);
+
+    (* Deletes a key from the INI file. *)
+
+PROCEDURE OurDirectory (VAR (*OUT*) dirname: ARRAY OF CHAR);
+
+    (* Tells the caller the name of the program directory. *)
+
+PROCEDURE SetInitialWindowPosition (hwnd: HWND;
+                                    INIFileName, label: ARRAY OF CHAR;
+                                    UseTNI: BOOLEAN);
+
+    (* If this window has a previously stored position in our INI file, *)
+    (* positions the window to that position.                           *)
+
+PROCEDURE SetInitialWindowSize (hwnd: HWND;
+                                  INIFileName, label: ARRAY OF CHAR;
+                                    UseTNI: BOOLEAN);
+
+    (* If this window has a previously stored size in our INI file, *)
+    (* adjusts the window to that size.                             *)
+
+PROCEDURE SetFont (hwnd: HWND;  INIFileName, label: ARRAY OF CHAR;
+                                    UseTNI: BOOLEAN);
+
+    (* Sets the font for this window, provided a font is stored in      *)
+    (* the INI file.                                                    *)
+
+PROCEDURE StoreWindowPosition (hwnd: HWND;
+                               INIFileName, label: ARRAY OF CHAR;
+                                    UseTNI: BOOLEAN);
+
+    (* Saves the location of this window in our INI file. *)
+
+PROCEDURE StoreWindowSize (hwnd: HWND;
+                           INIFileName, label: ARRAY OF CHAR;
+                                    UseTNI: BOOLEAN);
+
+    (* Saves the size of this window in our INI file. *)
+
+PROCEDURE StoreFont (hwnd: HWND;  INIFileName, label: ARRAY OF CHAR;
+                                    UseTNI: BOOLEAN);
+
+    (* Saves the font of this window in our INI file. *)
+
+PROCEDURE GetProgramDirectory (VAR (*OUT*) dir: ARRAY OF CHAR);
+
+    (* Returns the directory where the executable resides. *)
+
+PROCEDURE SetWorkingDirectory;
+
+    (* Sets the working drive and directory to be the same as that  *)
+    (* where the executable resides.                                *)
+
+END INIData.
+

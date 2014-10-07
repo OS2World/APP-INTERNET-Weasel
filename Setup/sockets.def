@@ -1,0 +1,515 @@
+<* M2EXTENSIONS + *>
+
+DEFINITION MODULE ["SysCall"] Sockets;
+
+        (********************************************************)
+        (*                                                      *)
+        (*           The network sockets interface              *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            18 August 1997                  *)
+        (*  Last edited:        16 October 2004                 *)
+        (*  Status:             Mostly implemented              *)
+        (*                                                      *)
+        (*      Still some missing functions, but they seem     *)
+        (*      to be functions that I'm never going to use.    *)
+        (*                                                      *)
+        (********************************************************)
+
+(********************************************************************************)
+(*                                                                              *)
+(*  TYPICAL USE                                                                 *)
+(*    Note: I'm assuming Internet operations here (address family AF_INET).     *)
+(*    Nothing has been tested with other protocols.                             *)
+(*                                                                              *)
+(*  The first thing you have to do is create a socket with the "socket" call.   *)
+(*  After that, the operations depend on whether you want to act as a server    *)
+(*  or as a client.                                                             *)
+(*                                                                              *)
+(*  OPERATING AS A CLIENT                                                       *)
+(*     1. (Optional) Call "bind" to bind the socket with a local address.       *)
+(*     2. Call "connect", specifying which server you want to connect to.       *)
+(*     3. Use procedures "send" and "receive" to transfer data.                 *)
+(*     4. Use "soclose" to clean up at the end.                                 *)
+(*                                                                              *)
+(*  OPERATING AS A SERVER                                                       *)
+(*     1. (Compulsory) Call "bind" to bind the socket with a local address.     *)
+(*        You can usually afford to specify INADDR_ANY as the machine           *)
+(*        address, but you'd normally bind to a specific port number.           *)
+(*     2. Call "listen" to indicate your willingness to accept connections.     *)
+(*     3. Call "accept", getting a new socket (say ns) from the client.         *)
+(*     4. Use procedures "send" and "receive" to transfer data, using socket    *)
+(*        ns.  (Meanwhile, your original socket remains available to accept     *)
+(*        more connections, so you can continue with more "accept" operations   *)
+(*        in parallel with these data operations.  If so, you should of course  *)
+(*        be prepared to run multiple threads.)                                 *)
+(*     5. Use "soclose(ns)" to terminate the session with that particular       *)
+(*        client.                                                               *)
+(*     6. Use "soclose" on your original socket to clean up at the end.         *)
+(*                                                                              *)
+(*  For UDP and other connectionless transfers, the connect/listen/accept are   *)
+(*  optional, and you may use sendto and recvfrom rather than send and recv.    *)
+(*                                                                              *)
+(********************************************************************************)
+
+(********************************************************************************)
+(* This module is derived in part from the sockets.h file that comes            *)
+(* with OS/2 Warp 4, and that file carries the following copyright              *)
+(* notice:                                                                      *)
+(*                                                                              *)
+(* Copyright (c) 1982, 1985, 1986 Regents of the University of California.      *)
+(* All rights reserved.                                                         *)
+(*                                                                              *)
+(* Redistribution and use in source and binary forms are permitted              *)
+(* provided that this notice is preserved and that due credit is given          *)
+(* to the University of California at Berkeley. The name of the University      *)
+(* may not be used to endorse or promote products derived from this             *)
+(* software without specific prior written permission. This software            *)
+(* is provided ``as is'' without express or implied warranty.                   *)
+(*                                                                              *)
+(*      @(#)socket.h    7.2 (Berkeley) 12/30/87                                 *)
+(*                                                                              *)
+(********************************************************************************)
+
+FROM SYSTEM IMPORT LOC, CARD8, CARD16, ADDRESS;
+
+FROM Internet IMPORT InternetSocketAddress;
+
+TYPE Socket = CARDINAL;
+CONST NotASocket = MAX(CARDINAL);
+
+TYPE
+    <* ENUMSIZE="2" *>
+    AddressFamily = (AF_UNSPEC, AF_UNIX, AF_INET, AF_IMPLINK, AF_PUP, AF_CHAOS, AF_NS,
+                     AF_NBS, AF_ECMA, AF_DATAKIT, AF_CCITT, AF_SNA, AF_DECnet, AF_DLI,
+                     AF_LAT, AF_HYLINK, AF_APPLETALK, AF_NETBIOS, AF_MAX);
+
+        (*    AF_UNSPEC       0               unspecified                      *)
+        (*    AF_UNIX         1               local to host (pipes, portals)   *)
+        (*    AF_INET         2               internetwork: UDP, TCP, etc.     *)
+        (*    AF_IMPLINK      3               arpanet imp addresses            *)
+        (*    AF_PUP          4               pup protocols: e.g. BSP          *)
+        (*    AF_CHAOS        5               mit CHAOS protocols              *)
+        (*    AF_NS           6               XEROX NS protocols               *)
+        (*    AF_NBS          7               nbs protocols                    *)
+        (*    AF_ECMA         8               european computer manufacturers  *)
+        (*    AF_DATAKIT      9               datakit protocols                *)
+        (*    AF_CCITT        10              CCITT protocols, X.25 etc        *)
+        (*    AF_SNA          11              IBM SNA                          *)
+        (*    AF_DECnet       12              DECnet                           *)
+        (*    AF_DLI          13              Direct data link interface       *)
+        (*    AF_LAT          14              LAT                              *)
+        (*    AF_HYLINK       15              NSC Hyperchannel                 *)
+        (*    AF_APPLETALK    16              Apple Talk                       *)
+        (*    AF_NETBIOS      17              Netbios                          *)
+        (*    AF_MAX          18                                               *)
+
+    <* ENUMSIZE = "1" *>
+    SocketType = (SOCK_INVALID, SOCK_STREAM, SOCK_DGRAM, SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET);
+
+        (*    SOCK_INVALID    0               not used                   *)
+        (*    SOCK_STREAM     1               stream socket              *)
+        (*    SOCK_DGRAM      2               datagram socket            *)
+        (*    SOCK_RAW        3               raw-protocol interface     *)
+        (*    SOCK_RDM        4               reliably-delivered message *)
+        (*    SOCK_SEQPACKET  5               sequenced packet stream    *)
+
+    SockAddr = RECORD
+                   CASE family: AddressFamily OF
+
+                       AF_UNIX:  (* Local to host, e.g. IPC; commented   *)
+                                 (* out for now because it's a space     *)
+                                 (* waster.                              *)
+
+                                 (*un_path: ARRAY [0..107] OF CHAR;*)
+                       |
+                       AF_INET:  (* Internet address format *)
+
+                                 in_addr: InternetSocketAddress;
+                       |
+                       ELSE      (* I'm not bothering in this version to *)
+                                 (* fully defined the other formats.     *)
+
+                                 sa_data: ARRAY [0..13] OF CARD8;
+
+                   END (*CASE*);
+               END (*RECORD*);
+
+CONST
+    MSG_OOB       = 1;       (* process out-of-band data *)
+    MSG_PEEK      = 2;       (* peek at incoming message *)
+    MSG_DONTROUTE = 4;       (* send without using routing tables *)
+    MSG_FULLREAD  = 8;       (* send without using routing tables *)
+    MSG_MAXIOVLEN = 16;
+
+(********************************************************************************)
+
+PROCEDURE ["SysCall"] sock_init (): INTEGER;
+
+    (* Initialises the socket system.  Supposedly optional, since this call     *)
+    (* is implicitly made the first time you try to do something with sockets;  *)
+    (* but I think there are some situations where it's needed anyway.          *)
+
+    (* Returns 0 for success, +1 (?) if network not available.  *)
+
+PROCEDURE ["SysCall"] so_cancel (S: Socket): INTEGER;
+
+    (* Forces a pending operation on socket S to return with a failure          *)
+    (* indication.  This can be used to interrupt another thread that is        *)
+    (* blocked while waiting for a socket response.                             *)
+    (* Note: won't cancel an accept() call, and I'm not sure what else it       *)
+    (* won't work for; but it does seem to work with select().                  *)
+
+PROCEDURE ["SysCall"] soabort (S: Socket): INTEGER;
+
+    (* Undocumented, but I'm hoping to work out what it does by trial and       *)
+    (* error.  It looks very much as if it's a variant of so_cancel.  It also   *)
+    (* appears that this function stopped working at approximately version      *)
+    (* 4.02o of the TCP/IP stack.                                               *)
+
+PROCEDURE ["SysCall"] socket (domain: AddressFamily;  type: SocketType;
+                                               protocol: AddressFamily): Socket;
+
+    (* Creates a socket descriptor.  This is normally the first thing an        *)
+    (* application must do, before using any of the other procedures in this    *)
+    (* module.  Choosing AF_UNSPEC as the protocol family gives you the default *)
+    (* protocol for the specified socket type.                                  *)
+
+PROCEDURE ["SysCall"] bind (S: Socket;  VAR (*IN*) address: SockAddr;
+                                                size: CARDINAL): BOOLEAN;
+
+    (* Binds a socket to a port on the local machine.  This is a prerequisite   *)
+    (* for procedures listen or recvfrom, but is optional before connect.       *)
+    (* Socket S should have been created by a previous call to socket.          *)
+    (* The second parameter specifies the address, and the third parameter      *)
+    (* should be set to SIZE(address).  The details of the address record       *)
+    (* should be completely filled in before the call, with unused fields       *)
+    (* set to 0.  The return value is FALSE for a successful call, or TRUE for  *)
+    (* an error.  (Yes, I know that's back to front, but that's the way C       *)
+    (* programmers think.)  You can find the error code by a call to sock_errno *)
+    (* or psock_errno.                                                          *)
+
+PROCEDURE ["SysCall"] sock_errno (): CARDINAL;
+
+    (* Returns an error code for the last error (presumably the last one in     *)
+    (* this thread - there doesn't seem to be any way to specify which socket   *)
+    (* you're asking about).                                                    *)
+
+PROCEDURE ["SysCall"] psock_errno (message: ARRAY OF CHAR);
+
+    (* Like sock_errno, except that it doesn't return any value, instead it     *)
+    (* writes an error message to the standard error channel (usually the       *)
+    (* screen).  The input message is written as a prefix; if you don't need    *)
+    (* any prefix, just set message to the empty string.                        *)
+
+PROCEDURE ["SysCall"] soclose (S: Socket): BOOLEAN;
+
+    (* Closes the socket, returns TRUE on error(!). *)
+
+PROCEDURE ["SysCall"] listen (S: Socket;  queuesize: CARDINAL): BOOLEAN;
+
+    (* Turns the socket into a passive socket that can accept connections.      *)
+    (* queuesize (legal range [0..5]) is the number of pending requests that    *)
+    (* can be queued.                                                           *)
+
+PROCEDURE ["SysCall"] accept (S: Socket;  VAR (*OUT*) from: SockAddr;
+                                  VAR (*INOUT*) size: CARDINAL): Socket;
+
+    (* Accepts a connection to socket S from a remote socket.  Parameter size   *)
+    (* should be set equal to SIZE(from) before the call.  The returned value   *)
+    (* identifies a newly created socket that can be used for further           *)
+    (* communication with the other node.  Meanwhile, socket S remains          *)
+    (* available for further "accept" calls if desired.                         *)
+
+PROCEDURE ["SysCall"] connect (S: Socket;  VAR (*IN*) target: SockAddr;
+                                                 size: CARDINAL): BOOLEAN;
+
+    (* Requests a connection from socket S to a remote socket.  Parameter size  *)
+    (* should be set equal to SIZE(target).                                     *)
+
+PROCEDURE ["SysCall"] select (VAR (*INOUT*) group: ARRAY OF Socket;
+                          NumberOfReads, NumberOfWrites, NumberOfExcepts: CARDINAL;
+                          Timeout: CARDINAL): INTEGER;
+
+    (* Waits until one or more of the sockets in "group" is ready.  The next    *)
+    (* three parameters specify how many sockets are in the array.  The sockets *)
+    (* to be checked for input come first, then the ones to be checked for      *)
+    (* output, then the ones to be checked for exceptional conditions.  The     *)
+    (* Timeout value is in milliseconds, except that a value of MAX(CARDINAL)   *)
+    (* means "wait forever".  If one or more of the sockets are ready when this *)
+    (* function returns, the return value is the number of ready sockets, and   *)
+    (* the entries in group corresponding to not-ready sockets are reset to     *)
+    (* the value NotASocket.  A return value of 0 indicates timeout.  A return  *)
+    (* value of -1 means error.                                                 *)
+
+PROCEDURE ["SysCall"] getsockname (S: Socket;  VAR (*OUT*) myaddr: SockAddr;
+                                         VAR (*INOUT*) size: CARDINAL): BOOLEAN;
+
+    (* The most typical use of connect is where we don't first do a bind, but   *)
+    (* instead allow connect to choose a port for us and do an implicit bind.   *)
+    (* The getsockname procedure lets us find out which port was chosen for     *)
+    (* us, by returning the corresponding SockAddr structure.                   *)
+
+PROCEDURE ["SysCall"] getpeername (S: Socket;  VAR (*OUT*) peer: SockAddr;
+                                         VAR (*INOUT*) size: CARDINAL): BOOLEAN;
+
+    (* Like getsockname, but returns the details for the machine at the         *)
+    (* other end.                                                               *)
+
+PROCEDURE ["SysCall"] send (S: Socket;  VAR (*IN*) message: ARRAY OF LOC;
+                                 length: CARDINAL;  flags: CARDINAL): CARDINAL;
+
+    (* Sends a message of "length" bytes on socket S, which must be a connected *)
+    (* socket.  Normally flags should be 0.  The returned value is the number   *)
+    (* of bytes sent, or MAX(CARDINAL) if there was an error.                   *)
+
+PROCEDURE ["SysCall"] recv (S: Socket;  VAR (*OUT*) message: ARRAY OF LOC;
+                                 buffersize: CARDINAL;  flags: CARDINAL): CARDINAL;
+
+    (* Receives a byte string on socket S, which must be a connected            *)
+    (* socket.  Normally flags should be 0.  The returned value is the number   *)
+    (* of bytes received, or MAX(CARDINAL) if there was an error.               *)
+
+PROCEDURE ["SysCall"] sendto (S: Socket;  VAR (*OUT*) message: ARRAY OF LOC;
+                               buffersize: CARDINAL;  flags: CARDINAL;
+                               VAR (*IN*) target: SockAddr;
+                               targetsize: CARDINAL): CARDINAL;
+
+    (* Like send, except that the socket doesn't have to be connected.  *)
+
+PROCEDURE ["SysCall"] recvfrom (S: Socket;  VAR (*OUT*) message: ARRAY OF LOC;
+                               buffersize: CARDINAL;  flags: CARDINAL;
+                               VAR (*IN*) source: SockAddr;
+                               sourcesize: CARDINAL): CARDINAL;
+
+    (* Like recv, except that the socket doesn't have to be connected.  *)
+
+PROCEDURE ["SysCall"] gethostid (): CARDINAL;
+
+    (* Returns the ID of the local host, using HOST byte order.  *)
+
+PROCEDURE ["SysCall"] getsockopt (S: Socket;  level: CARDINAL;  Optionname: CARDINAL;
+                                   VAR (*OUT*) OptionValue: ARRAY OF LOC;
+                                   VAR (*INOUT*) OptionLength: CARDINAL): BOOLEAN;
+
+    (* Gets socket options.  For details, see setsockopt comments below. *)
+
+PROCEDURE ["SysCall"] setsockopt (S: Socket;  level: CARDINAL;  Optionname: CARDINAL;
+                   VAR OptionValue: ARRAY OF LOC;  OptionLength: CARDINAL): BOOLEAN;
+
+    (* THE 1005H AND 1006H OPTIONS ARE APPARENTLY NOT WORKING.                  *)
+
+    (* Sets socket options.  The possible parameter values don't follow a very  *)
+    (* logical pattern, so you have to read the associated documentation        *)
+    (* carefully.  The supported values for level are:                          *)
+    (*           0FFFFH         Options for socket level                        *)
+    (*           0              IP                                              *)
+    (*           1              NetBIOS                                         *)
+    (*           6              TCP                                             *)
+    (* (Confused?  Join the club.)  The Optionname parameter has a number of    *)
+    (* possible values, but the only ones that interest me (so far) are:        *)
+    (*           4              Allow local address reuse                       *)
+    (*          1005H           Send timeout                                    *)
+    (*          1006H           Receive timeout                                 *)
+    (* (These are all socket level options.)  On the other hand, my tests show  *)
+    (* that options 1005H and 1006H don't work.  For these two options,         *)
+    (* OptionValue is a record of two CARDINALs, giving seconds and             *)
+    (* microseconds.  For option 4, OptionValue is a CARDINAL whose value must  *)
+    (* be interpreted as a C Boolean.  (I think that means nonzero=TRUE.)       *)
+    (* In all cases, OptionLength must be set to the size in bytes of the       *)
+    (* OptionValue parameter.                                                   *)
+
+    (* Result: TRUE for error, FALSE for OK.                                    *)
+
+PROCEDURE ["SysCall"] ioctl (S: Socket;  command: CARDINAL;
+            VAR (*INOUT*) data: ARRAY OF LOC;  length: CARDINAL): INTEGER;
+
+    (* Special operations on sockets, the BSD ioctl functions.          *)
+
+PROCEDURE ["SysCall"] os2_ioctl (S: Socket;  command: CARDINAL;
+            VAR (*INOUT*) data: ARRAY OF LOC;  length: CARDINAL): INTEGER;
+
+    (* More special operations on sockets.  For the command SIOSTAT,    *)
+    (* which returns all interface addresses, the following definitions *)
+    (* are relevant.                                                    *)
+
+CONST SIOSTATAT = 256*ORD('n') + 49;
+    IFMIB_ENTRIES = 42;
+
+TYPE iftype = RECORD
+                  count: CARD16;
+                  aBuff: ARRAY [0..IFMIB_ENTRIES-1] OF
+                             RECORD
+                                 IPAddress: CARDINAL;
+                                 InterfaceIndex: CARD16;
+                                 netmask: CARDINAL;
+                                 BroadcastAddress: CARDINAL;
+                             END (*RECORD*);
+              END (*RECORD*);
+
+END Sockets.
+
+(************************************************************************)
+(*   THE FOLLOWING HAS NOT YET BEEN TRANSLATED                          *)
+(************************************************************************)
+
+#ifndef __SOCKET_32H
+#define __SOCKET_32H
+
+#include <types.h>
+
+/*
+ * Definitions related to sockets: types, address families, options.
+ */
+
+/*
+ * Option flags per-socket.
+ */
+#define SO_DEBUG        0x0001          /* turn on debugging info recording */
+#define SO_ACCEPTCONN   0x0002          /* socket has had listen() */
+#define SO_REUSEADDR    0x0004          /* allow local address reuse */
+#define SO_KEEPALIVE    0x0008          /* keep connections alive */
+#define SO_DONTROUTE    0x0010          /* just use interface addresses */
+#define SO_BROADCAST    0x0020          /* permit sending of broadcast msgs */
+#define SO_USELOOPBACK  0x0040          /* bypass hardware when possible */
+#define SO_LINGER       0x0080          /* linger on close if data present */
+#define SO_OOBINLINE    0x0100          /* leave received OOB data in line */
+#define SO_L_BROADCAST  0x0200          /* limited broadcast sent on all IFs*/
+#define SO_RCV_SHUTDOWN 0x0400          /* set if shut down called for rcv */
+#define SO_SND_SHUTDOWN 0x0800          /* set if shutdown called for send */
+
+/*
+ * Additional options, not kept in so_options.
+ */
+#define SO_SNDBUF       0x1001          /* send buffer size */
+#define SO_RCVBUF       0x1002          /* receive buffer size */
+#define SO_SNDLOWAT     0x1003          /* send low-water mark */
+#define SO_RCVLOWAT     0x1004          /* receive low-water mark */
+#define SO_ERROR        0x1007          /* get error status and clear */
+#define SO_TYPE         0x1008          /* get socket type */
+#define SO_OPTIONS      0x1010          /* get socket options */
+
+/*
+ * Structure used for manipulating linger option.
+ */
+struct  linger {
+        int     l_onoff;                /* option on/off */
+        int     l_linger;               /* linger time */
+};
+
+/*
+ * Level number for (get/set)sockopt() to apply to socket itself.
+ */
+#define SOL_SOCKET      0xffff          /* options for socket level */
+
+/*
+ * Structure used by kernel to pass protocol
+ * information in raw sockets.
+ */
+struct sockproto {
+        unsigned short sp_family;              /* address family */
+        unsigned short sp_protocol;            /* protocol */
+};
+
+/*
+ * Protocol families, same as address families for now.
+ */
+#define PF_UNSPEC       AF_UNSPEC
+#define PF_UNIX         AF_UNIX
+#define PF_INET         AF_INET
+#define PF_IMPLINK      AF_IMPLINK
+#define PF_PUP          AF_PUP
+#define PF_CHAOS        AF_CHAOS
+#define PF_NS           AF_NS
+#define PF_NBS          AF_NBS
+#define PF_ECMA         AF_ECMA
+#define PF_DATAKIT      AF_DATAKIT
+#define PF_CCITT        AF_CCITT
+#define PF_SNA          AF_SNA
+#define PF_DECnet       AF_DECnet
+#define PF_DLI          AF_DLI
+#define PF_LAT          AF_LAT
+#define PF_HYLINK       AF_HYLINK
+#define PF_APPLETALK    AF_APPLETALK
+#define PF_NETBIOS      AF_NB
+#define PF_NB           AF_NB
+#define PF_OS2          PF_UNIX
+#define PF_MAX          AF_MAX
+
+/*
+ * Maximum queue length specifiable by listen.
+ */
+#define SOMAXCONN       5
+
+
+/*
+ * Message header for recvmsg and sendmsg calls.
+ */
+struct msghdr {
+        char * msg_name;               /* optional address */
+        int msg_namelen;            /* size of address */
+        struct  iovec *  msg_iov;         /* scatter/gather array */
+        int   msg_iovlen;             /* # elements in msg_iov */
+        char *  msg_accrights;          /* access rights sent/received */
+        int   msg_accrightslen;
+};
+
+struct iovec {
+        char *  iov_base;
+        int     iov_len;
+};
+
+struct uio {
+        struct  iovec  *uio_iov;
+        int     uio_iovcnt;
+        off_t   uio_offset;
+        int     uio_segflg;
+        unsigned int     uio_resid;
+};
+enum    uio_rw { UIO_READ, UIO_WRITE };
+#define FREAD  1
+#define FWRITE 2
+
+
+int _System recvmsg( int, struct msghdr * , int);
+int _System sendmsg( int, struct msghdr * , int);
+int _System readv(int, struct iovec * , int);
+int _System writev(int, struct iovec* , int);
+int _System shutdown(int, int);
+int _System getinetversion(char *);
+
+#define MT_FREE         0       /* should be on free list */
+#define MT_DATA         1       /* dynamic (data) allocation */
+#define MT_HEADER       2       /* packet header */
+#define MT_SOCKET       3       /* socket structure */
+#define MT_PCB          4       /* protocol control block */
+#define MT_RTABLE       5       /* routing tables */
+#define MT_HTABLE       6       /* IMP host tables */
+#define MT_ATABLE       7       /* address resolution tables */
+#define MT_SONAME       8       /* socket name */
+#define MT_ZOMBIE       9       /* zombie proc status */
+#define MT_SOOPTS       10      /* socket options */
+#define MT_FTABLE       11      /* fragment reassembly header */
+#define MT_RIGHTS       12      /* access rights */
+#define MT_IFADDR       13      /* interface address */
+
+#pragma pack(1)
+/* used to get mbuf statistics */
+struct mbstat {
+        unsigned short   m_mbufs;        /* mbufs obtained from page pool */
+        unsigned short   m_clusters;     /* clusters obtained from page pool */
+        unsigned short   m_clfree;       /* free clusters */
+        unsigned short   m_drops;        /* times failed to find space */
+        unsigned long    m_wait;         /* times waited for space */
+        unsigned short   m_mtypes[256];  /* type specific mbuf allocations */
+};
+
+struct sostats {
+  short count;
+  short socketdata[9*MAXSOCKETS];
+};
+
+#pragma pack()
+
+#endif /* __SOCKET_32H */
+

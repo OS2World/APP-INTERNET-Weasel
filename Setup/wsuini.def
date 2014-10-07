@@ -1,0 +1,38 @@
+DEFINITION MODULE WSUINI;
+
+        (************************************************************)
+        (*                                                          *)
+        (*                    PM Setup for Weasel                   *)
+        (*          This module reads/writes user INI data          *)
+        (*                                                          *)
+        (*      Started:        01 July 1999                        *)
+        (*      Last edited:    6 November 2008                     *)
+        (*      Status:         OK                                  *)
+        (*                                                          *)
+        (************************************************************)
+
+
+
+FROM Names IMPORT (*type*) UserName;
+
+
+PROCEDURE SetTNIMode (useTNI: BOOLEAN);
+
+PROCEDURE SetINIDirectory (GlobalMailRoot, subdir: ARRAY OF CHAR);
+
+    (* If subdir = "", the INI file to be used will be WEASEL.INI in    *)
+    (* our working directory.  Otherwise, the subdirectory 'subdir' of  *)
+    (* GlobalMailRoot, will be used, and the file name is DOMAIN.INI.   *)
+    (* In TNI mode the files are TNI files rather than INI files.       *)
+
+PROCEDURE OpenINIFile;
+
+PROCEDURE CloseINIFile;
+
+PROCEDURE RemoveUser (user: UserName);
+
+    (* Deletes one user from the currently active domain.  The user's   *)
+    (* mail directory will also be deleted iff it is empty.             *)
+
+END WSUINI.
+

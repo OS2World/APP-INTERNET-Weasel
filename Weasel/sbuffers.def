@@ -1,0 +1,117 @@
+DEFINITION MODULE SBuffers;
+
+        (********************************************************)
+        (*                                                      *)
+        (*        Buffers for line-oriented socket I/O          *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            19 May 1998                     *)
+        (*  Last edited:        17 October 2013                 *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM SYSTEM  IMPORT (*type*) LOC, (*proc*) CAST;
+FROM Sockets IMPORT (*type*) Socket;
+
+
+TYPE SBuffer;        (* is private *)
+
+        (********************************************************)
+        (*             INITIALISATION AND STATUS                *)
+        (********************************************************)
+
+PROCEDURE CreateSBuffer (s: Socket;  NumericReplyCode: BOOLEAN): SBuffer;
+
+    (* Creates a new SBuffer.  We assume that the connection on socket  *)
+    (* s has already been established by the caller.                    *)
+    (* The second parameter controls how response codes from the peer   *)
+    (* are encoded.  If this parameter is FALSE, we expect a '+' or     *)
+    (* '-' status reply code.  If it is TRUE, we expect a three-digit   *)
+    (* numeric code.                                                    *)
+
+    (* Returns NIL result if the call fails.                            *)
+
+PROCEDURE CloseSBuffer (VAR (*INOUT*) SB: SBuffer);
+
+    (* Releases the buffer space, closes the socket. *)
+
+PROCEDURE SetTimeout (SB: SBuffer;  seconds: CARDINAL);
+
+    (* Sets the timeout value to the given number of seconds. *)
+
+PROCEDURE SocketOf (SB: SBuffer): Socket;
+
+    (* Returns the socket belonging to this SBuffer. *)
+
+        (********************************************************)
+        (*                     OUTPUT                           *)
+        (********************************************************)
+
+PROCEDURE SendRaw (SB: SBuffer;  VAR (*IN*) data: ARRAY OF LOC;
+                                               amount: CARDINAL): BOOLEAN;
+
+    (* Sends uninterpreted data. *)
+
+PROCEDURE SendLine (SB: SBuffer;  VAR (*IN*) line: ARRAY OF CHAR): BOOLEAN;
+
+    (* Sends the string, appending a CRLF. *)
+
+PROCEDURE SendLineL (SB: SBuffer;  line: ARRAY OF CHAR): BOOLEAN;
+
+    (* Like SendLine, but for a literal string. *)
+
+PROCEDURE SendString (SB: SBuffer;  line: ARRAY OF CHAR): BOOLEAN;
+
+    (* Sends the string, without appending a CRLF. *)
+
+PROCEDURE SendChar (SB: SBuffer;  ch: CHAR): BOOLEAN;
+
+    (* Sends a single character. *)
+
+PROCEDURE SendEOL (SB: SBuffer): BOOLEAN;
+
+    (* Sends a CRLF. *)
+
+PROCEDURE FlushOutput (SB: SBuffer);
+
+    (* Sends out any remaining buffered output. *)
+
+        (********************************************************)
+        (*                       INPUT                          *)
+        (********************************************************)
+
+PROCEDURE Getch (SB: SBuffer): CHAR;
+
+    (* Result is Nul if connection fails. *)
+
+PROCEDURE GetLine (SB: SBuffer;  VAR (*OUT*) result: ARRAY OF CHAR): BOOLEAN;
+
+    (* Receives a single line of text from the server.  A function      *)
+    (* return of FALSE meant that the connection failed.                *)
+
+PROCEDURE ResponseCode (SB: SBuffer): CARDINAL;
+
+    (* Receives a (possibly multi-line) response from the server, and   *)
+    (* returns the first digit of the numeric code.  The values are:    *)
+    (*      0  Connection lost                                          *)
+    (*      1  OK, another reply still to come                          *)
+    (*      2  OK, command done                                         *)
+    (*      3  OK, another command expected                             *)
+    (*      4  Transient failure, try again later                       *)
+    (*      5  Definite failure                                         *)
+    (*      6  Reply code is not numeric                                *)
+    (*      7  Connection lost or SB=NIL                                *)
+
+PROCEDURE PositiveResponse (SB: SBuffer;
+                            VAR (*OUT*) LostConnection: BOOLEAN): BOOLEAN;
+
+    (* Returns TRUE if a positive response was returned.  *)
+
+PROCEDURE GetLastLine (SB: SBuffer;  VAR (*OUT*) line: ARRAY OF CHAR);
+
+    (* Returns a copy of the last line received. *)
+
+END SBuffers.
+

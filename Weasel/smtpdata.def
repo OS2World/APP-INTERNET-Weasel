@@ -1,0 +1,165 @@
+DEFINITION MODULE SMTPData;
+
+        (********************************************************)
+        (*                                                      *)
+        (*      Part of the SMTP server - files the mail        *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            27 April 1998                   *)
+        (*  Last edited:        7 November 2008                 *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM SBuffers IMPORT
+    (* type *)  SBuffer;
+
+FROM Semaphores IMPORT
+    (* type *)  Semaphore;
+
+FROM TransLog IMPORT
+    (* type *)  TransactionLogID;
+
+FROM Domains IMPORT
+    (* type *)  Domain;
+
+FROM Names IMPORT
+    (* type *)  UserName, HostName, FilenameString;
+
+(************************************************************************)
+
+TYPE ItemDescriptor;      (* is private *)
+
+(************************************************************************)
+
+PROCEDURE LoadSMTPINIData (TNImode: BOOLEAN);
+
+    (* Initial load of configuration data for this module. *)
+
+PROCEDURE UpdateINIData;
+
+    (* Re-reads our INI file to get the options that can be changed     *)
+    (* while Weasel is still running.                                   *)
+
+PROCEDURE CreateItemDescriptor (SB: SBuffer;  ClientIPAddress: CARDINAL;
+                                 ID: TransactionLogID;
+                                  MayRelay: BOOLEAN): ItemDescriptor;
+
+    (* Creates a descriptor for a new mail item.  ID is for *)
+    (* transaction logging.                                 *)
+
+PROCEDURE ResetItemDescriptor (desc: ItemDescriptor;
+                               ReturnPath: ARRAY OF CHAR);
+
+    (* Discards information related to sender and receivers, deletes    *)
+    (* message file if one has been created, and sets a new return path.*)
+
+PROCEDURE ResetReturnPath (desc: ItemDescriptor);
+
+    (* Resets the sender e-mail address, i.e. the address supplied in   *)
+    (* the MAIL FROM command.                                           *)
+
+PROCEDURE SetClaimedSendingHost (desc: ItemDescriptor;
+                                 VAR (*IN*) ClaimedName: ARRAY OF CHAR);
+
+    (* ClaimedName is the sending host's name as supplied in the  *)
+    (* HELO command.                                              *)
+
+PROCEDURE ProcessRCPTAddress (desc: ItemDescriptor;
+                                 VAR (*IN*) ToAddress: ARRAY OF CHAR;
+                                 VAR (*OUT*) user: UserName;
+                                 VAR (*OUT*) domainname: HostName);
+
+    (* Takes note of the destination address as supplied in a RCTP TO:  *)
+    (* command, also decomposes it into user and domain components.     *)
+
+PROCEDURE FromAddressAcceptable (desc: ItemDescriptor): BOOLEAN;
+
+    (* Returns TRUE if we're satisfied with the sender's address as     *)
+    (* supplied in MAIL FROM.  If we're not satisfied, we clear that    *)
+    (* address as well as returning FALSE.                              *)
+
+PROCEDURE SenderNotSpecified (desc: ItemDescriptor): BOOLEAN;
+
+    (* Returns TRUE iff the reverse path is empty. *)
+
+PROCEDURE NoRecipients (desc: ItemDescriptor): BOOLEAN;
+
+    (* Returns TRUE iff the list of recipients is empty. *)
+
+PROCEDURE AddLocalRecipient (desc: ItemDescriptor;  D: Domain;
+                           VAR (*IN*) name, host: ARRAY OF CHAR): BOOLEAN;
+
+    (* Adds one local recipient to the list of recipients. *)
+    (* Returns FALSE if it's not possible.                 *)
+
+PROCEDURE AddRelayRecipient (desc: ItemDescriptor;
+                             VAR (*IN*) name: ARRAY OF CHAR);
+
+    (* Adds one non-local recipient to the list of recipients. *)
+
+PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
+                         sem: Semaphore;
+                         VAR (*OUT*) FailureReason: ARRAY OF CHAR): BOOLEAN;
+
+    (* Receives an incoming message, stores it in a temporary file      *)
+    (* whose name is recorded in itemdata.  We periodically signal on   *)
+    (* sem to confirm that the reception has not timed out.             *)
+(*
+PROCEDURE RunFilter (stage: CARDINAL;  itemdata: ItemDescriptor;
+                     VAR (*OUT*) FailureMessage: ARRAY OF CHAR): CARDINAL;
+*)
+    (* This procedure may be invoked at several stages:                 *)
+    (*                                                                  *)
+    (*    0    on initial connection                                    *)
+    (*    1    after the HELO or EHLO command                           *)
+    (*    2    after the MAIL FROM command                              *)
+    (*    3    when the DATA command has been received, but before the  *)
+    (*           message has been transmitted.                          *)
+    (*    4    after a mail item has been received but before it has    *)
+    (*           been distributed to the addressees.                    *)
+    (*                                                                  *)
+    (* The filter is allowed to return the following codes:             *)
+    (*                                                                  *)
+    (*    0    continue processing normally, i.e. deliver mail          *)
+    (*    1    like 0, but the filter has modified the list of          *)
+    (*         recipients.                                              *)
+    (*    2    item has now been dealt with, report success to sender   *)
+    (*    3    reject the message                                       *)
+    (*    4    like 3, but the filter has placed a failure message into *)
+    (*           the first line of the 'recipients' file.               *)
+    (*  5-15   unused, reserved for future use.                         *)
+    (*   16    like 0, but in addition future filtering steps will be   *)
+    (*           bypassed for this item of mail.                        *)
+    (*                                                                  *)
+    (* As a guard against errors in the filters, unused codes are       *)
+    (* converted to 0.                                                  *)
+    (*                                                                  *)
+    (* Note that cases 1, 4, and 16 are dealt with internally in        *)
+    (* this procedure, so this procedure will only ever return a        *)
+    (* result of 0, 2, or 3.  Furthermore, code 2 should never occur    *)
+    (* at stage 0, 1, 2, or 3.                                          *)
+    (*                                                                  *)
+    (* In case 3, FailureMessage holds the reply (starting with a       *)
+    (* three-digit code) to be returned to the sender.                  *)
+
+PROCEDURE RunFilter03 (stage: CARDINAL;  itemdata: ItemDescriptor;
+                     VAR (*OUT*) FailureMessage: ARRAY OF CHAR): CARDINAL;
+
+PROCEDURE RunFinalFilter (itemdata: ItemDescriptor;
+                     VAR (*OUT*) FailureMessage: ARRAY OF CHAR): CARDINAL;
+
+PROCEDURE DistributeMessage (itemdata: ItemDescriptor);
+
+    (* This procedure can be called after AcceptMessage has read the    *)
+    (* whole message.  Now we put it into the local mailboxes, and/or   *)
+    (* relay it, depending on the recipients.                           *)
+
+PROCEDURE DiscardItemDescriptor (VAR (*INOUT*) desc: ItemDescriptor);
+
+    (* Destroys the descriptor, and deletes the message file if one     *)
+    (* has been created.                                                *)
+
+END SMTPData.
+
