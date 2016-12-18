@@ -31,7 +31,7 @@ IMPLEMENTATION MODULE ProgName;
     (*       while the library modules still live at                *)
     (*       "library" level of the source structure.               *)
     (*                                                              *)
-    (*    Last edited:    27 December 2012                          *)
+    (*    Last edited:    19 September 2014                         *)
     (*    Status:         OK                                        *)
     (*                                                              *)
     (****************************************************************)
@@ -43,8 +43,7 @@ IMPORT WV;
 
 (************************************************************************)
 
-PROCEDURE GetWeaselVersion (IsProVersion: BOOLEAN;
-                               VAR (*OUT*) Version: ARRAY OF CHAR);
+PROCEDURE GetProgramName (VAR (*OUT*) Version: ARRAY OF CHAR);
 
     (* Returns a version string.  We compute it in this module so that  *)
     (* exceptq can have a version string before any threads are created.*)
@@ -55,21 +54,8 @@ PROCEDURE GetWeaselVersion (IsProVersion: BOOLEAN;
 
     BEGIN
         Strings.Assign ("Weasel ", ProgVersion);
-        IF IsProVersion THEN
-            Strings.Append ("Pro ", ProgVersion);
-        END (*IF*);
         Strings.Append (WV.version, ProgVersion);
         Strings.Assign (ProgVersion, Version);
-    END GetWeaselVersion;
-
-(************************************************************************)
-
-PROCEDURE GetProgramName (VAR (*OUT*) name: ARRAY OF CHAR);
-
-    (* Returns a name and version string. *)
-
-    BEGIN
-        GetWeaselVersion (FALSE, name);
     END GetProgramName;
 
 (************************************************************************)

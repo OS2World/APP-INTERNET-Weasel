@@ -27,7 +27,7 @@ IMPLEMENTATION MODULE INIData;
         (*               Looking after our INI file data            *)
         (*                                                          *)
         (*    Started:        30 March 2000                         *)
-        (*    Last edited:    9 June 2013                           *)
+        (*    Last edited:    17 April 2015                         *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
@@ -40,7 +40,7 @@ FROM SYSTEM IMPORT
     (* proc *)  ADR, CAST;
 
 FROM FileOps IMPORT
-    (* proc *)  Exists;
+    (* proc *)  Exists, CreateFile;
 
 FROM Heap IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
@@ -141,6 +141,7 @@ PROCEDURE CreateINIFile (VAR (*IN*) filename: ARRAY OF CHAR; UseTextFile: BOOLEA
             result^.thandle := TNIData.CreateTNIFile (filename);
             failure := result^.thandle = CAST(TNIData.THandle, NIL);
         ELSE
+            CreateFile (filename);
             result^.ihandle := OS2.PrfOpenProfile (hab, filename);
             failure := result^.ihandle = 0;
             IF failure THEN

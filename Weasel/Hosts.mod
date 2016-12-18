@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2016   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Hosts;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            9 May 1998                      *)
-        (*  Last edited:        14 April 2012                   *)
+        (*  Last edited:        30 October 2016                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -70,14 +70,14 @@ CONST
     NumberOfBlacklistDomains = 8;
 
 TYPE
-    LabelString = ARRAY [0..9] OF CHAR;
+    LabelString = ARRAY [0..11] OF CHAR;
     Label = ARRAY HostCategory OF LabelString;
     BlacklistType = [1..NumberOfBlacklistDomains];
     BLSuffix = ARRAY BlacklistType OF ARRAY [0..31] OF CHAR;
 
 CONST
-    LogLabel = Label {"trusted", "Gatefor", "banned"};
-    INILabel = Label {"MayRelay", "RelayDest", "Banned"};
+    LogLabel = Label {"whitelisted", "trusted", "Gatefor", "banned"};
+    INILabel = Label {"Whitelisted", "MayRelay", "RelayDest", "Banned"};
     DefaultCheckSuffix = BLSuffix {"blackholes.mail-abuse.org",
                                    "dialups.mail-abuse.org",
                                    "relays.mail-abuse.org",
@@ -175,19 +175,37 @@ PROCEDURE OnBlacklist (LogID: TransactionLogID;  IPAddress: CARDINAL;
 (************************************************************************)
 
 PROCEDURE CheckHost (IPAddress: CARDINAL;
-                         VAR (*OUT*) IsBanned, MayRelay: BOOLEAN);
+                     VAR (*OUT*) IsBanned, OnWhitelist, MayRelay: BOOLEAN);
 
     (* Looks up our internal list of hosts, and returns results: *)
     (*     IsBanned:   this host is on our blacklist, we will    *)
     (*                 refuse any connection from it.            *)
+    (*     OnWhitelist: this host is whitelisted                 *)
     (*     MayRelay:   this host is one from whom we will        *)
     (*                 accept mail to be relayed.                *)
 
     BEGIN
-        IsBanned := MatchAnAddress (MasterList[banned], IPAddress);
+        OnWhitelist := MatchAnAddress (MasterList[whitelisted], IPAddress);
+        IsBanned := (NOT OnWhitelist) AND
+                         MatchAnAddress (MasterList[banned], IPAddress);
         MayRelay := (NOT IsBanned) AND
                          MatchAnAddress (MasterList[mayrelay], IPAddress);
     END CheckHost;
+
+(************************************************************************)
+
+PROCEDURE BannedHost (VAR (*IN*) name: HostName): BOOLEAN;
+
+    (* Returns TRUE if name matches a name in the "banned" list.  This  *)
+    (* is different from the CheckHost check because we are now         *)
+    (* checking the name rather than the address.                       *)
+
+    VAR LogID: TransactionLogID;
+
+    BEGIN
+        LogID := DummyLogID();
+        RETURN MatchHostName (MasterList[banned], name, FALSE, LogID);
+    END BannedHost;
 
 (************************************************************************)
 
@@ -259,13 +277,16 @@ PROCEDURE RefreshHostLists (LogIt, UseTNI: BOOLEAN);
     VAR Loopback: ARRAY [0..1] OF CARDINAL;
         INIname: FilenameString;
         app: ARRAY [0..4] OF CHAR;
-        key: ARRAY [0..9] OF CHAR;
+        key: ARRAY [0..11] OF CHAR;
 
     BEGIN
         Loopback[0] := 16777343;
         Loopback[1] := 0;
         INIname := "Weasel.INI";
         app := "$SYS";
+        key := "Whitelisted";
+        RefreshHostList (INIname, app, key, UseTNI,
+                             MasterList[whitelisted], FALSE, LogIt);
         key := "MayRelay";
         RefreshHostList2 (INIname, app, key, UseTNI,
                              MasterList[mayrelay], Loopback, FALSE, LogIt);

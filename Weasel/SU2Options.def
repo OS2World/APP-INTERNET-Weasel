@@ -1,0 +1,16 @@
+DEFINITION MODULE SU2Options;
+
+        (********************************************************)
+        (*                                                      *)
+        (*     'Options 2' page in Weasel VIOSetup utility      *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            16 September 2003               *)
+        (*  Last edited:        16 September 2003               *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+END SU2Options.
+

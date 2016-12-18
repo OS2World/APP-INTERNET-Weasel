@@ -1,0 +1,132 @@
+DEFINITION MODULE TaskControl;
+
+        (****************************************************************)
+        (*                                                              *)
+        (*   Data structures internal to the kernel of the operating    *)
+        (*     system; the dispatcher of the operating system; and      *)
+        (*                  related procedures.                         *)
+        (*                                                              *)
+        (*      Programmer:     P. Moylan                               *)
+        (*      Last edited:    22 December 2013                        *)
+        (*      Status:         OK                                      *)
+        (*                                                              *)
+        (****************************************************************)
+
+FROM SYSTEM IMPORT ADDRESS;
+FROM OS2 IMPORT HMTX;
+
+(************************************************************************)
+(*                                                                      *)
+(*                         END-USER PROCEDURES                          *)
+(*                                                                      *)
+(************************************************************************)
+
+CONST MaxPriority = 15;
+
+TYPE
+    PriorityLevel = [0..MaxPriority];
+    NameString = ARRAY [0..15] OF CHAR;
+    PROC1 = PROCEDURE (ADDRESS);
+
+PROCEDURE CreateTask (StartAddress: PROC;  taskpriority: PriorityLevel;
+                                           taskname: NameString): BOOLEAN;
+
+    (* Must be called to introduce a task to the system. The first      *)
+    (* parameter, which should be the name of a procedure containing    *)
+    (* the task code, gives the starting address.  The second parameter *)
+    (* is the task's base priority.  If this task has a higher priority *)
+    (* than its creator, it will run immediately.  Otherwise, it        *)
+    (* becomes ready.                                                   *)
+
+    (* A task terminates itself either by an explicit call to TaskExit, *)
+    (* or simply by falling out of the bottom of its code.              *)
+    (* There is no provision for tasks to kill other tasks.  Suicide    *)
+    (* is legal, but murder is not.                                     *)
+
+PROCEDURE CreateTask1 (StartAddress: PROC1;  taskpriority: PriorityLevel;
+                          taskname: NameString;  param: ADDRESS): BOOLEAN;
+
+    (* Like CreateTask, but allows the passing of a single parameter    *)
+    (* "param" to the task.                                             *)
+
+(*
+PROCEDURE CreateTaskSpecial (StartAddress: PROC;  taskpriority: PriorityLevel;
+                                           taskname: NameString): BOOLEAN;
+*)
+    (* Like CreateTask, but starts the task with a direct API call      *)
+    (* rather than going through module Processes.  (This is not a      *)
+    (* good long-term solution, I'm using it only for a few special     *)
+    (* tests.)                                                          *)
+
+PROCEDURE TaskExit;
+
+    (* Removes the currently running task from the system, and performs *)
+    (* a task switch to the next ready task.                            *)
+
+    (* There is normally no need for a task to call this procedure,     *)
+    (* because it is automatically called when the task code "falls out *)
+    (* the bottom" by executing its final procedure return.             *)
+
+PROCEDURE ThreadCount(): CARDINAL;
+
+    (* Returns the number of currently running threads. *)
+
+PROCEDURE Crash (message: ARRAY OF CHAR);
+
+    (* Aborts the program in a way that will let us do a postmortem check. *)
+
+(************************************************************************)
+(*                                                                      *)
+(*                LOCKS FOR CRITICAL SECTION PROTECTION                 *)
+(*                                                                      *)
+(*  Note that we distinguish between a Lock and a Semaphore.            *)
+(*  A Semaphore is a general semaphore - whose operations are defined   *)
+(*  in module Semaphores - which can be used for general inter-task     *)
+(*  interlocking.  A Lock is similar to a binary semaphore (with a      *)
+(*  more efficient implementation than a Semaphore), but may be used    *)
+(*  only in a strictly nested fashion and is therefore useful only      *)
+(*  for critical section protection.                                    *)
+(*                                                                      *)
+(************************************************************************)
+
+TYPE Lock = HMTX;
+
+PROCEDURE CreateLock (VAR (*OUT*) L: Lock);
+
+    (* Creates a new lock. *)
+
+PROCEDURE DestroyLock (VAR (*INOUT*) L: Lock);
+
+    (* Disposes of a lock. *)
+
+PROCEDURE Obtain (L: Lock);
+
+    (* Obtains lock L, waiting if necessary. *)
+
+PROCEDURE Release (L: Lock);
+
+    (* Releases lock L - which might unblock some other task. *)
+
+(************************************************************************)
+(*                  PROCEDURES PRIVATE TO THE KERNEL                    *)
+(************************************************************************)
+
+TYPE TaskID = CARDINAL;
+
+PROCEDURE CurrentTaskID(): TaskID;
+
+    (* Returns the TaskID of the calling task. *)
+
+PROCEDURE SuspendMe (id: TaskID;  TimeLimit: CARDINAL): BOOLEAN;
+
+    (* Suspends the caller.  A TRUE result indicates that the time      *)
+    (* limit expired without the task being woken up.                   *)
+
+PROCEDURE ResumeTask (id: TaskID): BOOLEAN;
+
+    (* Resumes a task specified by its thread ID.                       *)
+    (* The function result is normally TRUE, but is FALSE if the task   *)
+    (* couldn't be resumed (usually because that task no longer exists).*)
+
+END TaskControl.
+

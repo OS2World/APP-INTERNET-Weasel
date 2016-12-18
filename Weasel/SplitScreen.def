@@ -1,0 +1,86 @@
+DEFINITION MODULE SplitScreen;
+
+        (********************************************************)
+        (*                                                      *)
+        (*           Simple screen output routines.             *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Last edited:        14 November 2012                *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (*  This module supports a specialised form of split    *)
+        (*  screen.  The bottom half supports scrolling, the    *)
+        (*  top half does not, and we maintain an internal      *)
+        (*  cursor position for the bottom half only.           *)
+        (*                                                      *)
+        (********************************************************)
+
+
+PROCEDURE NotDetached(): BOOLEAN;
+
+    (* Returns TRUE unless called by a process running detached.        *)
+    (* (A detached process may not do keyboard, screen, or mouse I/O.)  *)
+
+PROCEDURE LockScreen;
+
+    (* Get exclusive access to the screen. *)
+
+    (* NOTE: the procedures provided by this module do not lock the     *)
+    (* screen, since it is presumed that client modules will want to    *)
+    (* make entire lines (for example) indivisible, rather than strings *)
+    (* or characters.  The LockScreen and UnlockScreen primitives are   *)
+    (* provided for the use of other modules that want to avoid         *)
+    (* fighting each other for screen access.                           *)
+
+PROCEDURE UnlockScreen;
+
+    (* End of section started by LockScreen. *)
+
+PROCEDURE SetBoundary (firstrow, hangingindent: CARDINAL);
+
+    (* Defines the bottom half of the screen to start at row firstrow.  *)
+    (* Also defines the number of blank characters to write at the      *)
+    (* beginning of a continuation line if we run off the end of a row. *)
+
+PROCEDURE ClearScreen;
+
+    (* Clears the screen. *)
+
+PROCEDURE ReleaseScreen;
+
+    (* Tells the OS about our current cursor position. *)
+
+PROCEDURE RegainScreen;
+
+    (* Queries the OS for the current cursor position. *)
+
+PROCEDURE WriteChar (ch: CHAR);
+
+    (* Writes one character. *)
+
+PROCEDURE WriteString (text: ARRAY OF CHAR);
+
+    (* Writes a sequence of characters, terminated either by NUL or by  *)
+    (* the end of the array, and updates the cursor.                    *)
+
+PROCEDURE WriteLn;
+
+    (* Moves the screen cursor to the beginning of the next line,       *)
+    (* scrolling if necessary.                                          *)
+
+PROCEDURE SetCursor (row, column: CARDINAL);
+
+    (* Moves the screen cursor to the specified row and column.         *)
+
+PROCEDURE WriteInt (number: INTEGER);
+PROCEDURE WriteCard (number: CARDINAL);
+
+    (* Writes a number to the screen.   *)
+
+PROCEDURE WriteStringAt (row, col: CARDINAL;  text: ARRAY OF CHAR);
+
+    (* Writes a character string at screen location (row, col). *)
+    (* This procedure does not change the cursor position.      *)
+
+END SplitScreen.
+

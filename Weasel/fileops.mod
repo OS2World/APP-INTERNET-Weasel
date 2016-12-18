@@ -32,7 +32,7 @@ IMPLEMENTATION MODULE FileOps;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            17 October 2001                 *)
-        (*  Last edited:        22 January 2014                 *)
+        (*  Last edited:        17 April 2015                   *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (*    The original version of this module used          *)
@@ -423,19 +423,6 @@ PROCEDURE HideFileL (name: ARRAY OF CHAR;  HideIt: BOOLEAN);
 
 (************************************************************************)
 
-(*
-PROCEDURE NameOf (f: ChanId): FilenameString;
-
-    (* Returns the name of the file. *)
-    (* Question: is this procedure used anywhere? *)
-
-    BEGIN
-        RETURN f.name;
-    END NameOf;
-*)
-
-(************************************************************************)
-
 PROCEDURE Exists (name: ARRAY OF CHAR): BOOLEAN;
 
     (* Returns TRUE iff 'name' already exists. *)
@@ -478,6 +465,22 @@ PROCEDURE DeleteFile (name: ARRAY OF CHAR);
     BEGIN
         FileSys.Remove (name, dummy);
     END DeleteFile;
+
+(************************************************************************)
+
+PROCEDURE CreateFile (name: ARRAY OF CHAR);
+
+    (* Creates an empty file.  Deletes any existing file with the same name. *)
+
+    VAR cid: ChanId;
+
+    BEGIN
+        IF Exists (name) THEN
+            DeleteFile (name);
+        END (*IF*);
+        cid := OpenNewFile (name, TRUE);
+        CloseFile (cid);
+    END CreateFile;
 
 (************************************************************************)
 

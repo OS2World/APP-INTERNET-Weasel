@@ -8,6 +8,7 @@
 /* Create the INF files. */
 
 'ipfc -i weasel.ipf'
+'ipfc -i viosetup.ipf'
 'ipfc -i weaselpro.ipf'
 'ipfc -i techdata.ipf'
 
@@ -48,14 +49,12 @@ mkdir tools
 'copy ..\tools\mdumpini.cmd tools'
 mkdir doc
 'copy ..\doc\changes.doc doc'
-'copy ..\doc\weasel.ipf doc'
-'copy ..\doc\weaselpro.ipf doc'
-'copy ..\doc\techdata.ipf doc'
 'copy ..\doc\ONLINE'
 'copy ..\README'
 'copy ..\README.FILTERS'
 'copy ..\file_id.diz'
 'copy ..\doc\weasel.inf'
+'copy ..\doc\viosetup.inf'
 'copy ..\doc\weaselpro.inf'
 'copy ..\doc\techdata.inf'
 'copy ..\weasel.exe'
@@ -71,17 +70,25 @@ mkdir doc
 
 /* Zip up the main package. */
 
-'zip -q -r ..\weasel'ver'.zip .'
+'zip -q -r ..\weasel_'ver'.zip .'
 'del doc\* /n'
 rmdir doc
 'del tools\* /n'
 rmdir tools
+'del filters\* /n'
+rmdir filters
 'del * /n'
 
 /* SOURCE FILES */
 
 'mkdir Weasel'
 'mkdir Setup'
+'mkdir doc'
+'copy ..\doc\weasel.bmp doc'
+'copy ..\doc\weasel.ipf doc'
+'copy ..\doc\viosetup.ipf doc'
+'copy ..\doc\weaselpro.ipf doc'
+'copy ..\doc\techdata.ipf doc'
 'cd ..'
 
 /* Sources for the server and some utilities. */
@@ -121,10 +128,12 @@ rmdir tools
 'del src.zip /N'
 'cd ..'
 
-'zip -q -r ..\WeaselSrc'ver'.zip .'
+'zip -q -r ..\WeaselSrc_'ver'.zip .'
 
 /* Remove temporary files. */
 
+'del doc\* /N'
+'rmdir doc'
 'del Weasel\* /N'
 'rmdir Weasel'
 'del Setup\RES\* /N'

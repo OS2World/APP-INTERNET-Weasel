@@ -6,7 +6,7 @@ DEFINITION MODULE Domains;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 July 2002                    *)
-        (*  Last edited:        16 January 2013                 *)
+        (*  Last edited:        6 December 2015                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -28,7 +28,9 @@ TYPE Domain;          (* is private *)
 
 PROCEDURE CheckRegistration (TNImode: BOOLEAN);
 
-    (* Sets TNI mode, checks whether this is a registered copy. *)
+    (* Sets TNI mode. This procedure also used to check whether *)
+    (* this is a registered copy, hence the procedure name,     *)
+    (* but that check is no longer done.                        *)
 
 PROCEDURE StartDebugLogging (ctx: LogContext);
 
@@ -52,6 +54,12 @@ PROCEDURE ClearMailboxLocks;
     (* Clears the POP lock in every mailbox, in case it was left set    *)
     (* by an improper shutdown.                                         *)
 
+PROCEDURE SetPrincipalIPAddress (address: CARDINAL);
+
+    (* Specifies which address is to be considered out principal IP     *)
+    (* address, in case we have multiple interfaces.  If address = 0,   *)
+    (* we allow the address to be calculated internally.                *)
+
 PROCEDURE RefreshOurIPAddresses(): BOOLEAN;
 
     (* Updates the internal list of our local IP addresses.             *)
@@ -73,6 +81,10 @@ PROCEDURE AddressIsLocal (IPAddress: CARDINAL): BOOLEAN;
 PROCEDURE NameOfDomain (D: Domain;  VAR (*OUT*) name: DomainName);
 
     (* Returns the name of domain D in name. *)
+
+PROCEDURE NameOfFirstDomain (VAR (*OUT*) name: DomainName);
+
+    (* Returns the name of one of our domains. *)
 
 PROCEDURE DomainIsLocal (VAR (*IN*) name: DomainName;
                          VAR (*OUT*) D: Domain): BOOLEAN;

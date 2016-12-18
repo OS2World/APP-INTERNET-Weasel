@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE OptionP1;
         (*                 Option page 1 of the notebook                *)
         (*                                                              *)
         (*        Started:        30 June 1999                          *)
-        (*        Last edited:    28 April 2008                         *)
+        (*        Last edited:    13 December 2016                      *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -73,7 +73,7 @@ CONST
 VAR
     ChangeInProgress: BOOLEAN;
     OurPageHandle, notebookhandle: OS2.HWND;
-    OldMAILFROMcheck, OldUseFixedLocalName: BOOLEAN;
+    OldMAILFROMcheck, OldSPFenabled, OldUseFixedLocalName: BOOLEAN;
     OldBadPasswordLimit: CARDINAL;
     OldAuthTime: CARDINAL;
     OldAuthMethods: CARDINAL;
@@ -102,6 +102,8 @@ PROCEDURE SetLanguage (lang: LangHandle);
         OS2.WinSetDlgItemText (OurPageHandle, DID.BadPasswordLimitLabel, stringval);
         StrToBuffer (lang, "OptionP1.MAILFROMcheck", stringval);
         OS2.WinSetDlgItemText (OurPageHandle, DID.MAILFROMcheck, stringval);
+        StrToBuffer (lang, "OptionP1.SPFenabled", stringval);
+        OS2.WinSetDlgItemText (OurPageHandle, DID.SPFenabled, stringval);
         StrToBuffer (lang, "OptionP1.AuthenticationBox", stringval);
         OS2.WinSetDlgItemText (OurPageHandle, DID.AuthenticationBox, stringval);
         StrToBuffer (lang, "OptionP1.EnablePOPbeforeSMTP", stringval);
@@ -125,12 +127,17 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
 
     (**********************************************************************)
 
-    PROCEDURE LoadCheckbox (boxid: CARDINAL;  VAR (*OUT*) val: BOOLEAN;
-                                                   INIlabel: ARRAY OF CHAR);
+    PROCEDURE LoadCheckbox (boxid: CARDINAL;  default: BOOLEAN;
+                        VAR (*OUT*) oldval: BOOLEAN;  INIlabel: ARRAY OF CHAR);
+
+        VAR val: BOOLEAN;
 
         BEGIN
-            IF NOT INIFetch ('$SYS', INIlabel, val) THEN
-                val := FALSE;
+            IF INIFetch ('$SYS', INIlabel, val) THEN
+                oldval := val;
+            ELSE
+                val := default;
+                oldval := NOT default;
             END (*IF*);
             OS2.WinSendDlgItemMsg (hwnd, boxid, OS2.BM_SETCHECK,
                                      OS2.MPFROMSHORT(ORD(val)), NIL);
@@ -167,7 +174,11 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
 
         (* Apply address checks to MAIL FROM address. *)
 
-        LoadCheckbox (DID.MAILFROMcheck, OldMAILFROMcheck, 'MAILFROMcheck');
+        LoadCheckbox (DID.MAILFROMcheck, TRUE, OldMAILFROMcheck, 'MAILFROMcheck');
+
+        (* Enable SPF check. *)
+
+        LoadCheckbox (DID.SPFenabled, TRUE, OldSPFenabled, 'SPFenabled');
 
         (* POP-before-SMTP authentication. *)
 
@@ -202,7 +213,7 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
 
         (* Use fixed local host name? *)
 
-        LoadCheckbox (DID.UseFixedLocalName, OldUseFixedLocalName, 'UseFixedLocalName');
+        LoadCheckbox (DID.UseFixedLocalName, FALSE, OldUseFixedLocalName, 'UseFixedLocalName');
         IF INIGetString ('$SYS', 'OurHostName', name) THEN
             OldOurHostName := name;
         ELSE
@@ -271,6 +282,10 @@ PROCEDURE StoreData;
         (* MAILFROM check. *)
 
         StoreCheckbox (DID.MAILFROMcheck, OldMAILFROMcheck, 'MAILFROMcheck');
+
+        (* Enable SPF check. *)
+
+        StoreCheckbox (DID.SPFenabled, OldSPFenabled, 'SPFenabled');
 
         (* POP-before-SMTP authentication. *)
 

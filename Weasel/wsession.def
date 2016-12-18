@@ -6,7 +6,7 @@ DEFINITION MODULE WSession;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            28 April 1998                   *)
-        (*  Last edited:        22 December 2013                *)
+        (*  Last edited:        11 December 2016                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -21,14 +21,16 @@ FROM Sockets IMPORT
 
 PROCEDURE SetSessionParameters (MaxUserLimit, TimeoutLimit: CardArray;
                                 BadPasswordLimit: CARDINAL;
-                                AuthTime, SMTPAuthMask: CARDINAL);
+                                AuthTime, SMTPAuthMask: CARDINAL;
+                                NoPOPlogging: BOOLEAN);
 
     (* Sets some parameters specified by the INI file: maximum nunber   *)
     (* of simultaneous users; how long a session can be idle before it  *)
     (* is forcibly closed; the number of bad login attempts that will   *)
     (* be tolerated before a POP3 session is forcibly terminated; how   *)
-    (* long a POP-before-SMTP authorisation remains valid; and a mask   *)
-    (* to say which SMTP AUTH options are enabled for incoming mail.    *)
+    (* long a POP-before-SMTP authorisation remains valid; a mask to    *)
+    (* say which SMTP AUTH options are enabled for incoming mail; and a *)
+    (* flag to suppress POP session detail in the transaction log.      *)
     (* Also gets module SMTPData to reread the filter names.            *)
 
 (*PROCEDURE UpdateTitleBar;*)

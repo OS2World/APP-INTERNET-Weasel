@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2016   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE POPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 April 1998                   *)
-        (*  Last edited:        19 July 2013                    *)
+        (*  Last edited:        25 May 2016                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -103,7 +103,6 @@ PROCEDURE SetDebugID (ID: TransactionLogID);
 
 CONST
     Nul = CHR(0);
-    (*MaxVisibleMessages = 512;*)    (* obsolete *)
     CacheSize = 64;
     DescrFileName = "MSGLIST.DAT";
 
@@ -151,11 +150,11 @@ TYPE
     (*                         since the last write to disk.            *)
     (*   HaveLock         TRUE iff we have obtained exclusive access to *)
     (*                       this mailbox.                              *)
-    (*   ShowLast         (Obsolete option)  TRUE if we want a POP      *)
-    (*                       fetch to get the last 512 messages,        *)
-    (*                       rather than the first 512.                 *)
-    (*   usediskfile      TRUE iff there are more messages than the     *)
+    (*   usingdiskfile    TRUE iff there are more messages than the     *)
     (*                       descriptor cache can hold.                 *)
+    (*   overflow         TRUE iff we have had to ignore some messages  *)
+    (*                       because UndeletedBytes would have          *)
+    (*                       exceeded MAX(CARDINAL).                    *)
 
     Mailbox = POINTER TO MailboxRecord;
     MailboxRecord = RECORD
@@ -170,8 +169,8 @@ TYPE
                         descrcid: CARDINAL;
                         CacheChanged: BOOLEAN;
                         HaveLock: BOOLEAN;
-                        (*ShowLast: BOOLEAN;*)
-                        usediskfile: BOOLEAN;
+                        usingdiskfile: BOOLEAN;
+                        overflow: BOOLEAN;
                     END (*RECORD*);
 
 (************************************************************************)
@@ -323,7 +322,7 @@ PROCEDURE AlignCache (M: Mailbox;  N: CARDINAL): BOOLEAN;
             RETURN FALSE;
         END (*IF*);
 
-        IF M^.usediskfile THEN
+        IF M^.usingdiskfile THEN
             DEC (N);
             desiredoffset := N - (N MOD CacheSize);
             IF M^.MessageNoOffset <> desiredoffset THEN
@@ -386,14 +385,15 @@ PROCEDURE ClearMessageInfo (VAR (*INOUT*) M: Mailbox);
 
     BEGIN
         WITH M^ DO
-            IF usediskfile THEN
+            IF usingdiskfile THEN
                 CloseFile (descrcid);
                 fname := directory;
                 Strings.Append (DescrFileName, fname);
                 DeleteFile (fname);
             END (*IF*);
             descrcid := NoSuchChannel;
-            usediskfile := FALSE;
+            usingdiskfile := FALSE;
+            overflow := FALSE;
             CacheChanged := FALSE;
             TotalMessages := 0;
             NumberOfMessages := 0;
@@ -402,15 +402,14 @@ PROCEDURE ClearMessageInfo (VAR (*INOUT*) M: Mailbox);
         END (*WITH*);
     END ClearMessageInfo;
 
-(* Fields not affected by the above code:
+    (* Fields not affected by the above code:
 
                       name: UserName;
                       domains: DomainList;
                       directory: FilenameString;
                       DescrCache: DescriptorCache;
                       HaveLock: BOOLEAN;
-                      (*ShowLast: BOOLEAN;*)
-*)
+    *)
 
 (************************************************************************)
 
@@ -427,20 +426,24 @@ PROCEDURE InitialCacheLoad (M: Mailbox;
         count := 0;
         REPEAT
 
-            INC (count);
-            WITH M^.DescrCache[count] DO
-                size := D.size.low;
-                Strings.Assign (D.name, shortname);
-                Strings.FindNext (".", shortname, 0, found, pos);
-                IF found THEN
-                    shortname[pos] := Nul;
-                END (*IF*);
-                ToBeDeleted := FALSE;
-            END (*WITH*);
-            INC (M^.NumberOfMessages);
-            INC (M^.UndeletedBytes, M^.DescrCache[count].size);
+            IF M^.UndeletedBytes > MAX(CARDINAL) - D.size.low THEN
+                M^.overflow := TRUE;
+            ELSE
+                INC (count);
+                WITH M^.DescrCache[count] DO
+                    size := D.size.low;
+                    Strings.Assign (D.name, shortname);
+                    Strings.FindNext (".", shortname, 0, found, pos);
+                    IF found THEN
+                        shortname[pos] := Nul;
+                    END (*IF*);
+                    ToBeDeleted := FALSE;
+                END (*WITH*);
+                INC (M^.NumberOfMessages);
+                INC (M^.UndeletedBytes, M^.DescrCache[count].size);
+            END (*IF*);
 
-        UNTIL (count >= CacheSize) OR NOT NextDirEntry (D);
+        UNTIL M^.overflow OR (count >= CacheSize) OR NOT NextDirEntry (D);
 
         RETURN count;
 
@@ -464,17 +467,17 @@ PROCEDURE BuildDescriptorArray (M: Mailbox);
         Strings.Append ("*.MSG", SearchString);
         M^.MessageNoOffset := 0;
 
-        M^.usediskfile := FALSE;
+        M^.usingdiskfile := FALSE;
         MoreToGo := FirstDirEntry (SearchString, FALSE, FALSE, D);
         WHILE MoreToGo DO
             count := InitialCacheLoad (M, D);
             MoreToGo := (count = CacheSize) AND NextDirEntry (D);
-            IF MoreToGo OR M^.usediskfile THEN
+            IF MoreToGo OR (M^.usingdiskfile AND (count > 0)) THEN
 
                 (* There are more entries than can fit in the cache,    *)
                 (* so we have to write the current data out to disk.    *)
 
-                IF NOT M^.usediskfile THEN
+                IF NOT M^.usingdiskfile THEN
 
                     (* Create the file. *)
 
@@ -484,7 +487,7 @@ PROCEDURE BuildDescriptorArray (M: Mailbox);
                     IF duplicate THEN
                         M^.descrcid := OpenOldFile (name, TRUE, TRUE);
                     END (*IF*);
-                    M^.usediskfile := TRUE;
+                    M^.usingdiskfile := TRUE;
                 END (*IF*);
 
                 WriteRaw (M^.descrcid, M^.DescrCache, SIZE(DescriptorCache));
@@ -497,6 +500,8 @@ PROCEDURE BuildDescriptorArray (M: Mailbox);
                 (* will contain trailing rubbish.  I consider this to   *)
                 (* be an acceptable overhead - we just have to ignore   *)
                 (* the rubbish when reading back from the file.         *)
+
+                IF M^.overflow THEN MoreToGo := FALSE END(*IF*);
 
             END (*IF*);
 
@@ -538,7 +543,6 @@ PROCEDURE LoadUserData (VAR (*IN*) M: Mailbox;
                 Strings.Assign (username, name);
                 directory[0] := Nul;
                 HaveLock := FALSE;
-                (*ShowLast := FALSE;*)
             END (*IF*);
         END (*WITH*);
 
@@ -582,7 +586,7 @@ PROCEDURE DiscardMailbox (VAR (*INOUT*) M: Mailbox);
     BEGIN
         IF M <> NIL THEN
             DiscardDomainList (M^.domains);
-            IF M^.usediskfile THEN
+            IF M^.usingdiskfile THEN
                 CloseFile (M^.descrcid);
                 filename := M^.directory;
                 Strings.Append (DescrFileName, filename);
@@ -599,7 +603,7 @@ PROCEDURE DiscardMailbox (VAR (*INOUT*) M: Mailbox);
 
 (************************************************************************)
 
-PROCEDURE LockMailbox (M: Mailbox): CARDINAL;
+PROCEDURE LockMailbox (M: Mailbox;  LogID: TransactionLogID): CARDINAL;
 
     (* Attempts to lock the mailbox.  The possible results are          *)
     (*       0     OK, you have exclusive access to the mailbox         *)
@@ -622,14 +626,10 @@ PROCEDURE LockMailbox (M: Mailbox): CARDINAL;
                 CloseFile (cid);
                 M^.HaveLock := TRUE;
                 DiscardDomainList (M^.domains);
-                (*
-                hini := OpenINIFile (M^.INIFileName, UseTNI);
-                IF INIData.INIValid (hini) THEN
-                    EVAL (INIGet(hini, M^.name, 'LastSeen', lastseq));
-                    CloseINIFile (hini);
-                END (*IF*);
-                *)
                 BuildDescriptorArray (M);
+                IF M^.overflow THEN
+                    LogTransactionL (LogID, "Mailbox too big to list all files.");
+                END (*IF*);
                 RETURN 0;
             ELSE
                 RETURN 3;
@@ -655,26 +655,26 @@ PROCEDURE ClaimMailbox (VAR (*INOUT*) M: Mailbox;
         END (*IF*);
 
         NEW (M);
-        M^.usediskfile := FALSE;
+        M^.usingdiskfile := FALSE;
         ClearMessageInfo (M);
 
         WITH M^ DO
             Strings.Assign (username, name);
             domains := MakeSingletonList (D);
             HaveLock := FALSE;
-            (*ShowLast := POPFetchLatestOption (D);*)
             MailDirectoryFor (D, directory);
             Strings.Append (name, directory);
             Strings.Append ('\', directory);
         END (*WITH*);
-        RETURN LockMailbox (M);
+        RETURN LockMailbox (M, LogID);
 
     END ClaimMailbox;
 
 (************************************************************************)
 
 PROCEDURE PasswordOK (M: Mailbox;  VAR (*IN*) password: ARRAY OF CHAR;
-                                   VAR (*OUT*) D: Domain): CARDINAL;
+                                   VAR (*OUT*) D: Domain;
+                                   LogID: TransactionLogID): CARDINAL;
 
     (* Locks the mailbox if the password is correct.  The possible      *)
     (* results are                                                      *)
@@ -703,7 +703,7 @@ PROCEDURE PasswordOK (M: Mailbox;  VAR (*IN*) password: ARRAY OF CHAR;
                         Strings.Append (name, directory);
                         Strings.Append ('\', directory);
                     END (*WITH*);
-                    RETURN LockMailbox (M);
+                    RETURN LockMailbox (M, LogID);
                 ELSE
                     StepToNextDomain (M^.domains);
                     IF M^.domains = head THEN
@@ -793,7 +793,7 @@ PROCEDURE APOPCheck (M: Mailbox;  LogID: TransactionLogID;
                     Strings.Append (name, directory);
                     Strings.Append ('\', directory);
                 END (*WITH*);
-                RETURN LockMailbox (M);
+                RETURN LockMailbox (M, LogID);
             ELSE
                 StepToNextDomain (M^.domains);
                 IF M^.domains = head THEN

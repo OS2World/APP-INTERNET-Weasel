@@ -1,0 +1,27 @@
+DEFINITION MODULE DomainEditor;
+
+        (************************************************************)
+        (*                                                          *)
+        (*                    PM Setup for Weasel                   *)
+        (*    The settings notebook for a domain, and its frame     *)
+        (*                                                          *)
+        (*    Started:        20 December 2001                      *)
+        (*    Last edited:    16 December 2009                      *)
+        (*    Status:         OK                                    *)
+        (*                                                          *)
+        (************************************************************)
+
+
+FROM OS2 IMPORT HWND;
+
+PROCEDURE Edit (owner: HWND;  DomainName, GlobalMailRoot: ARRAY OF CHAR;
+                AcceptUnknown, OpenAndClose, W4Style, TNImode: BOOLEAN);
+
+    (* Opens and allows editing of the main dialogue box for this domain. *)
+    (* If OpenAndClose = TRUE we open the dialogue and then close it      *)
+    (* without waiting for user input; this is to cover the case where    *)
+    (* we want to refresh INI file data as the result of things like      *)
+    (* format changes resulting from an upgrade.                          *)
+
+END DomainEditor.
+

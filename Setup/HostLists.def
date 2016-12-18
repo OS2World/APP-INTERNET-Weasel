@@ -1,0 +1,49 @@
+DEFINITION MODULE HostLists;
+
+        (****************************************************************)
+        (*                                                              *)
+        (*                      PM Setup for Weasel                     *)
+        (*               Host list pages of the notebook                *)
+        (*                                                              *)
+        (*        Started:        13 July 1999                          *)
+        (*        Last edited:    16 December 2009                      *)
+        (*        Status:         OK                                    *)
+        (*                                                              *)
+        (****************************************************************)
+
+
+FROM OS2 IMPORT HWND;
+FROM Misc IMPORT HostCategory;
+FROM CommonSettings IMPORT FontGroup, FontName;
+FROM Languages IMPORT LangHandle;
+
+
+PROCEDURE CreatePage (notebook: HWND;  category: HostCategory;
+                      AfterPage: CARDINAL;  group: FontGroup;
+                      ModeIsMultidomain, TNImode: BOOLEAN;
+                      VAR (*OUT*) pageID: CARDINAL);
+
+    (* Creates a host list page and adds it to the notebook. *)
+
+PROCEDURE SetLanguage (lang: LangHandle);
+
+    (* Relabels all hostlist pages in the new language. *)
+
+PROCEDURE SetLocalFont (VAR (*IN*) name: FontName);
+
+    (* Sets the font of the text on the "Local" page. *)
+
+PROCEDURE SetFonts (VAR (*IN*) name: FontName);
+
+    (* Sets the font of the text on all host pages except for the local page. *)
+
+PROCEDURE StoreData (category: HostCategory);
+
+    (* Stores the data for this page. *)
+
+PROCEDURE Close (notebook: HWND;  category: HostCategory);
+
+    (* Shuts down this window and removes it from the notebook. *)
+
+END HostLists.
+

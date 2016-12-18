@@ -1,0 +1,16 @@
+DEFINITION MODULE EditHosts;
+
+        (********************************************************)
+        (*                                                      *)
+        (*         Editor for list of network hosts             *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            10 May 1998                     *)
+        (*  Last edited:        10 May 1998                     *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+END EditHosts.
+

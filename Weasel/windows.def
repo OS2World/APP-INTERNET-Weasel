@@ -98,6 +98,10 @@ PROCEDURE GetScreenSize (VAR (*OUT*) rows, columns: CARDINAL);
 
     (* Returns the number of available screen rows and columns. *)
 
+PROCEDURE SetScreenSize (VAR (*INOUT*) rows, cols: CARDINAL);
+
+    (* Sets MaxRowNumber and MaxColumnNumber.  *)
+
 PROCEDURE OpenWindow (VAR (*OUT*) w: Window;
                         ForegroundColour, BackgroundColour: Colour;
                         firstline, lastline: RowRange;

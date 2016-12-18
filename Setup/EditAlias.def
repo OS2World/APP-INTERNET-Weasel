@@ -1,0 +1,39 @@
+DEFINITION MODULE EditAlias;
+
+        (************************************************************)
+        (*                                                          *)
+        (*                    PM Setup for Weasel                   *)
+        (*            Dialogue to edit an alias definition          *)
+        (*                                                          *)
+        (*    Started:        11 July 1999                          *)
+        (*    Last edited:    16 December 2009                      *)
+        (*    Status:         OK                                    *)
+        (*                                                          *)
+        (************************************************************)
+
+
+FROM OS2 IMPORT HWND;
+FROM SYSTEM IMPORT CARD16;
+FROM Languages IMPORT LangHandle;
+
+
+CONST MaxAliasNumber = MAX(CARD16);
+
+PROCEDURE GetNumber (name: ARRAY OF CHAR): CARDINAL;
+
+    (* Returns the ordinal number of alias 'name'.  If it does  *)
+    (* not yet have a defined number, returns MaxAliasNumber.   *)
+    (* We assume that the INI file is already open.             *)
+
+PROCEDURE SetNumber (newnumber: CARDINAL;  name: ARRAY OF CHAR);
+
+    (* Updates the ordinal number of alias 'name'.        *)
+    (* We assume that the INI file is not currently open. *)
+
+PROCEDURE Edit (owner: HWND;  name: ARRAY OF CHAR;
+                                  lang: LangHandle;  UseTNI: BOOLEAN);
+
+    (* Edit the properties of the alias called "name".  *)
+
+END EditAlias.
+

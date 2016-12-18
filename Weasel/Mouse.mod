@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  PMOS/2 software library                                               *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2015   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -27,8 +27,12 @@ IMPLEMENTATION MODULE Mouse;
         (*                  Mouse driver                        *)
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
-        (*  Last edited:        22 December 2013                *)
-        (*  Status:             Partly written                  *)
+        (*  Last edited:        2 April 2015                    *)
+        (*  Status:                                             *)
+        (*      The USEIOCTL option does not work, because of   *)
+        (*      a problem with the MOU_READEVENTQUE function.   *)
+        (*      With this option turned off, the module works   *)
+        (*      but only two buttons are supported.             *)
         (*                                                      *)
         (*      Faults:                                         *)
         (*          - some procedures still not implemented.    *)
@@ -39,7 +43,8 @@ IMPLEMENTATION MODULE Mouse;
 IMPORT OS2;
 
 FROM SYSTEM IMPORT
-    (* type *)  CARD8, CARD16;
+    (* type *)  CARD8, CARD16,
+    (* proc *)  ADR;
 
 FROM Storage IMPORT
     (* proc *)  DEALLOCATE;
@@ -63,18 +68,30 @@ FROM TaskControl IMPORT
     (* type *)  Lock,
     (* proc *)  CreateTask, CreateLock, DestroyLock, Obtain, Release;
 
+FROM Windows IMPORT         (* for debugging *)
+    (* type *)  Window, Colour, FrameType, DividerType,
+                RowRange, ColumnRange,
+    (* proc *)  OpenWindow, WriteChar, WriteString, WriteLn;
+
 (************************************************************************)
 
 TYPE ChangeMap = ARRAY Buttons OF Events;
 
 CONST
+    debugging = FALSE;
+
     (* Mappings for translating button states to events. *)
 
     Map1 = ChangeMap {LeftDown, RightDown, MiddleDown};
     Map2 = ChangeMap {LeftUp, RightUp, MiddleUp};
 
 VAR
-    mouse: OS2.HMOU;
+    debugwin: Window;      (* for debugging *)
+    <* IF DEFINED(USEIOCTL) & USEIOCTL THEN *>
+        hMouse: OS2.HFILE;     (* used with IOCTL interface *)
+    <* ELSE *>
+        mouse: OS2.HMOU;       (* used with MOU interface *)
+    <* END *>
     HaveMouse: BOOLEAN;
     NumberOfButtons: CARDINAL;
     ButtonState: ButtonSet;
@@ -104,6 +121,20 @@ VAR
     ControlTextCursor: BOOLEAN;
     ShowTextCursor: INTEGER;
     CursorLock: Lock;
+
+(************************************************************************)
+
+PROCEDURE WriteCard (w: Window;  N: CARDINAL);
+
+    (* Writes N in decimal to the window. *)
+
+    BEGIN
+        IF N > 9 THEN
+            WriteCard (w, N DIV 10);
+            N := N MOD 10;
+        END (*IF*);
+        WriteChar (w, CHR(ORD('0')+N));
+    END WriteCard;
 
 (************************************************************************)
 
@@ -141,10 +172,34 @@ PROCEDURE ResetMouse (VAR (*OUT*) MousePresent: BOOLEAN;
     (* number of buttons for the mouse if installed.                    *)
 
     VAR Nbuttons: CARD16;
+        <* IF DEFINED(USEIOCTL) & USEIOCTL THEN *>
+            ParamLength, DataLength, ulrc: CARDINAL;
+        <* END *>
 
     BEGIN
         MousePresent := HaveMouse;
-        OS2.MouGetNumButtons (Nbuttons, mouse);
+        Nbuttons := 0;
+        <* IF DEFINED(USEIOCTL) & USEIOCTL THEN *>
+            NumberOfButtons := 055AAH;
+            ParamLength := 0;
+            DataLength := SIZE(CARD16);
+            ulrc := OS2.DosDevIOCtl (hMouse, 7, OS2.MOU_GETBUTTONCOUNT,
+                             NIL, ParamLength, ParamLength,
+                             ADR(Nbuttons), DataLength, DataLength);
+            IF debugging THEN
+                WriteString (debugwin, "DosDevIOCtl return code = ");
+                WriteCard (debugwin, ulrc);
+                WriteLn (debugwin);
+                IF ulrc = 0 THEN
+                    WriteString (debugwin, "The mouse has ");
+                    WriteCard (debugwin, Nbuttons);
+                    WriteString (debugwin, " buttons");
+                    WriteLn (debugwin);
+                END (*IF*);
+            END (*IF*);
+        <* ELSE *>
+            OS2.MouGetNumButtons (Nbuttons, mouse);
+        <* END *>
         NumberOfButtons := Nbuttons;
         SetMouseCursorLimits (0, 24, 0, 79);
         GetTextMousePosition (CurrentRow, CurrentCol);
@@ -186,10 +241,26 @@ PROCEDURE GetTextMousePosition (VAR (*OUT*) Xposition: CARDINAL;
     (* Returns the current position of the mouse cursor. *)
 
     VAR position: POINTER TO OS2.PTRLOC;
+        <* IF DEFINED(USEIOCTL) & USEIOCTL THEN *>
+            ParamLength, DataLength, ulrc: CARDINAL;
+        <* END *>
 
     BEGIN
         ALLOCATE64 (position, SIZE(OS2.PTRLOC));
-        OS2.MouGetPtrPos (position^, mouse);
+        <* IF DEFINED(USEIOCTL) & USEIOCTL THEN *>
+            ParamLength := 0;
+            DataLength := SIZE(OS2.PTRLOC);
+            ulrc := OS2.DosDevIOCtl (hMouse, 7, OS2.MOU_GETPTRPOS,
+                             NIL, ParamLength, ParamLength,
+                             position, DataLength, DataLength);
+            IF ulrc <> 0 AND debugging THEN
+                WriteString (debugwin, "Error ");
+                WriteCard (debugwin, ulrc);
+                WriteLn (debugwin);
+            END (*IF*);
+        <* ELSE *>
+            OS2.MouGetPtrPos (position^, mouse);
+        <* END *>
         Xposition := position^.col;
         Yposition := position^.row;
         CheckLimits (Xposition, Yposition);
@@ -216,12 +287,28 @@ PROCEDURE SetTextMousePosition (Xposition: CARDINAL; Yposition: CARDINAL);
     (* Initialises the mouse position. *)
 
     VAR position: POINTER TO OS2.PTRLOC;
+        <* IF DEFINED(USEIOCTL) & USEIOCTL THEN *>
+            ParamLength, DataLength, ulrc: CARDINAL;
+        <* END *>
 
     BEGIN
         ALLOCATE64 (position, SIZE(OS2.PTRLOC));
         CheckLimits (Xposition, Yposition);
         position^.row := Yposition;  position^.col := Xposition;
-        OS2.MouSetPtrPos (position^, mouse);
+        <* IF DEFINED(USEIOCTL) & USEIOCTL THEN *>
+            ParamLength := SIZE(OS2.PTRLOC);
+            DataLength := 0;
+            ulrc := OS2.DosDevIOCtl (hMouse, 7, OS2.MOU_SETPTRPOS,
+                             position, ParamLength, ParamLength,
+                             NIL, DataLength, DataLength);
+            IF ulrc <> 0 AND debugging THEN
+                WriteString (debugwin, "Error ");
+                WriteCard (debugwin, ulrc);
+                WriteLn (debugwin);
+            END (*IF*);
+        <* ELSE *>
+            OS2.MouSetPtrPos (position^, mouse);
+        <* END *>
         DISPOSE (position);
     END SetTextMousePosition;
 
@@ -243,7 +330,7 @@ PROCEDURE SetMouseCursorLimits (top, bottom: CARDINAL;
     (* Specifies a rectangular region outside which the mouse cursor    *)
     (* may not go.                                                      *)
 
-    VAR PPtrArea: POINTER TO OS2.NOPTRRECT;
+    (*VAR PPtrArea: POINTER TO OS2.NOPTRRECT;*)
 
     BEGIN
         Limits.top := top;
@@ -253,12 +340,14 @@ PROCEDURE SetMouseCursorLimits (top, bottom: CARDINAL;
 
         (* The following does not seem to have any effect. *)
 
+        (*
         ALLOCATE64 (PPtrArea, SIZE(OS2.NOPTRRECT));
         WITH PPtrArea^ DO
             row := top;  col := left;  cRow := bottom;  cCol := right;
         END (*WITH*);
         EVAL (OS2.MouRemovePtr(PPtrArea^, mouse));
         DISPOSE (PPtrArea);
+        *)
 
     END SetMouseCursorLimits;
 
@@ -352,13 +441,54 @@ PROCEDURE EventTask;
         motion, B1down, B2down, B3down: BOOLEAN;
         NewButtonState: ButtonSet;
         NewEvents: EventSet;
+        <* IF DEFINED(USEIOCTL) & USEIOCTL THEN *>
+            ExtData: RECORD
+                         w1, w2, w3: CARD16;
+                     END (*RECORD*);
+            ParamLength, DataLength, ulrc: CARDINAL;
+        <* END *>
 
     BEGIN
+        IF debugging THEN
+            WriteString (debugwin, "CurrentFlags: ");
+        END (*IF*);
         ALLOCATE64 (BufferPtr, SIZE(OS2.MOUEVENTINFO));
         WaitOnEmpty := 1;
         LOOP
-            OS2.MouReadEventQue (BufferPtr^, WaitOnEmpty, mouse);
+            <* IF DEFINED(USEIOCTL) & USEIOCTL THEN *>
+                WaitOnEmpty := 1;
+                ParamLength := SIZE(CARD16);
+                DataLength := SIZE(OS2.MOUEVENTINFO);
+                ulrc := OS2.DosDevIOCtl (hMouse, 7, OS2.MOU_READEVENTQUE,
+                                 ADR(WaitOnEmpty), ParamLength, ParamLength,
+                                 BufferPtr, DataLength, DataLength);
+                IF ulrc <> 0 AND debugging THEN
+                    WriteString (debugwin, "Error ");
+                    WriteCard (debugwin, ulrc);
+                    WriteLn (debugwin);
+                END (*IF*);
+
+                (* Try to get the data anyway. *)
+
+                WaitOnEmpty := 0;
+                ParamLength := 0;
+                DataLength := SIZE(ExtData);
+                ulrc := OS2.DosDevIOCtl (hMouse, 7, 077H,
+                                 NIL, ParamLength, ParamLength,
+                                 ADR(ExtData), DataLength, DataLength);
+                IF ulrc <> 0 AND debugging THEN
+                    WriteString (debugwin, "Error ");
+                    WriteCard (debugwin, ulrc);
+                    WriteLn (debugwin);
+                END (*IF*);
+            <* ELSE *>
+                OS2.MouReadEventQue (BufferPtr^, WaitOnEmpty, mouse);
+            <* END *>
             CurrentFlags := BufferPtr^.fs;
+            IF debugging THEN
+                WriteChar (debugwin, ' ');
+                WriteCard (debugwin, CurrentFlags);
+            END (*IF*);
 
             (* These are the flags as reported by the system call.  Now we      *)
             (* have to decode them into the notation that we are using.         *)
@@ -407,6 +537,39 @@ PROCEDURE EventTask;
     END EventTask;
 
 (************************************************************************)
+(*                           INITIALISATION                             *)
+(************************************************************************)
+
+<* IF DEFINED(USEIOCTL) & USEIOCTL THEN *>
+
+PROCEDURE OpenMouse(): BOOLEAN;
+
+    CONST
+        Mode1 = OS2.OPEN_FLAGS_FAIL_ON_ERROR + OS2.OPEN_SHARE_DENYNONE
+                + OS2.OPEN_FLAGS_NOINHERIT
+                + OS2.OPEN_ACCESS_READONLY;
+
+    VAR ulrc, Action: CARDINAL;
+
+    BEGIN
+        (* Open mouse device. *)
+
+        Action := 0;
+        ulrc := OS2.DosOpen ("MOUSE$", hMouse, Action, 0, 0,
+                             OS2.OPEN_ACTION_OPEN_IF_EXISTS, Mode1, NIL);
+        IF debugging THEN
+            WriteString (debugwin, "DosOpen return code = ");
+            WriteCard (debugwin, ulrc);
+            WriteLn (debugwin);
+        END (*IF*);
+
+        RETURN (ulrc = 0);
+
+    END OpenMouse;
+
+<* END *>
+
+(************************************************************************)
 
 BEGIN
     ButtonState := ButtonSet{};
@@ -415,7 +578,25 @@ BEGIN
     CreateLock (CursorLock);
     ControlTextCursor := IsFullScreen();
 
-    HaveMouse := OS2.MouOpen(NIL, mouse) = 0;
+    IF debugging THEN
+        OpenWindow (debugwin, blue, cyan, 17, 24, 0, 55, simpleframe, nodivider);
+    END (*IF*);
+
+    <* IF DEFINED(USEIOCTL) & USEIOCTL THEN *>
+        IF debugging THEN
+            WriteString (debugwin, "Using the IOCTL option");
+        END (*IF*);
+        HaveMouse := OpenMouse();
+    <* ELSE *>
+        IF debugging THEN
+            WriteString (debugwin, "Using the OS2.Mouxxx functions");
+        END (*IF*);
+        HaveMouse := OS2.MouOpen(NIL, mouse) = 0;
+    <* END *>
+    IF debugging THEN
+        WriteLn (debugwin);
+    END (*IF*);
+
     IF HaveMouse THEN
         ResetMouse (HaveMouse, NumberOfButtons);
         EVAL(CreateTask (EventTask, 6, "Mouse events"));

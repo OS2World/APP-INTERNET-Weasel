@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2015   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -20,12 +20,22 @@
 (*                                                                        *)
 (**************************************************************************)
 
-(*อออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออป
-บ                                                                              บ
-บ  Dummy module                                                                บ
-บ                                                                              บ
-ศอออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออ*)
-
 IMPLEMENTATION MODULE DID;
 
+        (************************************************************)
+        (*                                                          *)
+        (*                    PM Setup for Weasel                   *)
+        (*            Symbols defined by resource editor            *)
+        (*                                                          *)
+        (*    Last edited:    13 April 2015                         *)
+        (*    Status:         Complete                              *)
+        (*                                                          *)
+        (************************************************************)
+
+
+(************************************************************************)
+(*            Dummy module.  All the content is in DID.DEF              *)
+(************************************************************************)
+
 END DID.
+

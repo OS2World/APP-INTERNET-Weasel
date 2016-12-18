@@ -8,7 +8,7 @@ DEFINITION MODULE MXCheck;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            03 July 1998                    *)
-        (*  Last edited:        28 February 2000                *)
+        (*  Last edited:        12 October 2016                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -32,6 +32,23 @@ PROCEDURE DoMXLookup (VAR (*IN*) domain: HostName;
     (* The addresses are in network byte order.  Note: if no MX records *)
     (* exist, we default back to interpreting the domain as a host      *)
     (* name.                                                            *)
+
+PROCEDURE MXMatch (VAR (*IN*) domain: HostName;  addr, Nbits: CARDINAL;
+                   skipMX: BOOLEAN;  VAR (*OUT*) error: BOOLEAN): BOOLEAN;
+
+    (* Returns TRUE iff the top Nbits bits of the 32-bit IP address     *)
+    (* addr matches one of the addresses of the MX hosts for the        *)
+    (* specified domain.  To avoid DNS overload, we return with a FALSE *)
+    (* result and with the error parameter set if we do not have a      *)
+    (* match within the first 10 results.                               *)
+
+    (* If skipMX is TRUE we skip the MX lookup and go directly for      *)
+    (* the A records for domain.                                        *)
+
+PROCEDURE MakeMask (nbits: CARDINAL): CARDINAL;
+
+    (* Creates a 32-bit result where the top nbits are 1, and all       *)
+    (* others are zero.                                                 *)
 
 END MXCheck.
 

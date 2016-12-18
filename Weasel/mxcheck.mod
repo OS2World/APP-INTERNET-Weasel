@@ -8,7 +8,7 @@ IMPLEMENTATION MODULE MXCheck;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            03 July 1998                    *)
-        (*  Last edited:        26 November 2003                *)
+        (*  Last edited:        20 October 2016                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -35,6 +35,9 @@ FROM Internet IMPORT
 
 FROM InetUtilities IMPORT
     (* proc *)  NameIsNumeric;
+
+FROM Inet2Misc IMPORT
+    (* proc *)  Swap4;
 
 FROM LowLevel IMPORT
     (* proc *)  IAND;
@@ -465,6 +468,106 @@ PROCEDURE DoMXLookup (VAR (*IN*) domain: HostName;
         RETURN result;
 
     END DoMXLookup;
+
+(************************************************************************)
+
+PROCEDURE MakeMask (nbits: CARDINAL): CARDINAL;
+
+    (* Creates a 32-bit result where the top nbits are 1, and all       *)
+    (* others are zero.  We return a byte-reversed version of this      *)
+    (* mask, so that it can be used for comparing big-endian addresses. *)
+
+    VAR k, mask, mask0: CARDINAL;
+
+    BEGIN
+        mask0 := 80000000H;  mask := 0;
+        FOR k := 1 TO nbits DO
+            INC (mask, mask0);
+            mask0 := mask0 DIV 2;
+        END (*FOR*);
+        RETURN Swap4(mask);
+    END MakeMask;
+
+(************************************************************************)
+
+PROCEDURE MXMatch (VAR (*IN*) domain: HostName;  addr, Nbits: CARDINAL;
+                   skipMX: BOOLEAN;  VAR (*OUT*) error: BOOLEAN): BOOLEAN;
+
+    (* Returns TRUE iff the top Nbits bits of the 32-bit IP address     *)
+    (* addr matches one of the addresses of the MX hosts for the        *)
+    (* specified domain.  To avoid DNS overload, we return with a FALSE *)
+    (* result and with the error parameter set if we do not have a      *)
+    (* match within the first 10 results.                               *)
+
+    (* If skipMX is TRUE we skip the MX lookup and go directly for      *)
+    (* the A records for domain.                                        *)
+
+    VAR list, next: HostList;  k, mask, ChecksLeft: CARDINAL;
+        HostInfo: HostEntPtr;  NoNameserver, StillSearching, match: BOOLEAN;
+        p: AddressPointerArrayPointer;
+
+    BEGIN
+        ChecksLeft := 10;
+        error := FALSE;  match := FALSE;
+        IF Nbits = 0 THEN RETURN TRUE END(*IF*);
+        mask := MakeMask (Nbits);
+        addr := IAND(addr, mask);
+
+        IF skipMX THEN
+
+            (* Pretend that we've already done the MX lookup.*)
+
+            NEW (list);
+            WITH list^ DO
+                next := NIL;
+                pref := 1;
+                name := domain;
+                address := 0;
+            END (*WITH*);
+
+        ELSE
+
+            (* Do the MX nameserver lookup. *)
+
+            list := Lookup (domain, NoNameserver);
+
+        END (*IF*);
+
+        (* Extract the addresses and check each for a match. *)
+
+        StillSearching := TRUE;
+        WHILE list <> NIL DO
+            next := list^.next;
+            IF StillSearching THEN
+                IF list^.address <> 0 THEN
+                    match := IAND (list^.address, mask) = addr;
+                    StillSearching := NOT match;
+                ELSIF ChecksLeft = 0 THEN
+                    error := TRUE;
+                    StillSearching := FALSE;
+                ELSE
+                    HostInfo := gethostbyname (list^.name);
+                    DEC (ChecksLeft);
+                    IF HostInfo = NIL THEN p := NIL
+                    ELSE p := HostInfo^.h_addr_list
+                    END (*IF*);
+                    IF p <> NIL THEN
+                        k := 0;
+                        REPEAT
+                            match := IAND (p^[k]^, mask) = addr;
+                            StillSearching := NOT match;
+                            INC(k);
+                        UNTIL match OR (p^[k] = NIL);
+                    END (*IF*);
+                END (*IF*);
+            END (*IF*);
+            DISPOSE (list);
+            list := next;
+        END (*WHILE*);
+
+        RETURN match;
+
+    END MXMatch;
 
 (************************************************************************)
 

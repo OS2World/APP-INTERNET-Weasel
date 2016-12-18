@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  PMOS/2 software library                                               *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2016   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -27,7 +27,7 @@ IMPLEMENTATION MODULE Windows;
         (*                Text-mode screen windows              *)
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
-        (*  Last edited:        22 December 2013                *)
+        (*  Last edited:        5 November 2016                 *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (*    Faults:                                           *)
@@ -2374,30 +2374,39 @@ PROCEDURE CleanUp;
 (*                          INITIALISATION                              *)
 (************************************************************************)
 
-PROCEDURE SetScreenSize;
+PROCEDURE SetScreenSize (VAR (*INOUT*) rows, cols: CARDINAL);
 
     (* Sets MaxRowNumber and MaxColumnNumber.  *)
 
     VAR vioModeInfoPtr: POINTER TO OS2.VIOMODEINFO;
 
     BEGIN
-        MaxRowNumber := 24;
-        MaxColumnNumber := 79;
+        MaxRowNumber := rows-1;
+        MaxColumnNumber := cols-1;
         ALLOCATE64 (vioModeInfoPtr, SIZE(OS2.VIOMODEINFO));
         vioModeInfoPtr^.cb := SIZE (OS2.VIOMODEINFO);
         OS2.VioGetMode (vioModeInfoPtr^, 0);
-        MaxRowNumber := vioModeInfoPtr^.row - 1;
-        MaxColumnNumber := vioModeInfoPtr^.col - 1;
+        vioModeInfoPtr^.hres := rows*8;
+        vioModeInfoPtr^.vres := cols*16;
+        vioModeInfoPtr^.buf_length := 2*rows*cols;
+        vioModeInfoPtr^.full_length := vioModeInfoPtr^.buf_length;
+        vioModeInfoPtr^.partial_length := vioModeInfoPtr^.buf_length;
+        OS2.VioSetMode (vioModeInfoPtr^, 0);
         DISPOSE (vioModeInfoPtr);
     END SetScreenSize;
 
 (************************************************************************)
 
+CONST
+    DefaultRows = 25;  DefaultCols = 80;
+
 VAR j: BufferSubscript;  p: DisplayPage;
+    rows, cols: CARDINAL;
     OriginalAnsiIndicator: CARD16;
 
 BEGIN
-    SetScreenSize;
+    rows := DefaultRows;   cols := DefaultCols;
+    SetScreenSize (rows, cols);
     ALLOCATE64 (BlankRowPtr, BytesPerChar*(MaxColumnNumber+1));
     FOR j := 0 TO MaxColumnNumber DO
         BlankRowPtr^[j].val := " ";

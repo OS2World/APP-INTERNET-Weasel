@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2016   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE BigFrame;
         (*             The settings notebook and its frame          *)
         (*                                                          *)
         (*    Started:        28 June 1999                          *)
-        (*    Last edited:    9 September 2014                      *)
+        (*    Last edited:    2 October 2016                        *)
         (*    Status:         Working                               *)
         (*                                                          *)
         (************************************************************)
@@ -73,7 +73,7 @@ CONST
 TYPE
     LanguageString = ARRAY [0..31] OF CHAR;
     Page = (pbase, pimap, pdomains, puser, palias, plocal, plog, pfilters,
-            popt1, popt2, popt3, prelay, ptrusted, pgatefor, pbanned, pblack);
+            popt1, popt2, popt3, prelay, pwhite, ptrusted, pgatefor, pbanned, pblack);
 
 VAR
     (* INI file name for the Setup INI *)
@@ -267,6 +267,8 @@ PROCEDURE InitialiseNotebook (hwnd: OS2.HWND);
         IDofPage[popt3] := LastPageID;
         RelayPage.CreatePage(hwnd, LastPageID);
         IDofPage[prelay] := LastPageID;
+        HostLists.CreatePage(hwnd, whitelisted, 0,
+                     CommonSettings.MainNotebook, FALSE, UseTNI, IDofPage[pwhite]);
         HostLists.CreatePage(hwnd, mayrelay, 0,
                      CommonSettings.MainNotebook, FALSE, UseTNI, IDofPage[ptrusted]);
         HostLists.CreatePage(hwnd, relaydest, 0,
@@ -589,6 +591,7 @@ PROCEDURE ["SysCall"] MainDialogueProc(hwnd     : OS2.HWND
                                                             pagehandle[puser]);
                        HostLists.StoreData(local);
                    END (*IF*);
+                   HostLists.StoreData (whitelisted);
                    HostLists.StoreData (mayrelay);
                    HostLists.StoreData (relaydest);
                    HostLists.StoreData (banned);

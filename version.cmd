@@ -2,7 +2,7 @@
    Returns the version number of Weasel.
 
            Author:       Peter Moylan
-           Last revised: 28 December 2010
+           Last revised: 19 September 2014
 
    Usage:
            ver = version()
@@ -17,7 +17,7 @@ DO FOREVER
     IF lines(DEFFile) != 1 THEN LEAVE
     parse value linein(DEFFile) with kwd'='val
     kwd = STRIP(kwd)
-    IF kwd = "version" THEN LEAVE
+    IF RIGHT(kwd,7) = "version" THEN LEAVE
 END
 
 /* Extract the part of val inside double quotes. */

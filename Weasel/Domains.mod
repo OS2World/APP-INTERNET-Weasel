@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2015   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Domains;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 July 2002                    *)
-        (*  Last edited:        22 December 2013                *)
+        (*  Last edited:        7 December 2015                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -50,12 +50,6 @@ FROM WildCard IMPORT
 FROM FileOps IMPORT
     (* type *)  DirectoryEntry, FileAttribute,
     (* proc *)  FirstDirEntry, NextDirEntry, DirSearchDone, Exists;
-
-FROM Rego IMPORT
-    (* proc *)  SetRegistrationParameters, SetExpiryDate, IsRegistered;
-
-FROM WV IMPORT
-    (* const*)  TimedDemo, expyear, expmonth, expday;
 
 FROM INIData IMPORT
     (* type *)  StringReadState,
@@ -107,11 +101,6 @@ FROM Heap IMPORT
 (************************************************************************)
 
 CONST
-    (* Codes for registration parameters. *)
-
-    code1 = "Reg";
-    code2 = "WeaselPro";
-
     Nul = CHR(0);
 
 VAR
@@ -178,9 +167,12 @@ VAR
 
     OurIPAddresses: ARRAY [0..IFMIB_ENTRIES] OF CARDINAL;
 
-    (* The IP address that we consider to be our main one. *)
+    (* The IP address that we consider to be our main one.  It can be   *)
+    (* optionally specified in Setup.  If the result from Setup is      *)
+    (* zero, that means it has not been specified manually, and so we   *)
+    (* have to calculate a suitable address in this module.             *)
 
-    PrincipalIPAddress: CARDINAL;
+    BindAddress, DisplayAddress: CARDINAL;
 
     (* The map from IP addresses to domains. *)
 
@@ -415,7 +407,7 @@ PROCEDURE SMTPAuthAllowed (VAR (*IN*) name: ARRAY OF CHAR;  D: Domain): BOOLEAN;
                 result := TRUE;
             END (*IF*);
             IF NOT result THEN
-                key := "SMTPAuthAllowed";
+                key := "SMTPAuth";
                 IF NOT INIData.INIGetTrusted (hini, name, key,
                                                result, SIZE(BOOLEAN)) THEN
                     result := FALSE;
@@ -729,6 +721,22 @@ PROCEDURE EndDomainSearch (VAR (*INOUT*) state: DomainSearchState);
 
 (************************************************************************)
 (*                RETURNING INFORMATION ABOUT A DOMAIN                  *)
+(************************************************************************)
+
+PROCEDURE NameOfFirstDomain (VAR (*OUT*) name: DomainName);
+
+    (* Returns the name of one of our domains. *)
+
+    BEGIN
+        Obtain (MasterListLock);
+        IF MasterDomainList = NIL THEN
+            name := "";
+        ELSE
+            NameOfDomain (MasterDomainList^.this, name);
+        END (*IF*);
+        Release (MasterListLock);
+    END NameOfFirstDomain;
+
 (************************************************************************)
 
 PROCEDURE NameOfDomain (D: Domain;  VAR (*OUT*) name: DomainName);
@@ -1091,13 +1099,15 @@ PROCEDURE RefreshOurIPAddresses(): BOOLEAN;
         (* Work out which of the addresses we are going to call *)
         (* our principal interface.                             *)
 
-        PrincipalIPAddress := 0;
-        FOR ifkind := loopback TO dialup DO
-            ThisAddress := PrimaryAddress[ifkind];
-            IF ThisAddress <> 0 THEN
-                PrincipalIPAddress := ThisAddress;
-            END (*IF*);
-        END (*FOR*);
+        DisplayAddress := BindAddress;
+        IF DisplayAddress = 0 THEN
+            FOR ifkind := loopback TO dialup DO
+                ThisAddress := PrimaryAddress[ifkind];
+                IF ThisAddress <> 0 THEN
+                    DisplayAddress := ThisAddress;
+                END (*IF*);
+            END (*FOR*);
+        END (*IF*);
 
         Release (OurIPAddressesLock);
 
@@ -1124,7 +1134,7 @@ PROCEDURE RecomputeLocalDomainNames (VAR (*OUT*) IPAddress: CARDINAL;
             LogTransactionL (LogID, "Finished refreshing the master domain list");
         END (*IF*);
         Obtain (OurIPAddressesLock);
-        IPAddress := PrincipalIPAddress;
+        IPAddress := DisplayAddress;
         Release (OurIPAddressesLock);
     END RecomputeLocalDomainNames;
 
@@ -1183,7 +1193,7 @@ PROCEDURE RefreshMasterDomainList (LogIt: BOOLEAN);
     VAR p, previous: DomainList;  hini: INIData.HINI;  state: StringReadState;
         Name: DomainName;
         j, dcount: CARDINAL;
-        AllowOneDomain, OldMultidomainMode, INIPresent: BOOLEAN;
+        OldMultidomainMode, INIPresent: BOOLEAN;
         SYSapp: ARRAY [0..4] OF CHAR;
         key: ARRAY [0..18] OF CHAR;
 
@@ -1205,7 +1215,6 @@ PROCEDURE RefreshMasterDomainList (LogIt: BOOLEAN);
         (* read the MailRoot.                                           *)
 
         OldMultidomainMode := MultidomainMode;
-        AllowOneDomain := NOT IsRegistered();
         key := "MultiDomainEnabled";
         IF NOT INIPresent OR NOT INIGet (hini, SYSapp, key,
                                                    MultidomainMode) THEN
@@ -1261,9 +1270,6 @@ PROCEDURE RefreshMasterDomainList (LogIt: BOOLEAN);
                         previous^.next := p;
                     END (*IF*);
                     previous := p;
-                    IF AllowOneDomain THEN
-                        EXIT (*LOOP*);
-                    END (*IF*);
                 END (*LOOP*);
                 CloseStringList (state);
             END (*IF*);
@@ -1318,9 +1324,24 @@ PROCEDURE RefreshMasterDomainList (LogIt: BOOLEAN);
 (*                           INITIALISATION                             *)
 (************************************************************************)
 
+PROCEDURE SetPrincipalIPAddress (address: CARDINAL);
+
+    (* Specifies which address is to be considered out principal IP     *)
+    (* address, in case we have multiple interfaces.  If address = 0,   *)
+    (* we allow the address to be calculated internally.                *)
+
+    BEGIN
+        Obtain (OurIPAddressesLock);
+        BindAddress := address;
+        DisplayAddress := address;
+        Release (OurIPAddressesLock);
+    END SetPrincipalIPAddress;
+
+(************************************************************************)
+
 PROCEDURE CheckRegistration (TNImode: BOOLEAN);
 
-    (* Sets TNI mode, checks whether this is a registered copy. *)
+    (* Sets TNI mode. This procedure no longer checks registration. *)
 
     BEGIN
         UseTNI := TNImode;
@@ -1329,14 +1350,6 @@ PROCEDURE CheckRegistration (TNImode: BOOLEAN);
         ELSE
             MasterINIFileName := "Weasel.INI";
         END (*IF*);
-
-        SetRegistrationParameters (MasterINIFileName, UseTNI,
-                                        "RegName", "RegNumber",
-                                                    code1, code2);
-        IF TimedDemo AND (NOT IsRegistered()) THEN
-            SetExpiryDate (expyear, expmonth, expday);
-        END (*IF*);
-
     END CheckRegistration;
 
 (************************************************************************)
@@ -1404,8 +1417,6 @@ PROCEDURE EnableDomainExtraLogging (enable: BOOLEAN);
     END EnableDomainExtraLogging;
 
 (************************************************************************)
-
-(************************************************************************)
 (*                         LOGGING FOR DEBUGGING                        *)
 (************************************************************************)
 
@@ -1437,7 +1448,8 @@ BEGIN
     SRecordCount := 0;
     CreateLock (OurIPAddressesLock);
     OurIPAddresses[0] := 0;
-    PrincipalIPAddress := 0;
+    BindAddress := 0;
+    DisplayAddress := 0;
     CreateLock (MasterListLock);
     MasterDomainList := NIL;
     SingleMatch := FALSE;

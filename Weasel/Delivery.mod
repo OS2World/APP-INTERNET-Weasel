@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2016   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -29,7 +29,7 @@ IMPLEMENTATION MODULE Delivery;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            12 May 1998                     *)
-        (*  Last edited:        22 December 2013                *)
+        (*  Last edited:        31 January 2016                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -45,7 +45,7 @@ FROM SMTPLogin IMPORT
 FROM Sockets IMPORT
     (* const*)  AF_INET, SOCK_STREAM, AF_UNSPEC, NotASocket,
     (* type *)  Socket, SockAddr,
-    (* proc *)  socket, connect, getsockname, soclose;
+    (* proc *)  socket, bind, connect, getsockname, soclose, sock_errno;
 
 FROM Internet IMPORT
     (* const*)  Zero8,
@@ -65,7 +65,7 @@ FROM Domains IMPORT
     (* type *)  Domain,
     (* proc *)  RefreshMasterDomainList, DomainIsLocal, MailDirectoryFor,
                 AddressIsLocal, RecomputeLocalDomainNames,
-                RefreshOurIPAddresses, (*IsValidUsername,*) OpenDomainINI,
+                SetPrincipalIPAddress, RefreshOurIPAddresses, OpenDomainINI,
                 EnableDomainExtraLogging, NameOfDomain;
 
 FROM MailAccounts IMPORT
@@ -83,9 +83,6 @@ FROM Names IMPORT
 
 FROM MXCheck IMPORT
     (* proc *)  DoMXLookup;
-
-FROM Rego IMPORT
-    (* proc *)  IsRegistered;
 
 FROM Extra IMPORT
     (* proc *)  FullAddress, UserAndDomain;
@@ -530,6 +527,11 @@ VAR
 
     NextName: ARRAY [0..7] OF CHAR;
     NextNameLock: Lock;
+
+    (* The interface we use for sending mail.  It may be zero, in       *)
+    (* which case we let the connect() call choose the address.         *)
+
+    BindAddr: CARDINAL;
 
     (* The name we are currently using as our own host name. *)
 
@@ -1975,6 +1977,7 @@ PROCEDURE CopyToRecipients (messagefile: FilenameString;
 (*                           FILTER OVERRIDES                           *)
 (************************************************************************)
 
+(*
 PROCEDURE SeparateFilter (VAR (*INOUT*) CRL: CombinedRecipientList;
                           VAR (*OUT*) NewCRL: CombinedRecipientList;
                           VAR (*INOUT*) FilterName: FilenameString): BOOLEAN;
@@ -2065,6 +2068,135 @@ PROCEDURE SeparateFilter (VAR (*INOUT*) CRL: CombinedRecipientList;
         RETURN HaveResult;
 
     END SeparateFilter;
+*)
+
+(************************************************************************)
+
+PROCEDURE SortByFilter (VAR (*INOUT*) list: ListOfRecipients);
+
+    (* On entry the list has one entry, with the default filter in the  *)
+    (* filtername field, next=NIL, and this=the list of all recipients. *)
+    (* On exit the recipients have been sorted such that all those in   *)
+    (* a "CombinedRecipientList" have the same filter specified.        *)
+    (* Assumption: list <> NIL.                                         *)
+
+    VAR p, remainder, remlast, listend: ListOfRecipients;
+        previous, current, next: LocalRecipientList;
+        newentry: CombinedRecipientList;
+        newnode: ListOfRecipients;
+        NewFilterName: FilenameString;
+        found: BOOLEAN;
+
+    BEGIN
+        (* Pass 1: Divide the list into two lists, those that use the   *)
+        (* default filter and those that have a separate filter.        *)
+
+        remainder := NIL;  remlast := NIL;
+
+        (* We are now searching the "local" sublist of the (at this     *)
+        (* stage unique) CombinedRecipientList.  We don't need to look  *)
+        (* at the remote sublist, because only local addresses can have *)
+        (* filter overrides.                                            *)
+
+        previous := NIL;
+        current := list^.this^.local;
+
+        (* Find the next user on list with an override. *)
+
+        WHILE current <> NIL DO
+            found := (NOT current^.Skip)
+                        AND SetFilterOverride (current^.U, NewFilterName)
+                         AND (StringMatch(list^.filtername, NewFilterName) = FALSE);
+            IF found THEN
+
+                (* Move this user to the "remainder" list. *)
+
+                NEW (newentry);
+                newentry^.remote := NIL;
+                newentry^.RemoteCount := 0;
+                newentry^.local := current;
+                next := current^.next;
+                IF previous = NIL THEN
+                    list^.this^.local := next;
+                ELSE
+                    previous^.next := next;
+                END (*IF*);
+                current^.next := NIL;
+
+                (* Set current back to where we were working on *)
+                (* the mail list.                               *)
+
+                current := next;
+
+                NEW (newnode);
+                newnode^.filtername := NewFilterName;
+                newnode^.next := NIL;
+                newnode^.this := newentry;
+                IF remlast = NIL THEN
+                    remainder := newnode;
+                ELSE
+                    remlast^.next := newnode;
+                END (*IF*);
+                remlast := newnode;
+            ELSE
+                previous := current;
+                current := current^.next;
+            END (*IF*);
+        END (*WHILE*);
+
+        (* Pass 2: break the second list into sublists.  Our processing *)
+        (* is simplified by the fact that, because of the way pass 1    *)
+        (* was done, there is exactly one user per node of the          *)
+        (* remainder list.                                              *)
+
+        listend := list;
+        WHILE remainder <> NIL DO
+
+            (* Move the first node to a new list. *)
+
+            listend^.next := remainder;
+            listend := remainder;
+            remainder := remainder^.next;
+            listend^.next := NIL;
+
+            NewFilterName := listend^.filtername;
+
+            (* Search the rest of the remainder list for a match on     *)
+            (* filter name.                                             *)
+
+            previous := listend^.this^.local;
+            p := remainder;
+            WHILE p <> NIL DO
+                WHILE (p <> NIL) AND
+                        (StringMatch(p^.filtername, NewFilterName) = FALSE) DO
+                    p := p^.next;
+                END (*WHILE*);
+                IF p <> NIL THEN
+
+                    (* Move one user from the remainder list to the *)
+                    (* listend^.this^.local list.                   *)
+
+                    current := p^.this^.local;
+                    previous^.next := current;
+                    previous := current;
+                    remlast := p;
+                    p := p^.next;
+                    DISPOSE (remlast);
+                END (*IF*);
+            END (*WHILE*);
+        END (*WHILE*);
+
+        (* Final check: remove the list head if it has no users.  We    *)
+        (* don't need to check any other list entries, because they     *)
+        (* are nonempty by construction.                                *)
+
+        IF (list^.this^.remote = NIL) AND (list^.this^.local = NIL) THEN
+            remainder := list^.next;
+            DISPOSE (list);
+            list := remainder;
+        END (*IF*);
+
+    END SortByFilter;
 
 (************************************************************************)
 (*              SENDING A "SORRY, IT DIDN'T WORK" MESSAGE               *)
@@ -2308,7 +2440,20 @@ PROCEDURE SendRejectionLetter (job: OutJobPtr;  ID: TransactionLogID;
 (*            THE PROCEDURES THAT DELIVER THE OUTGOING MAIL             *)
 (************************************************************************)
 
+PROCEDURE WriteError (LogID: TransactionLogID);
+
+    VAR LogLine: ARRAY [0..255] OF CHAR;
+
+    BEGIN
+        Strings.Assign ("Socket error ", LogLine);
+        AppendCard (sock_errno(), LogLine);
+        LogTransaction (LogID, LogLine);
+    END WriteError;
+
+(********************************************************************************)
+
 PROCEDURE ConnectToHost (IPaddress: CARDINAL;  SMTPport: CARDINAL;
+                      LogID: TransactionLogID;
                       VAR (*INOUT*) FailureReason: ARRAY OF CHAR): Socket;
 
     (* Tries to open a connection to the specified host.  Returns the   *)
@@ -2325,6 +2470,25 @@ PROCEDURE ConnectToHost (IPaddress: CARDINAL;  SMTPport: CARDINAL;
             IF s = NotASocket THEN
                 Strings.Assign ("Can't allocate socket", FailureReason);
             ELSE
+
+                (* Bind to an address at our end if we're using a       *)
+                (* specific address.                                    *)
+
+                IF BindAddr <> 0 THEN
+                    WITH peer DO
+                        family := AF_INET;
+                        WITH in_addr DO
+                            port := 0;
+                            addr := BindAddr;
+                            zero := Zero8;
+                        END (*WITH*);
+                    END (*WITH*);
+
+                    IF bind (s, peer, SIZE(peer)) THEN
+                        WriteError (LogID);
+                        LogTransactionL (LogID, "Cannot bind to local interface");
+                    END (*IF*);
+                END (*IF*);
 
                 (* Socket open, connect to the client. *)
 
@@ -2589,7 +2753,7 @@ PROCEDURE DeliverDeLetter (job: OutJobPtr;  IPaddress, port: CARDINAL;
         (* this stage we also assign a value to job^.LocalHost.         *)
 
         job^.LocalHost := OurHostName;
-        s := ConnectToHost (IPaddress, port, failuremessage);
+        s := ConnectToHost (IPaddress, port, job^.ID, failuremessage);
         SB := CreateSBuffer (s, TRUE);
         SetTimeout (SB, 150);
         success := (CAST(ADDRESS,SB) <> NIL) AND (s <> NotASocket)
@@ -4086,7 +4250,7 @@ PROCEDURE OnlineChecker;
           DefaultCheckInterval = 15*1000;     (* 15 seconds    *)
 
     VAR TimedOut, WeWereOffline: BOOLEAN;
-        CheckInterval, OurIPAddress, loopcount, pos: CARDINAL;
+        CheckInterval, loopcount, pos, DisplayAddr: CARDINAL;
         txtbuf: ARRAY [0..16] OF CHAR;
         LogID: TransactionLogID;
         message: ARRAY [0..127] OF CHAR;
@@ -4114,9 +4278,9 @@ PROCEDURE OnlineChecker;
             END (*CASE*);
 
             IF WeAreOffline <> WeWereOffline THEN
-                RecomputeLocalDomainNames (OurIPAddress, ExtraLogging);
+                RecomputeLocalDomainNames (DisplayAddr, ExtraLogging);
                 IF NOT UseFixedLocalName THEN
-                    AddressToHostName (OurIPAddress, OurHostName);
+                    AddressToHostName (DisplayAddr, OurHostName);
                 END (*IF*);
                 IF WeAreOffline THEN
 
@@ -4132,7 +4296,7 @@ PROCEDURE OnlineChecker;
 
                     LogTransactionL (LogID, "Going on-line");
                     IF ScreenEnabled THEN
-                        IPToString (OurIPAddress, TRUE, txtbuf);
+                        IPToString (DisplayAddr, TRUE, txtbuf);
                         UpdateTopScreenLine (60, txtbuf);
                     END (*IF*);
                     Strings.Assign ("We are using ", message);
@@ -4318,7 +4482,8 @@ PROCEDURE ProcessForwardRelayHostNames;
 
 (************************************************************************)
 
-PROCEDURE ReloadDeliveryINIData (FirstTime: BOOLEAN): BOOLEAN;
+PROCEDURE ReloadDeliveryINIData (FirstTime: BOOLEAN;
+                                    AddressToBindTo: CARDINAL): BOOLEAN;
 
     (* Loads that part of the INI data, for the Delivery module, that   *)
     (* can be updated "on the run" without restarting the server.       *)
@@ -4338,6 +4503,7 @@ PROCEDURE ReloadDeliveryINIData (FirstTime: BOOLEAN): BOOLEAN;
         TransLevel := 2;
         RetryHours := 4*24;
         ForwardRelayOption := 0;
+        BindAddr := AddressToBindTo;
         Obtain (LogFileLock);
         key := "weasel.ini";
         hini := OpenINIFile (key, UseTNI);
@@ -4416,6 +4582,10 @@ PROCEDURE ReloadDeliveryINIData (FirstTime: BOOLEAN): BOOLEAN;
             ELSE
                 DesiredNumberOfDaemons := DefaultNumberOfDaemons;
             END (*IF*);
+            key := "OnlineOption";
+            IF NOT INIGet (hini, SYSapp, key, OnlineOption) THEN
+                OnlineOption := 2;
+            END (*IF*);
         END (*IF*);
         CloseINIFile (hini);
         Release (LogFileLock);
@@ -4456,6 +4626,7 @@ PROCEDURE ReloadDeliveryINIData (FirstTime: BOOLEAN): BOOLEAN;
         IF SyslogHost[0] <> Nul THEN
             SetSyslogHost (SyslogHost);
         END (*IF*);
+        SetPrincipalIPAddress (BindAddr);
         StartTransactionLogging (WCtx, TransLogName, TransLevel);
         RefreshMasterDomainList (FirstTime);
         RefreshHostLists (FirstTime, UseTNI);
@@ -4514,10 +4685,6 @@ PROCEDURE LoadDeliveryINIData (TNImode: BOOLEAN);
             END (*IF*);
             Strings.Append ("Forward\", ForwardDirName);
             UnhidePendingFiles;
-            key := "OnlineOption";
-            IF NOT INIGet (hini, SYSapp, key, OnlineOption) THEN
-                OnlineOption := 2;
-            END (*IF*);
             key := "VName";
             IF INIGet (hini, SYSapp, key, NextName) THEN
 
@@ -4534,7 +4701,7 @@ PROCEDURE LoadDeliveryINIData (TNImode: BOOLEAN);
             CloseINIFile (hini);
         END (*IF*);
 
-        ExtraLogging := ReloadDeliveryINIData (TRUE);
+        ExtraLogging := ReloadDeliveryINIData (TRUE, 0);
         Signal (SystemUp);
     END LoadDeliveryINIData;
 
@@ -4549,6 +4716,7 @@ BEGIN
     UseFixedLocalName := FALSE;
     MaxRecipientsPerLetter := 100;
     MaxRetries := 26;  WarnRetries := 9;
+    BindAddr := 0;
     OurHostName := "localhost";
     ExtraLogging := FALSE;
     LogFileName := "SMTPOUT.LOG";

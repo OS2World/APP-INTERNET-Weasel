@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2016   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE WSession;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            28 April 1998                   *)
-        (*  Last edited:        12 June 2014                    *)
+        (*  Last edited:        12 December 2016                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -44,9 +44,6 @@ FROM Heap IMPORT
 
 FROM LowLevel IMPORT
     (* proc *)  EVAL;
-
-FROM Rego IMPORT
-    (* proc *)  IsRegistered;
 
 FROM Conversions IMPORT
     (* proc *)  CardinalToString;
@@ -175,20 +172,26 @@ VAR
 
     ThreadCreationLock: ARRAY ServiceType OF Lock;
 
+    (* Flag to suppress POP sessions in the transaction log. *)
+
+    SuppressPOPlogging: BOOLEAN;
+
 (************************************************************************)
 (*                       PARAMETER SETTINGS                             *)
 (************************************************************************)
 
 PROCEDURE SetSessionParameters (MaxUserLimit, TimeoutLimit: CardArray;
                                 BadPasswordLimit: CARDINAL;
-                                AuthTime, SMTPAuthMask: CARDINAL);
+                                AuthTime, SMTPAuthMask: CARDINAL;
+                                NoPOPlogging: BOOLEAN);
 
     (* Sets some parameters specified by the INI file: maximum nunber   *)
     (* of simultaneous users; how long a session can be idle before it  *)
     (* is forcibly closed; the number of bad login attempts that will   *)
     (* be tolerated before a POP3 session is forcibly terminated; how   *)
-    (* long a POP-before-SMTP authorisation remains valid; and a mask   *)
-    (* to say which SMTP AUTH options are enabled for incoming mail.    *)
+    (* long a POP-before-SMTP authorisation remains valid; a mask to    *)
+    (* say which SMTP AUTH options are enabled for incoming mail; and a *)
+    (* flag to suppress POP session detail in the transaction log.      *)
     (* Also gets module SMTPData to reread the filter names.            *)
 
     VAR j: ServiceType;
@@ -203,6 +206,7 @@ PROCEDURE SetSessionParameters (MaxUserLimit, TimeoutLimit: CardArray;
                 MaxTime[j] := TimeoutLimit[j];
             END (*IF*);
         END (*FOR*);
+        SuppressPOPlogging := NoPOPlogging;
         Release (ParamLock);
         POPCommands.SetPOPParameters (AuthTime);
         POPCommands.SetBadPasswordLimit (BadPasswordLimit);
@@ -226,11 +230,7 @@ PROCEDURE UpdateTitleBar;
         Obtain (ParamLock);
         notechange := ScreenLoggingEnabled;
         IF notechange THEN
-            IF IsRegistered() THEN
-                message := "Weasel Pro ";
-            ELSE
-                message := "Weasel ";
-            END (*IF*);
+            message := "Weasel ";
             Strings.Append (WV.version, message);
             Strings.Append ("    POP: ", message);
             k := Strings.Length (message);
@@ -317,7 +317,8 @@ PROCEDURE TimeoutChecker (arg: ADDRESS);
 (************************************************************************)
 
 PROCEDURE OpenSession (VAR (*INOUT*) session: Session;  SB: SBuffer;
-                       KeepAlive: Semaphore;  MayRelay: BOOLEAN): BOOLEAN;
+                        KeepAlive: Semaphore;
+                         whitelisted, MayRelay: BOOLEAN): BOOLEAN;
 
     (* Initialise the data structures for a new session. *)
 
@@ -327,18 +328,18 @@ PROCEDURE OpenSession (VAR (*INOUT*) session: Session;  SB: SBuffer;
         WITH session DO
             IF service = SMTP THEN
                 SS := SMTPCommands.OpenSession (SB, HostIPAddress,
-                              ClientIPAddress, KeepAlive, LogID, MayRelay,
-                               FALSE, success);
+                              ClientIPAddress, KeepAlive, LogID,
+                               whitelisted, MayRelay, FALSE, success);
             ELSIF service = MSA THEN
                 SA := SMTPCommands.OpenSession (SB, HostIPAddress,
-                               ClientIPAddress, KeepAlive, LogID, MayRelay,
-                                TRUE, success);
+                               ClientIPAddress, KeepAlive, LogID,
+                                whitelisted, MayRelay, TRUE, success);
             ELSE
                 SP := POPCommands.OpenSession (SB, HostIPAddress,
                                        ClientIPAddress, KeepAlive, LogID);
                 success := TRUE;
             END (*IF*);
-            isopen := success;
+            isopen := TRUE;
         END (*WITH*);
         RETURN success;
     END OpenSession;
@@ -360,6 +361,7 @@ PROCEDURE CloseSession (session: Session);
                     POPCommands.CloseSession (SP);
                 END (*IF*);
             END (*IF*);
+            isopen := FALSE;
             IF LogID <> NilLogID THEN
                 DiscardLogID (LogID);
             END (*IF*);
@@ -403,6 +405,7 @@ PROCEDURE SessionHandler (arg: ADDRESS);
     VAR
         pCmdBuffer: POINTER TO ARRAY [0..CmdBufferSize-1] OF CHAR;
         KeepAliveSemaphore: Semaphore;
+        KA: KeepAlivePointer;
         sess: Session;
         SB: SBuffer;
         S: Socket;
@@ -415,8 +418,9 @@ PROCEDURE SessionHandler (arg: ADDRESS);
         (* Premature session close. *)
 
         BEGIN
-            IF sess.LogID <> NilLogID THEN
-                DiscardLogID (sess.LogID);
+            CloseSession (sess);
+            IF KA <> NIL THEN
+                DISPOSE (KA);
             END (*IF*);
             IF KeepAliveSemaphore <> NilSemaphore THEN
                 DestroySemaphore (KeepAliveSemaphore);
@@ -433,21 +437,22 @@ PROCEDURE SessionHandler (arg: ADDRESS);
             IF UserNumber <> 0 THEN
                 EVAL (UpdateCount (sess.service, -1));
             END (*IF*);
+
             TaskExit;
+
         END AbandonSession;
 
     (********************************************************************)
 
     VAR NSP: NewSessionPointer;
         size: CARDINAL;
-        KA: KeepAlivePointer;
         Quit, ServerAbort: BOOLEAN;
         LogFilePrefix: ARRAY [0..6] OF CHAR;
         IPBuffer: ARRAY [0..16] OF CHAR;
         LogMessage: ARRAY [0..127] OF CHAR;
         OurHostName: HostName;
         ServerName: SockAddr;
-        IsBanned, MayRelay: BOOLEAN;
+        IsBanned, whitelisted, MayRelay: BOOLEAN;
         HavePOPbeforeSMTPAuthorisation: BOOLEAN;
 
     BEGIN                   (* Body of SessionHandler *)
@@ -465,6 +470,7 @@ PROCEDURE SessionHandler (arg: ADDRESS);
         sess.isopen := FALSE;
         sess.LogID := NilLogID;
         pCmdBuffer := NIL;
+        KA := NIL;
         KeepAliveSemaphore := NilSemaphore;
         SB := NilSBuffer;
 
@@ -479,15 +485,19 @@ PROCEDURE SessionHandler (arg: ADDRESS);
 
         (* Create the log file ID for this session. *)
 
-        CardinalToString (S, LogFilePrefix, 7);
-        IF sess.service = SMTP THEN
-            LogFilePrefix[0] := 'S';
-        ELSIF sess.service = MSA THEN
-            LogFilePrefix[0] := 'M';
+        IF SuppressPOPlogging AND (sess.service = POP) THEN
+            sess.LogID := NilLogID;
         ELSE
-            LogFilePrefix[0] := 'P';
+            CardinalToString (S, LogFilePrefix, 7);
+            IF sess.service = SMTP THEN
+                LogFilePrefix[0] := 'S';
+            ELSIF sess.service = MSA THEN
+                LogFilePrefix[0] := 'M';
+            ELSE
+                LogFilePrefix[0] := 'P';
+            END (*IF*);
+            sess.LogID := CreateLogID (LogCtx.WCtx, LogFilePrefix);
         END (*IF*);
-        sess.LogID := CreateLogID (LogCtx.WCtx, LogFilePrefix);
 
         (* Log the new session commencement. *)
 
@@ -514,7 +524,7 @@ PROCEDURE SessionHandler (arg: ADDRESS);
         (* Check whether the client is on one of our special lists. *)
 
         HavePOPbeforeSMTPAuthorisation := FALSE;
-        CheckHost (sess.ClientIPAddress, IsBanned, MayRelay);
+        CheckHost (sess.ClientIPAddress, IsBanned, whitelisted, MayRelay);
         IF sess.service = MSA THEN
             MayRelay := FALSE;
         ELSIF (NOT MayRelay) AND (sess.service = SMTP) THEN
@@ -532,13 +542,13 @@ PROCEDURE SessionHandler (arg: ADDRESS);
             Strings.Assign (AccessDenied[sess.service], pCmdBuffer^);
             size := AddEOL (pCmdBuffer^);
             EVAL (send (S, pCmdBuffer^, size, 0));
-            LogTransactionL (sess.LogID, "Blacklisted client rejected");
+            LogTransactionL (sess.LogID, "Banned client rejected");
             AbandonSession;
         END (*IF*);
 
         (* Check the realtime blacklists, if this check is enabled. *)
 
-        IF (NOT MayRelay) AND (sess.service = SMTP)
+        IF (NOT whitelisted) AND (NOT MayRelay) AND (sess.service = SMTP)
                    AND OnBlacklist(sess.LogID, sess.ClientIPAddress, pCmdBuffer^) THEN
             size := AddEOL (pCmdBuffer^);
             EVAL (send (S, pCmdBuffer^, size, 0));
@@ -571,9 +581,8 @@ PROCEDURE SessionHandler (arg: ADDRESS);
         Obtain (ParamLock);
         SetTimeout (SB, MaxTime[sess.service]);
         Release (ParamLock);
-        IF NOT OpenSession (sess, SB, KeepAliveSemaphore, MayRelay) THEN
+        IF NOT OpenSession (sess, SB, KeepAliveSemaphore, whitelisted, MayRelay) THEN
             LogTransactionL (sess.LogID, "Client rejected by filter");
-            CloseSession (sess);
             AbandonSession;
         END (*IF*);
 
@@ -587,12 +596,8 @@ PROCEDURE SessionHandler (arg: ADDRESS);
             TimedOut := FALSE;
         END (*WITH*);
         IF NOT CreateTask1 (TimeoutChecker, 3, "weasel timeout", KA) THEN
-            DEALLOCATE (KA, SIZE(KeepAliveRecord));
             LogTransactionL (sess.LogID, "Thread limit exceeded");
-            CloseSession (sess);
-            DestroySemaphore (KeepAliveSemaphore);
-            DEALLOCATE (pCmdBuffer, CmdBufferSize);
-            TaskExit;
+            AbandonSession;
         END (*IF*);
 
         (* Work out our host name and send the "welcome" message. *)
@@ -713,6 +718,7 @@ VAR s: ServiceType;
 BEGIN
     CreateLock (ParamLock);
     Obtain (ParamLock);
+    SuppressPOPlogging := FALSE;
     MaxUsers := CardArray {many, many, many, many};
     MaxTime := CardArray {FifteenMinutes, FifteenMinutes, 2*FifteenMinutes,
                           FifteenMinutes};

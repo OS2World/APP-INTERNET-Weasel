@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2016   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,17 +28,17 @@ MODULE Weasel;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            12 April 1998                   *)
-        (*  Last edited:        20 April 2014                   *)
+        (*  Last edited:        13 December 2016                *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
 
 IMPORT WV, OS2, TextIO, Strings, INIData, TNIData;
 
-FROM SYSTEM IMPORT LOC;
+FROM SYSTEM IMPORT LOC, CARD8, CARD16;
 
 FROM ProgName IMPORT
-    (* proc *)  GetWeaselVersion;
+    (* proc *)  GetProgramName;
 
 FROM IOChan IMPORT
     (* type *)  ChanId;
@@ -83,7 +83,7 @@ FROM INIData IMPORT
                 SetWorkingDirectory;
 
 FROM InetUtilities IMPORT
-    (* proc *)  ConvertDecimal, Swap2, ConvertCard;
+    (* proc *)  ConvertDecimal, Swap2, ConvertCard, IPToString;
 
 FROM Conversions IMPORT
     (* proc *)  CardinalToStringLJ;
@@ -102,6 +102,9 @@ FROM WSession IMPORT
 FROM POPCommands IMPORT
     (* proc *)  SetPopLogName;
 
+FROM SMTPCommands IMPORT
+    (* proc *)  SetMaxMessageSize;
+
 FROM SMTPData IMPORT
     (* proc *)  LoadSMTPINIData;
 
@@ -114,9 +117,6 @@ FROM Delivery IMPORT
 
 FROM Domains IMPORT
     (* proc *)  CheckRegistration, ClearMailboxLocks;
-
-FROM Rego IMPORT
-    (* proc *)  IsRegistered;
 
 FROM ProgramArgs IMPORT
     (* proc *)  ArgChan, IsArgPresent;
@@ -146,6 +146,7 @@ VAR
     MainSocket: SocketArray;
     ServerPort: CardArray;
     ServerEnabled: CARDINAL;
+    BindAddr: CARDINAL;
     ProVersion: BOOLEAN;
     CalledFromInetd: BOOLEAN;
     ScreenEnabled: BOOLEAN;
@@ -218,7 +219,7 @@ PROCEDURE AppendCard (number: CARDINAL;  VAR (*INOUT*) result: ARRAY OF CHAR);
     END AppendCard;
 
 (************************************************************************)
-(*                           LOADING THE INI DATA                       *)
+(*                         LOADING THE INI DATA                         *)
 (************************************************************************)
 
 PROCEDURE LoadUpdateableINIData;
@@ -248,17 +249,19 @@ PROCEDURE LoadUpdateableINIData;
         TimeoutLimit, MaxUsers: CardArray;
         TimeoutLimit2, MaxUsers2: CardArray2;
         TimeoutLimit3, MaxUsers3: CardArray3;
-        LogPOPusers: BOOLEAN;
+        LogPOPusers, NoPOPinTL: BOOLEAN;
         key: ARRAY [0..10] OF CHAR;
         PopLogName: FilenameString;
 
     BEGIN
         SYSapp := "$SYS";
-        ExtraLogging := ReloadDeliveryINIData (FALSE);
         BadPasswordLimit := 4;
         AuthMethods := 0;
         AuthTime := 0;
+        BindAddr := 0;
         LogPOPusers := FALSE;
+        ExtraLogging := FALSE;
+        NoPOPinTL := FALSE;
         IF UseTNI THEN
             key := "weasel.tni";
             hini := OpenINIFile(key, TRUE);
@@ -267,6 +270,7 @@ PROCEDURE LoadUpdateableINIData;
             hini := OpenINIFile(key, FALSE);
         END (*IF*);
         IF INIData.INIValid (hini) THEN
+            EVAL(GetItem ("BindAddr", BindAddr));
             IF NOT GetItem ("MaxUsers", MaxUsers) THEN
                 IF GetItem ("MaxUsers", MaxUsers3) THEN
                     MaxUsers[SMTP] := MaxUsers3[SMTP];
@@ -306,7 +310,13 @@ PROCEDURE LoadUpdateableINIData;
             IF NOT GetItem ('AuthMethods', AuthMethods) THEN
                 AuthMethods := 0;
             END (*IF*);
+
+            (* Remark: LogPOPusers controls the POP log, while      *)
+            (* NoPOPinTL controls POP session entries in the        *)
+            (* transaction log.                                     *)
+
             EVAL (GetItem ("LogPOPusers", LogPOPusers));
+            EVAL (GetItem ("NoPOPinTL", NoPOPinTL));
             key := "PopLogName";
             IF NOT INIGetString (hini, SYSapp, key, PopLogName) THEN
                 PopLogName := "POP.LOG";
@@ -314,12 +324,14 @@ PROCEDURE LoadUpdateableINIData;
             CloseINIFile (hini);
         END (*IF*);
         SetPopLogName (LogPOPusers, PopLogName);
+        ExtraLogging := ReloadDeliveryINIData (FALSE, BindAddr);
 
         (* The SetSessionParameters procedure also forces the SMTPData  *)
         (* module to reload its updateable data.                        *)
 
         SetSessionParameters (MaxUsers, TimeoutLimit, BadPasswordLimit,
-                                                   AuthTime, AuthMethods);
+                                     AuthTime, AuthMethods, NoPOPinTL);
+        SetMaxMessageSize;
 
     END LoadUpdateableINIData;
 
@@ -374,11 +386,12 @@ PROCEDURE LoadINIData;
                     ServerPort := DefaultPort;
                 END (*IF*);
             END (*IF*);
+            EVAL(GetItem ("BindAddr", BindAddr));
             CloseINIFile (hini);
         END (*IF*);
 
         CheckRegistration(UseTNI);
-        LoadSMTPINIData (UseTNI);
+        LoadSMTPINIData(UseTNI);
         LoadDeliveryINIData(UseTNI);
         LoadUpdateableINIData;
 
@@ -441,9 +454,9 @@ PROCEDURE GetParameters (VAR (*OUT*) result: CARDINAL): BOOLEAN;
 
     END GetParameters;
 
-(************************************************************************)
-(*                           THE MAIN SERVER CODE                       *)
-(************************************************************************)
+(********************************************************************************)
+(*                               THE MAIN SERVER CODE                           *)
+(********************************************************************************)
 
 PROCEDURE WriteError (LogID: TransactionLogID);
 
@@ -455,7 +468,20 @@ PROCEDURE WriteError (LogID: TransactionLogID);
         LogTransaction (LogID, LogLine);
     END WriteError;
 
-(************************************************************************)
+(********************************************************************************)
+
+(*
+PROCEDURE AppendHostID (ID: ARRAY OF LOC;  VAR (*INOUT*) str: ARRAY OF CHAR);
+
+    VAR result: ARRAY [0..16] OF CHAR;
+
+    BEGIN
+        IPToString (ID, TRUE, result);
+        Strings.Append (result, str);
+    END AppendHostID;
+*)
+
+(********************************************************************************)
 
 PROCEDURE RunTheServer;
 
@@ -486,6 +512,7 @@ PROCEDURE RunTheServer;
         k, nservice: TestType;
         Enabled: ARRAY ServiceType OF BOOLEAN;
         StartupSuccessful: BOOLEAN;
+        optval: CARDINAL;
         LogID: TransactionLogID;
         message: ARRAY [0..127] OF CHAR;
         exRegRec: OS2.EXCEPTIONREGISTRATIONRECORD;
@@ -522,6 +549,8 @@ PROCEDURE RunTheServer;
 
         IF CalledFromInetd THEN
 
+            (* RUNNING FROM INETD *)
+
             Strings.Assign ("Weasel started from inetd, socket ", message);
             AppendCard (InetdSocket, message);
             LogTransaction (LogID, message);
@@ -548,6 +577,8 @@ PROCEDURE RunTheServer;
 
         ELSE
 
+            (* NORMAL RUNNING *)
+
             IF UseTNI THEN
                 message := "[T]";
             ELSE
@@ -560,7 +591,7 @@ PROCEDURE RunTheServer;
                 Strings.Append ("            ", message);
                 UpdateTopScreenLine (0, message);
                 (*SetOurTitle (message);*)
-                UpdateTopScreenLine (25, "(C) 1998-2014 Peter Moylan");
+                UpdateTopScreenLine (25, "(C) 1998-2016 Peter Moylan");
 
                 EVAL (SetBreakHandler (ControlCHandler));
             END (*IF*);
@@ -592,8 +623,8 @@ PROCEDURE RunTheServer;
 
                     (* Allow reuse of the port we're binding to. *)
 
-                    temp := 1;
-                    setsockopt (MainSocket[j], 0FFFFH, 4, temp, SIZE(CARDINAL));
+                    optval := 1;
+                    setsockopt (MainSocket[j], 0FFFFH, 4, optval, SIZE(optval));
                 ELSE
                     ServiceToTestMap[j] := MAX(TestType);
                 END (*IF*);
@@ -604,10 +635,15 @@ PROCEDURE RunTheServer;
                         Strings.Append (" requires imapd.exe", message);
                         Enabled[j] := FALSE;
                     ELSE
-                        Strings.Append (" listening on port ", message);
+                        Strings.Append (" listening on ", message);
+                        (*IF BindAddr = 0 THEN*)
+                         Strings.Append ("all interfaces", message);
+                        (*
+                        ELSE AppendHostID (BindAddr, message);
+                        END (*IF*);
+                        *)
+                        Strings.Append (", port ", message);
                         AppendCard (ServerPort[j], message);
-                        Strings.Append (", socket ", message);
-                        AppendCard (MainSocket[j], message);
                     END (*IF*);
                 ELSE
                     Strings.Append (" disabled.", message);
@@ -618,11 +654,15 @@ PROCEDURE RunTheServer;
 
                     (* Now have the socket, bind to our machine. *)
 
+                    (* In the present version we bind to all interfaces for     *)
+                    (* incoming connections, and only use BindAddr for          *)
+                    (* outgoing mail -- see modules Domains and Delivery.       *)
+
                     WITH myaddr DO
                         family := AF_INET;
                         WITH in_addr DO
                             port := Swap2 (ServerPort[j]);
-                            (* Bind to all interfaces. *)
+                            (*addr := BindAddr;*)
                             addr := INADDR_ANY;
                             zero := Zero8;
                         END (*WITH*);
@@ -630,8 +670,8 @@ PROCEDURE RunTheServer;
 
                     IF bind (MainSocket[j], myaddr, SIZE(myaddr)) THEN
 
-                            WriteError (LogID);
-                            LogTransactionL (LogID, "Cannot bind to server port.");
+                        WriteError (LogID);
+                        LogTransactionL (LogID, "Cannot bind to server port.");
 
                     ELSE
 
@@ -847,8 +887,8 @@ BEGIN
 
     CalledFromInetd := GetParameters (InetdSocket);
     LoadINIData;
-    ProVersion := IsRegistered();
-    GetWeaselVersion (ProVersion, ProgVersion);
+    ProVersion := TRUE;
+    GetProgramName (ProgVersion);
     ClearMailboxLocks;
     ShutdownInProgress := FALSE;  RapidShutdown := FALSE;
     CreateSemaphore (TaskDone, 0);

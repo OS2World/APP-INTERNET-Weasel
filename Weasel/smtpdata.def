@@ -6,7 +6,7 @@ DEFINITION MODULE SMTPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 April 1998                   *)
-        (*  Last edited:        7 November 2008                 *)
+        (*  Last edited:        30 October 2016                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -23,6 +23,9 @@ FROM TransLog IMPORT
 
 FROM Domains IMPORT
     (* type *)  Domain;
+
+FROM Sockets IMPORT
+    (* type *)  Socket;
 
 FROM Names IMPORT
     (* type *)  UserName, HostName, FilenameString;
@@ -44,7 +47,7 @@ PROCEDURE UpdateINIData;
 
 PROCEDURE CreateItemDescriptor (SB: SBuffer;  ClientIPAddress: CARDINAL;
                                  ID: TransactionLogID;
-                                  MayRelay: BOOLEAN): ItemDescriptor;
+                                  MayRelay, OnWhitelist: BOOLEAN): ItemDescriptor;
 
     (* Creates a descriptor for a new mail item.  ID is for *)
     (* transaction logging.                                 *)
@@ -61,10 +64,10 @@ PROCEDURE ResetReturnPath (desc: ItemDescriptor);
     (* the MAIL FROM command.                                           *)
 
 PROCEDURE SetClaimedSendingHost (desc: ItemDescriptor;
-                                 VAR (*IN*) ClaimedName: ARRAY OF CHAR);
+                                 VAR (*IN*) ClaimedName: HostName): BOOLEAN;
 
-    (* ClaimedName is the sending host's name as supplied in the  *)
-    (* HELO command.                                              *)
+    (* ClaimedName is the sending host's name as supplied in the HELO   *)
+    (* command.  Returns TRUE if name is acceptable.                    *)
 
 PROCEDURE ProcessRCPTAddress (desc: ItemDescriptor;
                                  VAR (*IN*) ToAddress: ARRAY OF CHAR;
@@ -74,11 +77,15 @@ PROCEDURE ProcessRCPTAddress (desc: ItemDescriptor;
     (* Takes note of the destination address as supplied in a RCTP TO:  *)
     (* command, also decomposes it into user and domain components.     *)
 
-PROCEDURE FromAddressAcceptable (desc: ItemDescriptor): BOOLEAN;
+PROCEDURE FromAddressAcceptable (desc: ItemDescriptor;  S: Socket;
+                               watchdog: Semaphore;
+                               VAR (*OUT*) TempFailure: BOOLEAN): BOOLEAN;
 
     (* Returns TRUE if we're satisfied with the sender's address as     *)
     (* supplied in MAIL FROM.  If we're not satisfied, we clear that    *)
-    (* address as well as returning FALSE.                              *)
+    (* address as well as returning FALSE.  A result of FALSE with      *)
+    (* TempFailure also FALSE means a soft failure, such that the       *)
+    (* address might become acceptable on a future attempt.             *)
 
 PROCEDURE SenderNotSpecified (desc: ItemDescriptor): BOOLEAN;
 
@@ -106,11 +113,15 @@ PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
     (* Receives an incoming message, stores it in a temporary file      *)
     (* whose name is recorded in itemdata.  We periodically signal on   *)
     (* sem to confirm that the reception has not timed out.             *)
-(*
-PROCEDURE RunFilter (stage: CARDINAL;  itemdata: ItemDescriptor;
-                     VAR (*OUT*) FailureMessage: ARRAY OF CHAR): CARDINAL;
-*)
-    (* This procedure may be invoked at several stages:                 *)
+
+PROCEDURE LimitOnMessageSize(): CARDINAL;
+
+    (* Max allowable number of bytes in a message. *)
+
+    (********************************************************************)
+    (*                         FILTER RULES                             *)
+    (*                                                                  *)
+    (* The filter procedures below may be invoked at several stages:    *)
     (*                                                                  *)
     (*    0    on initial connection                                    *)
     (*    1    after the HELO or EHLO command                           *)
@@ -120,7 +131,7 @@ PROCEDURE RunFilter (stage: CARDINAL;  itemdata: ItemDescriptor;
     (*    4    after a mail item has been received but before it has    *)
     (*           been distributed to the addressees.                    *)
     (*                                                                  *)
-    (* The filter is allowed to return the following codes:             *)
+    (* A filter is allowed to return the following codes:               *)
     (*                                                                  *)
     (*    0    continue processing normally, i.e. deliver mail          *)
     (*    1    like 0, but the filter has modified the list of          *)
@@ -143,18 +154,18 @@ PROCEDURE RunFilter (stage: CARDINAL;  itemdata: ItemDescriptor;
     (*                                                                  *)
     (* In case 3, FailureMessage holds the reply (starting with a       *)
     (* three-digit code) to be returned to the sender.                  *)
+    (********************************************************************)
 
 PROCEDURE RunFilter03 (stage: CARDINAL;  itemdata: ItemDescriptor;
                      VAR (*OUT*) FailureMessage: ARRAY OF CHAR): CARDINAL;
 
-PROCEDURE RunFinalFilter (itemdata: ItemDescriptor;
-                     VAR (*OUT*) FailureMessage: ARRAY OF CHAR): CARDINAL;
+    (* The filters for stages 0 to 3. *)
 
-PROCEDURE DistributeMessage (itemdata: ItemDescriptor);
+PROCEDURE FilterAndDistribute (itemdata: ItemDescriptor;  SB: SBuffer): BOOLEAN;
 
-    (* This procedure can be called after AcceptMessage has read the    *)
-    (* whole message.  Now we put it into the local mailboxes, and/or   *)
-    (* relay it, depending on the recipients.                           *)
+    (* Runs the final (stage 4) filter on this message, and then        *)
+    (* delivers it unless the filter says not to.  Returns FALSE if the *)
+    (* filter has rejected the message for all recipients.              *)
 
 PROCEDURE DiscardItemDescriptor (VAR (*INOUT*) desc: ItemDescriptor);
 

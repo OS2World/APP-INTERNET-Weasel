@@ -1,0 +1,16 @@
+DEFINITION MODULE Blacklists;
+
+        (********************************************************)
+        (*                                                      *)
+        (*      'Blacklists' page in Weasel set-up utility      *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            4 November 2001                 *)
+        (*  Last edited:        5 November 2001                 *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+END Blacklists.
+

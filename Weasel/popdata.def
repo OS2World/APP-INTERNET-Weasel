@@ -6,7 +6,7 @@ DEFINITION MODULE POPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 April 1998                   *)
-        (*  Last edited:        19 July 2013                    *)
+        (*  Last edited:        25 May 2016                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -44,7 +44,8 @@ PROCEDURE DiscardMailbox (VAR (*INOUT*) M: Mailbox);
     (* argument to NILMailbox.                                          *)
 
 PROCEDURE PasswordOK (M: Mailbox;  VAR (*IN*) password: ARRAY OF CHAR;
-                                   VAR (*OUT*) D: Domain): CARDINAL;
+                                   VAR (*OUT*) D: Domain;
+                                   LogID: TransactionLogID): CARDINAL;
 
     (* Locks the mailbox if the password is correct.  The possible      *)
     (* results are                                                      *)

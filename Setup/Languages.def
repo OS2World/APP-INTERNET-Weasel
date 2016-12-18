@@ -1,0 +1,100 @@
+DEFINITION MODULE Languages;
+
+        (********************************************************)
+        (*                                                      *)
+        (*                Mailing list manager                  *)
+        (*    Module to generate language-dependent messages    *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            9 November 2003                 *)
+        (*  Last edited:        11 April 2008                   *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM FileOps  IMPORT (*type*) ChanId;
+
+TYPE
+    LangHandle;      (* is private *)
+    LangName = ARRAY [0..31] OF CHAR;
+
+PROCEDURE SetDefaultLanguage (name: ARRAY OF CHAR);
+
+    (* This is the language that will be used if no valid language      *)
+    (* is specified.                                                    *)
+
+PROCEDURE LanguageSupported (prefix, name: ARRAY OF CHAR): BOOLEAN;
+
+    (* Checks for the existence of a file called 'prefix.name.lng'. *)
+
+PROCEDURE UseLanguage (prefix, name: ARRAY OF CHAR): LangHandle;
+
+    (* The arguments are text strings that refer to a filename          *)
+    (* 'prefix.name.lng'.  That file is supposed to hold                *)
+    (* language-dependent messages.  If the file does not exist, we use *)
+    (* the default language.  If that too does not exist, the results   *)
+    (* are unpredictable but will probably lead to blank messages.      *)
+    (* Returns a handle that can be used in future calls to this module.*)
+
+PROCEDURE DropLanguage (VAR (*INOUT*) LH: LangHandle);
+
+    (* Decrements the count of users of this language.  If the count    *)
+    (* becomes zero, discards the language data.  In any case, sets     *)
+    (* LH to NIL.                                                       *)
+
+PROCEDURE LanguageCode (lang: LangHandle;  VAR (*OUT*) name: ARRAY OF CHAR);
+
+    (* Sets 'name' to the code used to load the language.  *)
+
+PROCEDURE StrToBuffer (LH: LangHandle;  StringId: ARRAY OF CHAR;
+                                       VAR (*OUT*) buffer: ARRAY OF CHAR);
+
+    (* Translates StringId to buffer.  We assume that the expanded      *)
+    (* message will fit into the buffer.                                *)
+
+PROCEDURE StrToBufferA (LH: LangHandle;  StringId, param: ARRAY OF CHAR;
+                                       VAR (*OUT*) buffer: ARRAY OF CHAR);
+
+    (* Like StrToBuffer, but with a text parameter to substitute for %a.*)
+
+PROCEDURE StrToBufferAB (LH: LangHandle;
+                                 StringId, param1, param2: ARRAY OF CHAR;
+                                       VAR (*OUT*) buffer: ARRAY OF CHAR);
+
+    (* Like StrToBuffer, but with two text parameters.*)
+
+PROCEDURE StrToBufferN (LH: LangHandle;  StringId: ARRAY OF CHAR;
+                                       N: CARDINAL;
+                                       VAR (*OUT*) buffer: ARRAY OF CHAR);
+
+    (* Like StrToBuffer, but with a numeric parameter %1.*)
+
+PROCEDURE StrToBufferAN (LH: LangHandle;  StringId: ARRAY OF CHAR;
+                                    txtparam: ARRAY OF CHAR;  N: CARDINAL;
+                                    VAR (*OUT*) buffer: ARRAY OF CHAR);
+
+    (* Like StrToBuffer, but with a text parameter %a and a numeric     *)
+    (* parameter %1.                                                    *)
+
+PROCEDURE LWriteString (LH: LangHandle;  cid: ChanId;  StringId: ARRAY OF CHAR);
+
+    (* Writes a string to a file. *)
+
+PROCEDURE LWriteStringA (LH: LangHandle;  cid: ChanId;
+                                         StringId, Param: ARRAY OF CHAR);
+
+    (* Writes a string to a file, with one string parameter. *)
+
+PROCEDURE LWriteStringAB (LH: LangHandle;  cid: ChanId;
+                                 StringId, Param1, Param2: ARRAY OF CHAR);
+
+    (* Writes a string to a file, with two string parameters. *)
+
+PROCEDURE LWriteStringN (LH: LangHandle;  cid: ChanId;
+                               StringId: ARRAY OF CHAR;  Param: CARDINAL);
+
+    (* Writes a string to a file, with one numeric parameter. *)
+
+END Languages.
+

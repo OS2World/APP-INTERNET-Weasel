@@ -1,0 +1,47 @@
+DEFINITION MODULE SPF;
+
+        (********************************************************)
+        (*                                                      *)
+        (* Extracting and using SPF information from nameserver *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            3 October 2016                  *)
+        (*  Last edited:        26 October 2016                 *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM Names IMPORT (*TYPE*) DomainName;
+
+TYPE SPFresult = (SPF_none, SPF_neutral, SPF_pass, SPF_fail,
+                      SPF_softfail, SPF_temperror, SPF_permerror);
+
+    (* These results are from RFC 7208, which falls over backwards      *)
+    (* trying to avoid giving concrete recommendations.  Since it is    *)
+    (* optional for a domain to publish SPF records, and since retries  *)
+    (* are impractical, a realistic decision would be to treat          *)
+    (* SPF_fail as a failure, and everything else as a pass.            *)
+
+PROCEDURE DoSPFLookup (ipaddr: CARDINAL;  VAR (*IN*) domain: DomainName;
+                        VAR (*IN*) HELOname: DomainName;
+                        user: ARRAY OF CHAR;
+                        VAR (*IN*) userdomain: ARRAY OF CHAR;
+                        VAR (*OUT*) SPFstring: ARRAY OF CHAR): SPFresult;
+
+    (* Does an SPF check to see whether ipaddr is a valid sender for    *)
+    (* the given domain.  The actual SPF string, which may be up to     *)
+    (* 450 characters in length, is returned in case the caller wants   *)
+    (* to record it.                                                    *)
+
+    (* The IP address must be in BigEndian format.  The "sender" input  *)
+    (* parameter should be an empty string when doing a HELO or EHLO    *)
+    (* check, or otherwise the argument of the MAIL FROM command.       *)
+
+PROCEDURE SPFresultToString (val: SPFresult;  VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Produces a human-readable version of val.  The result string     *)
+    (* must be big enough to hold at least nine characters.             *)
+
+END SPF.
+

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2015   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,13 +28,13 @@ IMPLEMENTATION MODULE OptionP2;
         (*                    Page 2 of the notebook                    *)
         (*                                                              *)
         (*        Started:        30 June 1999                          *)
-        (*        Last edited:    19 July 2013                          *)
+        (*        Last edited:    1 December 2015                       *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
 
 
-FROM SYSTEM IMPORT INT16, ADDRESS, CAST, ADR;
+FROM SYSTEM IMPORT CARD8, INT16, ADDRESS, CAST, ADR;
 
 IMPORT OS2, OS2RTL, DID, CommonSettings;
 
@@ -56,6 +56,7 @@ FROM RINIData IMPORT
 VAR
     OurPageHandle, notebookhandle: OS2.HWND;
     OnlineOption, OldOnlineOption: CARDINAL;
+    PMCheckLevel, OldPMCheckLevel: CARD8;
     OldMaxRecipients, OldRetryHours, OldOutputThreads: INT16;
     OldSingleMatch: BOOLEAN;
     ChangeInProgress: BOOLEAN;
@@ -83,6 +84,16 @@ PROCEDURE SetLanguage (lang: LangHandle);
         OS2.WinSetDlgItemText (OurPageHandle, DID.onlineDialup, stringval);
         StrToBuffer (lang, "OptionP2.onlineAlways", stringval);
         OS2.WinSetDlgItemText (OurPageHandle, DID.onlineAlways, stringval);
+
+        StrToBuffer (lang, "OptionP2.pmGroup", stringval);
+        OS2.WinSetDlgItemText (OurPageHandle, DID.pmGroup, stringval);
+        StrToBuffer (lang, "OptionP2.pm_disabled", stringval);
+        OS2.WinSetDlgItemText (OurPageHandle, DID.pm_disabled, stringval);
+        StrToBuffer (lang, "OptionP2.pm_copy", stringval);
+        OS2.WinSetDlgItemText (OurPageHandle, DID.pm_copy, stringval);
+        StrToBuffer (lang, "OptionP2.pm_reject", stringval);
+        OS2.WinSetDlgItemText (OurPageHandle, DID.pm_reject, stringval);
+
         StrToBuffer (lang, "OptionP2.POP3Login", stringval);
         OS2.WinSetDlgItemText (OurPageHandle, DID.POP3Login, stringval);
         StrToBuffer (lang, "OptionP2.RetryHours", stringval);
@@ -140,6 +151,26 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
         ELSE
             OnlineOption := 2;
             OS2.WinSendDlgItemMsg (hwnd, DID.onlineAlways, OS2.BM_SETCHECK,
+                                         OS2.MPFROMSHORT(1), NIL);
+        END (*IF*);
+
+        (* Postmaster check option. *)
+
+        IF NOT INIFetch ('$SYS', 'pmchecklevel', PMCheckLevel) THEN
+            PMCheckLevel := 1;
+            OldPMCheckLevel := 99;
+        ELSE
+            OldPMCheckLevel := PMCheckLevel;
+        END (*IF*);
+        IF PMCheckLevel = 0 THEN
+            OS2.WinSendDlgItemMsg (hwnd, DID.pm_disabled, OS2.BM_SETCHECK,
+                                         OS2.MPFROMSHORT(1), NIL);
+        ELSIF PMCheckLevel = 1 THEN
+            OS2.WinSendDlgItemMsg (hwnd, DID.pm_copy, OS2.BM_SETCHECK,
+                                         OS2.MPFROMSHORT(1), NIL);
+        ELSE
+            PMCheckLevel := 2;
+            OS2.WinSendDlgItemMsg (hwnd, DID.pm_reject, OS2.BM_SETCHECK,
                                          OS2.MPFROMSHORT(1), NIL);
         END (*IF*);
 
@@ -213,6 +244,22 @@ PROCEDURE StoreData;
         END (*IF*);
         IF OnlineOption <> OldOnlineOption THEN
             INIPut ('$SYS', 'OnlineOption', OnlineOption);
+        END (*IF*);
+
+        (* Postmaster check level. *)
+
+        IF OS2.LONGFROMMR (OS2.WinSendDlgItemMsg (OurPageHandle, DID.pm_disabled,
+                                       OS2.BM_QUERYCHECK, NIL, NIL)) <> 0 THEN
+            PMCheckLevel := 0;
+        ELSIF OS2.LONGFROMMR (OS2.WinSendDlgItemMsg (OurPageHandle, DID.pm_copy,
+                                       OS2.BM_QUERYCHECK, NIL, NIL)) <> 0 THEN
+            PMCheckLevel := 1;
+        ELSIF OS2.LONGFROMMR (OS2.WinSendDlgItemMsg (OurPageHandle, DID.pm_reject,
+                                       OS2.BM_QUERYCHECK, NIL, NIL)) <> 0 THEN
+            PMCheckLevel := 2;
+        END (*IF*);
+        IF PMCheckLevel <> OldPMCheckLevel THEN
+            INIPut ('$SYS', 'pmchecklevel', PMCheckLevel);
         END (*IF*);
 
         (* POP3 SingleMatch option. *)

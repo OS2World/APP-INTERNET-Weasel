@@ -6,14 +6,27 @@ DEFINITION MODULE Misc;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            4 July 1999                     *)
-        (*  Last edited:        21 May 2002                     *)
+        (*  Last edited:        29 September 2016               *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
 
 
+FROM OS2 IMPORT
+    (* type *)  HWND;
+
 TYPE
-    HostCategory = (local, mayrelay, relaydest, banned);
+    HostCategory = (local, whitelisted, mayrelay, relaydest, banned);
+
+
+PROCEDURE WinSetDlgItemCard (hwnd: HWND;  idItem, value: CARDINAL);
+
+    (* Sets a cardinal field in a dialogue. *)
+
+PROCEDURE WinQueryDlgItemCard (hwnd: HWND;  idItem: CARDINAL;
+                                 VAR (*OUT*) result: CARDINAL);
+
+    (* Reads back the value in a cardinal field in a dialogue. *)
 
 END Misc.
 

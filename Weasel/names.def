@@ -6,7 +6,7 @@ DEFINITION MODULE Names;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            9 May 1998                      *)
-        (*  Last edited:        29 April 2005                   *)
+        (*  Last edited:        15 October 2016                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -17,12 +17,13 @@ TYPE
     UserName = ARRAY UserNameIndex OF CHAR;
     HostNameIndex = [0..255];
     HostName = ARRAY HostNameIndex OF CHAR;
+    DomainNameIndex = HostNameIndex;
     DomainName = HostName;
     PassString = ARRAY [0..31] OF CHAR;
     FilenameIndex = [0..511];
     FilenameString = ARRAY FilenameIndex OF CHAR;
     PathString = ARRAY [0..511] OF CHAR;
-    HostCategory = (mayrelay, relaydest, banned);
+    HostCategory = (whitelisted, mayrelay, relaydest, banned);
     ServiceType = (SMTP, POP, IMAP, MSA);
     CardArray2 = ARRAY ServiceType[SMTP..POP] OF CARDINAL;
     CardArray3 = ARRAY ServiceType[SMTP..IMAP] OF CARDINAL;

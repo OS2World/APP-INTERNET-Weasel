@@ -6,7 +6,7 @@ DEFINITION MODULE Hosts;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            9 May 1998                      *)
-        (*  Last edited:        7 November 2008                 *)
+        (*  Last edited:        30 November 2016                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -26,13 +26,20 @@ PROCEDURE OnBlacklist (LogID: TransactionLogID;  IPAddress: CARDINAL;
     (* message is set to a suitable error response to the client.       *)
 
 PROCEDURE CheckHost (IPAddress: CARDINAL;
-                         VAR (*OUT*) IsBanned, MayRelay: BOOLEAN);
+                     VAR (*OUT*) IsBanned, OnWhitelist, MayRelay: BOOLEAN);
 
     (* Looks up our internal list of hosts, and returns results: *)
     (*     IsBanned:   this host is on our blacklist, we will    *)
     (*                 refuse any connection from it.            *)
+    (*     OnWhitelist: this host is whitelisted                 *)
     (*     MayRelay:   this host is one from whom we will        *)
     (*                 accept mail to be relayed.                *)
+
+PROCEDURE BannedHost (VAR (*IN*) name: HostName): BOOLEAN;
+
+    (* Returns TRUE if name matches a name in the "banned" list.  This  *)
+    (* is different from the CheckHost check because we are now         *)
+    (* checking the name rather than the address.                       *)
 
 PROCEDURE AcceptableRelayDestination (VAR (*IN*) name: HostName): BOOLEAN;
 

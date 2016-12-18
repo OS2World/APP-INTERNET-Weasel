@@ -1,0 +1,150 @@
+DEFINITION MODULE InetUtilities;
+
+        (********************************************************)
+        (*                                                      *)
+        (* Miscellaneous procedures for networking applications *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            23 August 1997                  *)
+        (*  Last edited:        28 January 2002                 *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+FROM SYSTEM IMPORT LOC, CARD16, CARD32;
+FROM Types IMPORT CARD64;
+FROM Sockets IMPORT Socket;
+FROM FileOps IMPORT ChanId;
+FROM OS2 IMPORT HINI;
+
+
+PROCEDURE Swap2 (val: CARD16): CARD16;
+
+    (* Returns the argument value in byte-reversed order.  This is needed       *)
+    (* because network byte order is most significant byte first, whereas our   *)
+    (* local host order is least significant byte first.                        *)
+
+PROCEDURE Swap4 (val: CARD32): CARD32;
+
+    (* Like Swap2, but for a four-byte argument. *)
+
+PROCEDURE ToLower (VAR (*INOUT*) string: ARRAY OF CHAR);
+
+    (* Converts all letters in string to lower case. *)
+
+PROCEDURE AppendString (new: ARRAY OF CHAR;  VAR (*INOUT*) result: ARRAY OF CHAR;
+                                          VAR (*INOUT*) pos: CARDINAL);
+
+    (* Puts new into the result array, starting at result[pos].      *)
+    (* On return pos is updated to the next unused array index.      *)
+
+PROCEDURE ConvertCard (number: CARDINAL;  VAR (*OUT*) result: ARRAY OF CHAR;
+                                          VAR (*INOUT*) pos: CARDINAL);
+
+    (* Converts number to decimal, left justified starting at result[pos].      *)
+    (* On return pos is updated to the next unused array index.                 *)
+
+PROCEDURE ConvertCard64 (number: CARD64;  VAR (*OUT*) result: ARRAY OF CHAR;
+                                          VAR (*INOUT*) pos: CARDINAL);
+
+    (* Converts number to decimal, left justified starting at result[pos].      *)
+    (* On return pos is updated to the next unused array index.                 *)
+
+PROCEDURE ConvertCardRJ (number: CARDINAL;  VAR (*OUT*) result: ARRAY OF CHAR;
+                             fieldwidth: CARDINAL;  VAR (*INOUT*) pos: CARDINAL);
+
+    (* Like ConvertCard, but right justified with space fill.     *)
+
+PROCEDURE ConvertCard64RJ (number: CARD64;  VAR (*OUT*) result: ARRAY OF CHAR;
+                             fieldwidth: CARDINAL;  VAR (*INOUT*) pos: CARDINAL);
+
+    (* Like ConvertCardRJ, but for CARD64 numbers.     *)
+
+PROCEDURE ConvertCardZ (number: CARDINAL;  VAR (*OUT*) Buffer: ARRAY OF CHAR;
+                             fieldwidth: CARDINAL;  VAR (*INOUT*) pos: CARDINAL);
+
+    (* Like ConvertCard, but uses a fixed fieldwidth and leading zero fill.     *)
+
+PROCEDURE AppendCard (number: CARDINAL;  VAR (*INOUT*) string: ARRAY OF CHAR);
+
+    (* Converts number to decimal, appends the result to the string. *)
+
+PROCEDURE ConvertDecimal (VAR (*IN*) numberstring: ARRAY OF CHAR;
+                                          VAR (*INOUT*) pos: CARDINAL): CARDINAL;
+
+    (* Converts decimal string to cardinal, starting from numberstring[pos].    *)
+    (* On return pos is updated to the next unused array index.                 *)
+
+PROCEDURE ConvertDecimal64 (VAR (*IN*) numberstring: ARRAY OF CHAR;
+                                          VAR (*INOUT*) pos: CARDINAL): CARD64;
+
+    (* Like ConvertDecimal, but gives a 64-bit result.  *)
+
+PROCEDURE AddEOL (VAR (*INOUT*) buffer: ARRAY OF CHAR): CARDINAL;
+
+    (* Appends a CRLF to the buffer contents, returns the total string length. *)
+
+PROCEDURE CurrentTimeToString (VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Encodes the current date and time as a character string.  The string     *)
+    (* must have room for at least 19 characters.                               *)
+
+PROCEDURE NameIsNumeric (VAR (*INOUT*) name: ARRAY OF CHAR): BOOLEAN;
+
+    (* Returns TRUE iff name has the form N.N.N.N or [N.N.N.N] where each N is  *)
+    (* a decimal number.  (The present version actually accepts an arbitrary    *)
+    (* number of numbers separated by dots.)  As a side-effect, we also strip   *)
+    (* the square brackets if they are present.                                 *)
+
+PROCEDURE IPToString (IP: ARRAY OF LOC;  EncloseInBrackets: BOOLEAN;
+                                VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Converts a four-byte IP address (in network byte order) to a             *)
+    (* human-readable form.  There must be at least 15 character positions      *)
+    (* available in the result array, or 17 if EncloseInBrackets is TRUE.       *)
+
+PROCEDURE LockScreen;
+PROCEDURE UnlockScreen;
+
+    (* Critical section protection for writing to the screen. *)
+
+PROCEDURE WriteCard (number: CARDINAL);
+
+    (* Writes a number to the screen. *)
+
+PROCEDURE GetLastError(): CARDINAL;
+
+    (* Returns the error code from WinGetLastError. *)
+
+PROCEDURE Synch (S: Socket);
+
+    (* Ensures that outgoing data is sent right now rather than being   *)
+    (* buffered.  This reduces performance a little, but is needed to   *)
+    (* work around a bug in Netscape and MS FTP Exploder.               *)
+
+PROCEDURE WaitForSocket (S: Socket;  timeout: CARDINAL): INTEGER;
+
+    (* Waits until something is available on socket S.  The possible return     *)
+    (* codes are +1 for OK, 0 for timeout, -1 for error (or cancel).            *)
+    (* Specify timeout=MAX(CARDINAL) if you don't want a timeout.               *)
+
+PROCEDURE WaitForDataSocket (output: BOOLEAN;
+                             DataSocket, CommandSocket: Socket): BOOLEAN;
+
+    (* Waits until DataSocket is ready or out-of-band data arrives on           *)
+    (* CommandSocket.  The first parameter should be TRUE if DataSocket is      *)
+    (* being used as an output socket, and FALSE if it is being used as an      *)
+    (* input socket.  The function result is TRUE iff DataSocket is ready AND   *)
+    (* no out-of-band data has arrived on CommandSocket.                        *)
+
+PROCEDURE OpenLogFile (name: ARRAY OF CHAR): ChanId;
+
+    (* Opens a log file.  This thread retains exclusive access   *)
+    (* until it calls CloseLogFile.                              *)
+
+PROCEDURE CloseLogFile (id: ChanId);
+
+    (* Closes the specified file, and releases the exclusive lock. *)
+
+END InetUtilities.
+

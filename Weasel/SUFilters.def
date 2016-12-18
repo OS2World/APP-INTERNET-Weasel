@@ -1,0 +1,16 @@
+DEFINITION MODULE SUFilters;
+
+        (********************************************************)
+        (*                                                      *)
+        (*       'Filters' page in Weasel VIOSetup utility      *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            14 September 2003               *)
+        (*  Last edited:        14 September 2003               *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+END SUFilters.
+

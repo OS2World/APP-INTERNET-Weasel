@@ -1,0 +1,22 @@
+DEFINITION MODULE EditUsers;
+
+        (********************************************************)
+        (*                                                      *)
+        (*             Weasel user and alias editor             *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            24 April 1998                   *)
+        (*  Last edited:        10 February 2003                *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+PROCEDURE CheckUserDirectories (VAR (*IN*) MailRoot: ARRAY OF CHAR);
+
+    (* Makes sure that MailRoot has a subdirectory for every user in    *)
+    (* the user database.  Also creates the compulsory directories, if  *)
+    (* they don't already exist.                                        *)
+
+END EditUsers.
+

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2016   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SMTPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 April 1998                   *)
-        (*  Last edited:        30 July 2012                    *)
+        (*  Last edited:        13 December 2016                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -42,6 +42,9 @@ FROM Heap IMPORT
 
 FROM LowLevel IMPORT
     (* proc *)  EVAL;
+
+FROM Sockets IMPORT
+    (* type *)  Socket;
 
 FROM TaskControl IMPORT
     (* type *)  Lock,
@@ -60,17 +63,24 @@ FROM FileOps IMPORT
                 DeleteFile;
 
 FROM Names IMPORT
-    (* type *)  UserName, HostName, FilenameIndex, FilenameString, PathString;
+    (* type *)  UserName, HostName, DomainName,
+                FilenameIndex, FilenameString, PathString;
 
 FROM Domains IMPORT
-    (* type *)  Domain;
+    (* type *)  Domain,
+    (* proc *)  DomainIsLocal, NameOfFirstDomain;
 
 FROM Hosts IMPORT
-    (* proc *)  CheckHost, OnBlacklist;
+    (* proc *)  CheckHost, OnBlacklist, BannedHost;
+
+FROM SPF IMPORT
+    (* const*)  SPF_none,
+    (* type *)  SPFresult,
+    (* proc *)  DoSPFLookup, SPFresultToString;
 
 FROM SBuffers IMPORT
     (* type *)  SBuffer,
-    (* proc *)  SocketOf, Getch;
+    (* proc *)  SocketOf, Getch, SendLine, FlushOutput;
 
 FROM MXCheck IMPORT
     (* proc *)  DoMXLookup;
@@ -86,22 +96,25 @@ FROM InetUtilities IMPORT
     (* proc *)  WriteCard;
 
 FROM Inet2Misc IMPORT
-    (* proc *)  IPToString, AddressToHostName;
+    (* proc *)  IPToString, AddressToHostName, StringMatch;
+
+FROM SMTPLogin IMPORT
+    (* proc *)  PostmasterCheck;
 
 FROM Delivery IMPORT
-    (* type *)  CombinedRecipientList,
+    (* type *)  CombinedRecipientList, ListOfRecipients,
     (* proc *)  CreateCombinedRecipientList, DiscardCombinedRecipientList,
                 ClearCombinedRecipientList, EmptyRecipientList,
                 AddToLocalList, AddToRelayList, WriteRecipientList,
                 ChooseIncomingFileDirectory, GetOurHostName,
-                AddRecipient, CopyToRecipients, SeparateFilter;
+                AddRecipient, CopyToRecipients, SortByFilter;
 
 FROM LogCtx IMPORT
     (* var  *)  WCtx;
 
 FROM TransLog IMPORT
     (* type *)  TransactionLogID,
-    (* proc *)  GetLogPrefix;
+    (* proc *)  GetLogPrefix, LogTransaction, LogTransactionL;
 
 FROM SplitScreen IMPORT
     (* proc *)  ReleaseScreen, RegainScreen;
@@ -125,20 +138,29 @@ TYPE
     (*                        nameserver lookup                         *)
     (*   HELOname          the sender's hostname as supplied in the     *)
     (*                        HELO command                              *)
+    (*   fromdomain        domain in the MAIL FROM command              *)
+    (*   OurHostname       the hostname of this server                  *)
     (*   TempName          name of a file where the incoming item is    *)
     (*                       stored before being distributed to all     *)
     (*                       recipients.                                *)
     (*   offset            effective starting point of the file if it   *)
     (*                       has to be relayed.                         *)
-    (*   charcount         bytes received                               *)
+    (*   charcount         bytes received, used for logging             *)
     (*   LogID             ID used for transaction logging              *)
     (*   returnpath        path supplied by MAIL FROM:                  *)
     (*   firstrecipient    as supplied in first RCPT TO:                *)
     (*   recipientcount    number of RCPT TO: recipients                *)
     (*   Recipients        list of destination mailboxes                *)
+    (*   SPFans1           result of HELO SPF check                     *)
+    (*   SPFans2           result of MAIL FROM SPF check                *)
+    (*   whitelisted       TRUE for a whitelisted sender                *)
     (*   RelayAllowed      TRUE iff the sending host is one that is     *)
     (*                       allowed to relay through us, and allowed   *)
     (*                       access to non-public aliases.              *)
+    (*   postmasterOK      The sender domain (in returnpath) has a      *)
+    (*                          valid postmaster account.               *)
+    (*   softfail          The postmaster check resulted in a           *)
+    (*                          "try again later" response              *)
     (*   SkipFiltering     TRUE iff we want to bypass filtering.        *)
     (*   SkipFiltering0    The value of SkipFiltering after stage 0.    *)
 
@@ -147,6 +169,8 @@ TYPE
                RealIPAddr: CARDINAL;
                RealName: HostName;
                HELOname: HostName;
+               fromdomain: DomainName;
+               OurHostname: HostName;
                LogID: TransactionLogID;
                TempName: FilenameString;
                offset: FilePos;
@@ -154,11 +178,18 @@ TYPE
                returnpath, firstrecipient: PathString;
                recipientcount: CARDINAL;
                Recipients: CombinedRecipientList;
-               RelayAllowed: BOOLEAN;
+               SPFans1, SPFans2: SPFresult;
+               whitelisted, RelayAllowed: BOOLEAN;
+               postmasterOK, softfail: BOOLEAN;
                SkipFiltering0, SkipFiltering: BOOLEAN;
            END (*RECORD*);
 
 VAR
+    (* Maximum message size. *)
+
+    MaxMessageSize: CARDINAL;
+    MaxMessageSizeLock: CARDINAL;
+
     (* NextName is a string used in generating unique file names. *)
 
     NextName: ARRAY [0..7] OF CHAR;
@@ -194,9 +225,13 @@ VAR
 
     MAILFROMcheck: BOOLEAN;
 
-    (* A flag that's true for filters prior to version 1.643. *)
+    (* Flag to enable SPF lookups.  *)
 
-    OldFilterRules: BOOLEAN;
+    SPFenabled: BOOLEAN;
+
+    (* What to do about postmaster check failures. *)
+
+    pmchecklevel: (disabled, marksuspectfiles, blockpmfailures);
 
     (* Flag to say that we get our INI data from TNI files. *)
 
@@ -212,7 +247,7 @@ VAR
 
 PROCEDURE CreateItemDescriptor (SB: SBuffer;  ClientIPAddress: CARDINAL;
                                  ID: TransactionLogID;
-                                  MayRelay: BOOLEAN): ItemDescriptor;
+                                  MayRelay, OnWhitelist: BOOLEAN): ItemDescriptor;
 
     (* Creates a descriptor for a new mail item.  ID is for *)
     (* transaction logging.                                 *)
@@ -226,11 +261,19 @@ PROCEDURE CreateItemDescriptor (SB: SBuffer;  ClientIPAddress: CARDINAL;
             AddressToHostName (ClientIPAddress, RealName);
             LogID := ID;
             HELOname := "";
+            fromdomain := "";
+            OurHostname := "localhost";      (* fallback default *)
+            GetOurHostName (SocketOf(SB), OurHostname);
             TempName := "";
             firstrecipient := "";
             recipientcount := 0;
             Recipients := CreateCombinedRecipientList();
+            SPFans1 := SPF_none;
+            SPFans2 := SPF_none;
             RelayAllowed := MayRelay;
+            whitelisted := OnWhitelist;
+            postmasterOK := TRUE;
+            softfail := FALSE;
             SkipFiltering0 := FALSE;
             SkipFiltering := FALSE;
         END (*WITH*);
@@ -250,8 +293,16 @@ PROCEDURE ResetReturnPath (desc: ItemDescriptor);
             returnpath[0] := EmptyReversePathMarker;
             returnpath[1] := Nul;
             SkipFiltering := SkipFiltering0;
+            postmasterOK := FALSE;
+            softfail := FALSE;
         END (*WITH*);
     END ResetReturnPath;
+
+(************************************************************************)
+
+PROCEDURE ParsePathString (path: ARRAY OF CHAR;
+                            VAR (*OUT*) user: UserName;
+                            VAR (*OUT*) domain: HostName);  FORWARD;
 
 (************************************************************************)
 
@@ -261,7 +312,7 @@ PROCEDURE ResetItemDescriptor (desc: ItemDescriptor;
     (* Discards information related to sender and receivers, deletes    *)
     (* message file if one has been created, and sets a new return path.*)
 
-    VAR dummy: BOOLEAN;
+    VAR user: UserName;  dummy: BOOLEAN;
 
     BEGIN
         IF desc <> NIL THEN
@@ -270,9 +321,12 @@ PROCEDURE ResetItemDescriptor (desc: ItemDescriptor;
                 desc^.TempName[0] := Nul;
             END (*IF*);
             Strings.Assign (ReturnPath, desc^.returnpath);
+            ParsePathString (desc^.returnpath, user, desc^.fromdomain);
             ClearCombinedRecipientList (desc^.Recipients);
             desc^.firstrecipient := "";
             desc^.recipientcount := 0;
+            desc^.postmasterOK := FALSE;
+            desc^.softfail := FALSE;
             desc^.SkipFiltering := desc^.SkipFiltering0;
         END (*IF*);
     END ResetItemDescriptor;
@@ -295,12 +349,27 @@ PROCEDURE DiscardItemDescriptor (VAR (*INOUT*) desc: ItemDescriptor);
 (************************************************************************)
 
 PROCEDURE SetClaimedSendingHost (desc: ItemDescriptor;
-                                 VAR (*IN*) ClaimedName: ARRAY OF CHAR);
+                                 VAR (*IN*) ClaimedName: HostName): BOOLEAN;
 
-    (* ClaimedName is the sending host's name as supplied in the HELO command. *)
+    (* ClaimedName is the sending host's name as supplied in the HELO   *)
+    (* command.  Returns TRUE if name is acceptable.                    *)
+
+    VAR SPFstring: ARRAY [0..511] OF CHAR;
 
     BEGIN
         Strings.Assign (ClaimedName, desc^.HELOname);
+        IF desc^.whitelisted THEN
+            RETURN TRUE;
+        ELSIF BannedHost(ClaimedName) THEN
+            RETURN FALSE;
+        ELSIF SPFenabled THEN
+            WITH desc^ DO
+                SPFans1 := DoSPFLookup (RealIPAddr, HELOname,
+                                        HELOname, "postmaster", HELOname, SPFstring);
+            END (*WITH*);
+            RETURN (desc^.SPFans1 <> SPF_fail);
+        END (*IF*);
+        RETURN TRUE;
     END SetClaimedSendingHost;
 
 (************************************************************************)
@@ -317,6 +386,9 @@ PROCEDURE ParsePathString (path: ARRAY OF CHAR;
     BEGIN
         j := 0;  k := Strings.Length(path);
 
+        (* Our goal is to increase j and decrease k, as appropriate *)
+        (* so that the address we want is path[j..k-1].             *)
+
         (* Skip leading and trailing spaces. *)
 
         WHILE (j <= HIGH(path)) AND (path[j] = ' ') DO
@@ -327,12 +399,15 @@ PROCEDURE ParsePathString (path: ARRAY OF CHAR;
             DEC (k);
         END (*WHILE*);
 
-        (* Remove the enclosing <>. *)
+        (* Remove the enclosing <>.  Because of a possible AUTH     *)
+        (* argument in the MAIL FROM string, the '>' we want is     *)
+        (* not necessarily right at the end of the string.          *)
 
         IF (j <= HIGH(path)) AND (path[j] = '<') THEN
             INC (j);
-            IF (k > 0) AND (path[k-1] = '>') THEN
-                DEC (k);
+            Strings.FindNext ('>', path, j, found, pos);
+            IF found AND (pos > 0) AND (pos <= k) THEN
+                k := pos;
             END (*IF*);
         END (*IF*);
 
@@ -401,46 +476,55 @@ PROCEDURE ProcessRCPTAddress (desc: ItemDescriptor;
 
 (************************************************************************)
 
-PROCEDURE FromAddressAcceptable (desc: ItemDescriptor): BOOLEAN;
+PROCEDURE FromAddressAcceptable (desc: ItemDescriptor;  S: Socket;
+                               watchdog: Semaphore;
+                               VAR (*OUT*) TempFailure: BOOLEAN): BOOLEAN;
 
     (* Returns TRUE if we're satisfied with the sender's address as     *)
     (* supplied in MAIL FROM.  If we're not satisfied, we clear that    *)
-    (* address as well as returning FALSE.                              *)
+    (* address as well as returning FALSE.  A result of FALSE with      *)
+    (* TempFailure also FALSE means a soft failure, such that the       *)
+    (* address might become acceptable on a future attempt.             *)
+
+    (* This procedure is not called if the client is whitelisted.       *)
 
     CONST max = 32;
 
-    VAR user: UserName;  domain: HostName;
-        E1, E2, OK, IsBanned, MayRelay: BOOLEAN;
+    VAR user: UserName;
+        SenderDomain: Domain;
+        E1, E2, OK, IsBanned, whitelisted, MayRelay: BOOLEAN;
         j: CARDINAL;
         address: ARRAY [0..max] OF CARDINAL;
         message: ARRAY [0..127] OF CHAR;
+        SPFstring: ARRAY [0..511] OF CHAR;
+        domain, OurDomainName: DomainName;
 
     BEGIN
-        ParsePathString (desc^.returnpath, user, domain);
-        E1 := user[0] = Nul;
-        E2 := domain[0] = Nul;
-
-        (* The SMTP standard says that a completely empty FROM address  *)
-        (* is acceptable.                                               *)
-
-        IF E1 AND E2 THEN
+        IF desc^.whitelisted THEN
             RETURN TRUE;
         END (*IF*);
 
-        (* Start with a simple check: user and domain must be nonempty. *)
-        (* (This test temporarily disabled, and I'm considering         *)
-        (* disabling it permanently.                                    *)
+        TempFailure := FALSE;
+        ParsePathString (desc^.returnpath, user, domain);
+        desc^.fromdomain := domain;
+        E1 := user[0] = Nul;
+        E2 := domain[0] = Nul;
+        desc^.postmasterOK := TRUE;
 
-        OK := NOT (E1 OR E2);
+        (* The SMTP standard says that a completely empty FROM address  *)
+        (* is acceptable.  Otherwise, both user and domain must be nonempty. *)
+
+        OK := (E1 = E2);
 
         (* If we pass that check, do the "banned hosts" checks if       *)
         (* the MAILFROMcheck option has been set.                       *)
 
-        IF OK AND MAILFROMcheck THEN
-            IF DoMXLookup (domain, address) = 0 THEN
+        IF OK AND MAILFROMcheck AND NOT StringMatch(domain, desc^.HELOname) THEN
+            OK := NOT BannedHost(domain);
+            IF OK AND (DoMXLookup (domain, address) = 0) THEN
                 j := 0;
                 WHILE OK AND (j <= max) AND (address[j] <> 0) DO
-                    CheckHost (address[j], IsBanned, MayRelay);
+                    CheckHost (address[j], IsBanned, whitelisted, MayRelay);
                     IF IsBanned THEN
                         OK := FALSE;
                     ELSIF NOT MayRelay THEN
@@ -449,6 +533,39 @@ PROCEDURE FromAddressAcceptable (desc: ItemDescriptor): BOOLEAN;
                     END (*IF*);
                     INC(j);
                 END (*WHILE*);
+            END (*IF*);
+        END (*IF*);
+
+        (* Now the SPF check.  *)
+
+        IF SPFenabled THEN
+            desc^.SPFans2 := DoSPFLookup (desc^.RealIPAddr, domain,
+                                    desc^.HELOname, user, domain, SPFstring);
+            OK := OK AND (desc^.SPFans2 <> SPF_fail);
+        END (*IF*);
+
+        (* Now the postmaster check, unless it's disabled.  We give an  *)
+        (* exemption to a completely empty FROM address, and to the     *)
+        (* username "postmaster".                                       *)
+
+        IF OK AND (pmchecklevel <> disabled)
+                AND NOT StringMatch (user, "postmaster")
+                    AND NOT DomainIsLocal (domain, SenderDomain) THEN
+            NameOfFirstDomain (OurDomainName);
+            IF OurDomainName[0] = Nul THEN
+                Strings.Assign (desc^.OurHostname, OurDomainName);
+            END (*IF*);
+            desc^.postmasterOK := PostmasterCheck (domain, desc^.OurHostname,
+                                     OurDomainName, desc^.LogID,
+                                      watchdog, TempFailure);
+            desc^.softfail := TempFailure;
+            IF TempFailure THEN
+                LogTransactionL (desc^.LogID, "[pc]Soft failure of postmaster check");
+            ELSIF NOT desc^.postmasterOK THEN
+                LogTransactionL (desc^.LogID, "[pc]Failed postmaster check");
+            END (*IF*);
+            IF pmchecklevel = blockpmfailures THEN
+                OK := desc^.postmasterOK;
             END (*IF*);
         END (*IF*);
 
@@ -825,6 +942,10 @@ PROCEDURE ReceiveMessage0 (SB: SBuffer;  cid: ChanId;  LocalHost: HostName;
                     WriteEOL (cid);
                 END (*IF*);
                 INC (total, amount+2);
+                IF total > LimitOnMessageSize() THEN
+                    (* Keep receiving message, but stop storing it. *)
+                    StoreIt := FALSE;
+                END (*IF*);
             END (*IF*);
 
         UNTIL EndOfMessage OR (total = MAX(CARDINAL));
@@ -919,12 +1040,47 @@ PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
             success := cid <> NoSuchChannel;
             IF success THEN
 
+                (* Create an "Authentication-Results" header line, but only *)
+                (* if we're using SPF.                                      *)
+
+                IF SPFenabled THEN
+                    PosInLine := 0;
+                    AddString (cid, "Authentication-Results: ");
+                    Strings.Assign (itemdata^.OurHostname, StringBuffer);
+                    Strings.Append ("; ", StringBuffer);
+                    AddString (cid, StringBuffer);
+                    AddString (cid, "spf=");
+                    SPFresultToString (itemdata^.SPFans1, StringBuffer);
+                    AddString (cid, StringBuffer);
+                    IF itemdata^.whitelisted THEN
+                        AddString (cid, " (whitelisted)");
+                    END (*IF*);
+                    AddString (cid, " smtp.helo=");
+                    AddString (cid, itemdata^.HELOname);
+
+                    IF itemdata^.SPFans2 <> itemdata^.SPFans1 THEN
+                        AddString (cid, "; spf=");
+                        SPFresultToString (itemdata^.SPFans2, StringBuffer);
+                        AddString (cid, StringBuffer);
+                    END (*IF*);
+                    IF (itemdata^.fromdomain[0] <> Nul)
+                            OR (itemdata^.SPFans2 <> itemdata^.SPFans1) THEN
+                        AddString (cid, " smtp.mailfrom=");
+                        AddString (cid, itemdata^.fromdomain);
+                    END (*IF*);
+                    FWriteLn (cid);
+                END (*IF*);
+
                 (* Create a "Return-Path:" header line. *)
 
                 PosInLine := 0;
                 AddString (cid, "Return-Path: ");
                 AddString (cid, itemdata^.returnpath);
                 FWriteLn (cid);
+
+                (* The above parts of the file will be removed if this  *)
+                (* message is relayed to another server.                *)
+
                 itemdata^.offset := CurrentPosition(cid);
 
                 (* Create a "Received:" header line. *)
@@ -939,7 +1095,7 @@ PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
                 AddString (cid, StringBuffer);
                 FWriteChar (cid, ')');  INC(PosInLine);
                 AddString (cid, " by " );
-                LocalHost := "[127.0.0.0]";      (* fallback default *)
+                LocalHost := "[127.0.0.1]";      (* fallback default *)
                 GetOurHostName (SocketOf(SB), LocalHost);
                 AddString (cid, LocalHost);
                 AddString (cid, " (Weasel v");
@@ -953,6 +1109,17 @@ PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
                 CurrentDateAndTime (StringBuffer);
                 AddString (cid, StringBuffer);
                 FWriteLn (cid);
+
+                (* Add an X-PostmasterCheck header if needed. *)
+
+                IF (NOT itemdata^.postmasterOK) AND (pmchecklevel = marksuspectfiles) THEN
+                    IF itemdata^.softfail THEN
+                        FWriteString (cid, "X-PostmasterCheck: DEFERRED");
+                    ELSE
+                        FWriteString (cid, "X-PostmasterCheck: FAIL");
+                    END (*IF*);
+                    FWriteLn (cid);
+                END (*IF*);
 
                 (* Read the new message into the temporary file. *)
 
@@ -968,6 +1135,10 @@ PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
                     success := itemdata^.charcount <> MAX(CARDINAL);
                     IF NOT success THEN
                         Strings.Assign ("554 connection lost", FailureReason);
+                    ELSIF itemdata^.charcount > LimitOnMessageSize() THEN
+                        Strings.Assign ("552 message size exceeds fixed maximum message size",
+                                                            FailureReason);
+                        success := FALSE;
                     END (*IF*);
                 END (*IF*);
 
@@ -998,30 +1169,7 @@ PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
 
 (************************************************************************)
 
-PROCEDURE OldMakeRecipientListFile (stage: CARDINAL;  desc: ItemDescriptor;
-                                 VAR (*OUT*) filename: FilenameString);
-
-    VAR cid: ChanId;  BaseName: FilenameString;
-
-    BEGIN
-        ChooseIncomingFileDirectory (desc^.Recipients, BaseName);
-        cid := OpenNewOutputFile (BaseName, ".REC", filename);
-        IF cid <> NoSuchChannel THEN
-            IF stage = 0 THEN
-                IPToString (desc^.RealIPAddr, TRUE, desc^.returnpath);
-            END (*IF*);
-            FWriteString (cid, desc^.returnpath);  FWriteLn (cid);
-            WriteRecipientList (cid, desc^.Recipients, TRUE, FALSE);
-            CloseFile (cid);
-            IF stage = 0 THEN
-                ResetReturnPath (desc);
-            END (*IF*);
-        END (*IF*);
-    END OldMakeRecipientListFile;
-
-(************************************************************************)
-
-PROCEDURE NewMakeRecipientListFile (stage: CARDINAL;  desc: ItemDescriptor;
+PROCEDURE MakeRecipientListFile (stage: CARDINAL;  desc: ItemDescriptor;
                                  VAR (*OUT*) filename: FilenameString);
 
     (* Creates the "namefile" for a filter.  In the present version,    *)
@@ -1098,46 +1246,11 @@ PROCEDURE NewMakeRecipientListFile (stage: CARDINAL;  desc: ItemDescriptor;
             CloseFile (cid);
 
         END (*IF*);
-    END NewMakeRecipientListFile;
+    END MakeRecipientListFile;
 
 (************************************************************************)
 
-PROCEDURE OldRebuildRecipientList (desc: ItemDescriptor;
-                                filename: FilenameString);
-
-    (* Discards the current recipients for desc^, and creates a new set *)
-    (* of recipients from "filename".  The first line in that file is   *)
-    (* ignored.                                                         *)
-
-    CONST CtrlZ = CHR(26);
-
-    VAR cid: ChanId;  MoreToGo: BOOLEAN;
-        name: UserName;
-
-    BEGIN
-        IF filename[0] <> Nul THEN
-            ClearCombinedRecipientList (desc^.Recipients);
-            cid := OpenOldFile (filename, FALSE, FALSE);
-            IF cid <> NoSuchChannel THEN
-                ReadLine (cid, desc^.returnpath);
-                MoreToGo := desc^.returnpath[0] <> CtrlZ;
-                WHILE MoreToGo DO
-                    ReadLine (cid, name);
-                    IF name[0] = CtrlZ THEN
-                        MoreToGo := FALSE;
-                    ELSIF name[0] <> Nul THEN
-                        AddRecipient (desc^.Recipients, name,
-                                      desc^.RelayAllowed, TRUE, desc^.LogID);
-                    END (*IF*);
-                END (*WHILE*);
-                CloseFile (cid);
-            END (*IF*);
-        END (*IF*);
-    END OldRebuildRecipientList;
-
-(************************************************************************)
-
-PROCEDURE NewRebuildRecipientList (desc: ItemDescriptor;
+PROCEDURE RebuildRecipientList (desc: ItemDescriptor;
                                 filename: FilenameString);
 
     (* Discards the current recipients for desc^, and creates a new set *)
@@ -1191,7 +1304,7 @@ PROCEDURE NewRebuildRecipientList (desc: ItemDescriptor;
             END (*IF*);
         END (*IF*);
 
-    END NewRebuildRecipientList;
+    END RebuildRecipientList;
 
 (************************************************************************)
 
@@ -1324,66 +1437,6 @@ PROCEDURE ExecProg (VAR (*IN*) ProgName, Params: ARRAY OF CHAR): CARDINAL;
     END ExecProg;
 *)
 
-(********************************************************************************)
-
-PROCEDURE ExtractSeparateFilterUsers (itemdata: ItemDescriptor;
-                             VAR (*INOUT*) FilterName: FilenameString);
-
-    (* Pulls out those local recipients whose filter is different from  *)
-    (* that required for the remaining recipients, and submits them     *)
-    (* as "recirculate" jobs so that they will be filtered on the       *)
-    (* second time around.  On return, all items require the same       *)
-    (* filter.  This is not necessarily the same filter as when this    *)
-    (* procedure was called, because it might turn out that all         *)
-    (* recipients require the same separate filter.                     *)
-
-    VAR NewCRL: CombinedRecipientList;
-        cid: ChanId;
-        found: BOOLEAN;
-        OriginalFilter, NewDir, NewFile: FilenameString;
-
-    BEGIN
-        OriginalFilter := FilterName;
-        REPEAT
-            found := SeparateFilter (itemdata^.Recipients, NewCRL,
-                                                           FilterName);
-            IF found THEN
-                ChooseIncomingFileDirectory (NewCRL, NewDir);
-
-                (* Make a copy of the message file.  By opening and     *)
-                (* closing the new file, we duck around critical        *)
-                (* section problems by ensuring that another thread     *)
-                (* can't choose the same file name before we get a      *)
-                (* chance to do the copy.                               *)
-
-                cid := OpenNewOutputFile (NewDir, ".###", NewFile);
-                CloseFile (cid);
-                EVAL (OS2.DosCopy (itemdata^.TempName,
-                                        NewFile, OS2.DCPY_EXISTING));
-
-                (* QUESTION: What do we need to do about the firstrecipient *)
-                (* and recipientcount fields in the itemdata^ record?  My   *)
-                (* guess is that they're no longer relevant by the time     *)
-                (* we're up to filtering, but I should confirm this.        *)
-
-                IF EmptyRecipientList (itemdata^.Recipients) THEN
-                    DiscardCombinedRecipientList (itemdata^.Recipients);
-                    itemdata^.Recipients := NewCRL;
-                    DeleteFile (itemdata^.TempName);
-                    itemdata^.TempName := NewFile;
-                    found := FALSE;
-                ELSE
-                    CopyToRecipients (NewFile, itemdata^.returnpath,
-                         itemdata^.offset, itemdata^.LogID, NewCRL, TRUE);
-                    DiscardCombinedRecipientList (NewCRL);
-                    FilterName := OriginalFilter;
-                END (*IF*);
-
-            END (*IF*);
-        UNTIL NOT found;
-
-    END ExtractSeparateFilterUsers;
-
 (************************************************************************)
 
 PROCEDURE RunFilter03 (stage: CARDINAL;  itemdata: ItemDescriptor;
@@ -1424,13 +1477,15 @@ PROCEDURE RunFilter03 (stage: CARDINAL;  itemdata: ItemDescriptor;
     CONST ONLength = 256;  Tab = CHR(9);  MaxResultCode = 16;
     TYPE ResultCodes = SET OF [0..MaxResultCode];
     CONST LegalResultCodes = ResultCodes {0..4, 16};
+    TYPE ArgStringIndex = [0..3*(MAX(FilenameIndex)+1) + 12];
 
     VAR j, k, result: CARDINAL;  found, Serialise: BOOLEAN;
-        FilterName, recipients, ArgString, newfile: FilenameString;
+        FilterName, recipients, newfile: FilenameString;
         FailureObjectName: ARRAY [0..ONLength-1] OF CHAR;
         ExitStatus: OS2.RESULTCODES;
         cid, cid2: ChanId;
         LineBuffer, RPBuffer: ARRAY [0..1023] OF CHAR;
+        ArgString: ARRAY ArgStringIndex OF CHAR;
 
     BEGIN
         IF itemdata^.SkipFiltering THEN
@@ -1447,24 +1502,14 @@ PROCEDURE RunFilter03 (stage: CARDINAL;  itemdata: ItemDescriptor;
             RETURN 0;
         END (*IF*);
 
-        IF OldFilterRules THEN
-            OldMakeRecipientListFile (stage, itemdata, recipients);
-        ELSE
-            NewMakeRecipientListFile (stage, itemdata, recipients);
-        END (*IF*);
+        MakeRecipientListFile (stage, itemdata, recipients);
         ArgString := "CMD /C ";
         Strings.Append (FilterName, ArgString);
         Strings.Append (" ", ArgString);
-        IF OldFilterRules THEN
-            Strings.Append (itemdata^.TempName, ArgString);
+        Strings.Append (recipients, ArgString);
+        IF itemdata^.TempName[0] <> Nul THEN
             Strings.Append (" ", ArgString);
-            Strings.Append (recipients, ArgString);
-        ELSE
-            Strings.Append (recipients, ArgString);
-            IF itemdata^.TempName[0] <> Nul THEN
-                Strings.Append (" ", ArgString);
-                Strings.Append (itemdata^.TempName, ArgString);
-            END (*IF*);
+            Strings.Append (itemdata^.TempName, ArgString);
         END (*IF*);
 
         (* Special rule for ArgString: it must be terminated by two Nul *)
@@ -1473,9 +1518,19 @@ PROCEDURE RunFilter03 (stage: CARDINAL;  itemdata: ItemDescriptor;
         (* after everything else has been done, otherwise it would mess *)
         (* up the Strings.Append operation.                             *)
 
-        j := LENGTH(ArgString) + 1;
-        IF j <= MAX(FilenameIndex) THEN
+        (* The following piece of code contains redundancies, because   *)
+        (* I've made ArgString big enough to fit the two Nuls even in   *)
+        (* the worst case, and the first one will already have been     *)
+        (* put there by Strings.Append; but the belt-and-braces         *)
+        (* approach is a minor cost, and makes the code easier to read. *)
+
+        j := LENGTH(ArgString);
+        IF j <= MAX(ArgStringIndex) THEN
             ArgString[j] := Nul;
+            INC (j);
+            IF j <= MAX(ArgStringIndex) THEN
+                ArgString[j] := Nul;
+            END (*IF*);
         END (*IF*);
         ArgString[3] := Nul;
 
@@ -1507,11 +1562,7 @@ PROCEDURE RunFilter03 (stage: CARDINAL;  itemdata: ItemDescriptor;
 
         FailureMessage[0] := Nul;
         IF result = 1 THEN
-            IF OldFilterRules THEN
-                OldRebuildRecipientList (itemdata, recipients);
-            ELSE
-                NewRebuildRecipientList (itemdata, recipients);
-            END (*IF*);
+            RebuildRecipientList (itemdata, recipients);
             result := 0;
         ELSIF result = 4 THEN
             ReadFailureMessage (recipients, FailureMessage);
@@ -1629,9 +1680,10 @@ PROCEDURE RunFilter03 (stage: CARDINAL;  itemdata: ItemDescriptor;
 
     END RunFilter03;
 
-(********************************************************************************)
+(************************************************************************)
 
 PROCEDURE RunFinalFilter (itemdata: ItemDescriptor;
+                             VAR (*IN*) FilterName: FilenameString;
                      VAR (*OUT*) FailureMessage: ARRAY OF CHAR): CARDINAL;
 
     (* This procedure may be invoked at stage 4 of reception:           *)
@@ -1649,7 +1701,7 @@ PROCEDURE RunFinalFilter (itemdata: ItemDescriptor;
     (*    4    like 3, but the filter has placed a failure message into *)
     (*           the first line of the 'recipients' file.               *)
     (*  5-15   unused, reserved for future use.                         *)
-    (*   16    not used at this stage.                                  *)
+    (*   16    only used in stages 0-3.                                 *)
     (*                                                                  *)
     (* As a guard against errors in the filters, unused codes are       *)
     (* converted to 0.                                                  *)
@@ -1660,63 +1712,32 @@ PROCEDURE RunFinalFilter (itemdata: ItemDescriptor;
     (*                                                                  *)
     (* In case 3, FailureMessage holds the reply (starting with a       *)
     (* three-digit code) to be returned to the sender.                  *)
+    (* This procedure is called only from module SMTPCommands.          *)
 
     CONST stage = 4;  ONLength = 256;  Tab = CHR(9);  MaxResultCode = 16;
     TYPE ResultCodes = SET OF [0..MaxResultCode];
     CONST LegalResultCodes = ResultCodes {0..4};
 
     VAR j, k, result: CARDINAL;  found, Serialise: BOOLEAN;
-        FilterName, recipients, ArgString, newfile: FilenameString;
+        recipients, ArgString, newfile: FilenameString;
         FailureObjectName: ARRAY [0..ONLength-1] OF CHAR;
         ExitStatus: OS2.RESULTCODES;
         cid, cid2: ChanId;
         LineBuffer, RPBuffer: ARRAY [0..1023] OF CHAR;
 
     BEGIN
-        IF itemdata^.SkipFiltering THEN
+        IF itemdata^.SkipFiltering OR (FilterName[0] = Nul) THEN
             RETURN 0;
         END (*IF*);
 
-        Obtain (FilterProgLock);
-        FilterName := FilterProg[stage];
-        Release (FilterProgLock);
-
-        (* Some of the users might require different filters from the   *)
-        (* default, or even no filter.  ExtractSeparateFilterUsers      *)
-        (* trims down the list of users (and might change the filter    *)
-        (* name) so that what we have left is one or more users all of  *)
-        (* whom require the same filter.  The same procedure creates    *)
-        (* separate copies of the mail for the trimmed-out users, and   *)
-        (* recirculates those jobs as separate jobs.                    *)
-
-        (*CheckFilterOverride (itemdata^.Recipients, FilterName);*)
-
-        ExtractSeparateFilterUsers (itemdata, FilterName);
-
-        (* If no filter specified, do no filtering. *)
-
-        IF FilterName[0] = Nul THEN
-            RETURN 0;
-        END (*IF*);
-
-        IF OldFilterRules THEN
-            OldMakeRecipientListFile (stage, itemdata, recipients);
-        ELSE
-            NewMakeRecipientListFile (stage, itemdata, recipients);
-        END (*IF*);
+        MakeRecipientListFile (stage, itemdata, recipients);
         ArgString := "CMD /C ";
         Strings.Append (FilterName, ArgString);
         Strings.Append (" ", ArgString);
-        IF OldFilterRules THEN
-            Strings.Append (itemdata^.TempName, ArgString);
+        Strings.Append (recipients, ArgString);
+        IF itemdata^.TempName[0] <> Nul THEN
             Strings.Append (" ", ArgString);
-            Strings.Append (recipients, ArgString);
-        ELSE
-            Strings.Append (recipients, ArgString);
-            IF itemdata^.TempName[0] <> Nul THEN
-                Strings.Append (" ", ArgString);
-                Strings.Append (itemdata^.TempName, ArgString);
-            END (*IF*);
+            Strings.Append (itemdata^.TempName, ArgString);
         END (*IF*);
 
         (* Special rule for ArgString: it must be terminated by two Nul *)
@@ -1759,11 +1780,7 @@ PROCEDURE RunFinalFilter (itemdata: ItemDescriptor;
 
         FailureMessage[0] := Nul;
         IF result = 1 THEN
-            IF OldFilterRules THEN
-                OldRebuildRecipientList (itemdata, recipients);
-            ELSE
-                NewRebuildRecipientList (itemdata, recipients);
-            END (*IF*);
+            RebuildRecipientList (itemdata, recipients);
             result := 0;
         ELSIF result = 4 THEN
             ReadFailureMessage (recipients, FailureMessage);
@@ -1860,310 +1877,13 @@ PROCEDURE RunFinalFilter (itemdata: ItemDescriptor;
     END RunFinalFilter;
 
 (************************************************************************)
-(*                                                                      *)
-(* The following procedure has been replaced by separate procedures     *)
-(* RunFilter03 and RunFinalFilter, but I'm retaining the original code  *)
-(* here in case I decide to reverse the split.                          *)
-(*                                                                      *)
-(************************************************************************)
-
-(*
-PROCEDURE RunFilter (stage: CARDINAL;  itemdata: ItemDescriptor;
-                     VAR (*OUT*) FailureMessage: ARRAY OF CHAR): CARDINAL;
-
-    (* This procedure may be invoked at several stages:                 *)
-    (*                                                                  *)
-    (*    0    on initial connection                                    *)
-    (*    1    after the HELO or EHLO command                           *)
-    (*    2    after the MAIL FROM command                              *)
-    (*    3    when the DATA command has been received, but before the  *)
-    (*           message has been transmitted.                          *)
-    (*    4    after a mail item has been received but before it has    *)
-    (*           been distributed to the addressees.                    *)
-    (*                                                                  *)
-    (* The filter is allowed to return the following codes:             *)
-    (*                                                                  *)
-    (*    0    continue processing normally, i.e. deliver mail          *)
-    (*    1    like 0, but the filter has modified the list of          *)
-    (*         recipients.                                              *)
-    (*    2    item has now been dealt with, report success to sender   *)
-    (*    3    reject the message                                       *)
-    (*    4    like 3, but the filter has placed a failure message into *)
-    (*           the first line of the 'recipients' file.               *)
-    (*  5-15   unused, reserved for future use.                         *)
-    (*   16    like 0, but in addition future filtering steps will be   *)
-    (*           bypassed for this item of mail.                        *)
-    (*                                                                  *)
-    (* As a guard against errors in the filters, unused codes are       *)
-    (* converted to 0.                                                  *)
-    (*                                                                  *)
-    (* Note that cases 1, 4, and 16 are dealt with internally in        *)
-    (* this procedure, so this procedure will only ever return a        *)
-    (* result of 0, 2, or 3.  Furthermore, code 2 should never occur    *)
-    (* at stage 0, 1, 2, or 3.                                          *)
-    (*                                                                  *)
-    (* In case 3, FailureMessage holds the reply (starting with a       *)
-    (* three-digit code) to be returned to the sender.                  *)
-
-    CONST ONLength = 256;  Tab = CHR(9);  MaxResultCode = 16;
-    TYPE ResultCodes = SET OF [0..MaxResultCode];
-    CONST LegalResultCodes = ResultCodes {0..4, 16};
-
-    VAR j, k, result: CARDINAL;  found, Serialise: BOOLEAN;
-        FilterName, recipients, ArgString, newfile: FilenameString;
-        FailureObjectName: ARRAY [0..ONLength-1] OF CHAR;
-        ExitStatus: OS2.RESULTCODES;
-        cid, cid2: ChanId;
-        LineBuffer, RPBuffer: ARRAY [0..1023] OF CHAR;
-
-    BEGIN
-        IF itemdata^.SkipFiltering THEN
-            RETURN 0;
-        END (*IF*);
-
-        Obtain (FilterProgLock);
-        FilterName := FilterProg[stage];
-        Release (FilterProgLock);
-
-        (* If stage = 4, we can override the default filter iff there   *)
-        (* is a unique local user and the override is enabled for       *)
-        (* that user.                                                   *)
-
-        IF stage = 4 THEN
-            CheckFilterOverride (itemdata^.Recipients, FilterName);
-        END (*IF*);
-
-        (* If no filter specified, do nothing. *)
-
-        IF FilterName[0] = Nul THEN
-            RETURN 0;
-        END (*IF*);
-
-        IF OldFilterRules THEN
-            OldMakeRecipientListFile (stage, itemdata, recipients);
-        ELSE
-            NewMakeRecipientListFile (stage, itemdata, recipients);
-        END (*IF*);
-        ArgString := "CMD /C ";
-        Strings.Append (FilterName, ArgString);
-        Strings.Append (" ", ArgString);
-        IF OldFilterRules THEN
-            Strings.Append (itemdata^.TempName, ArgString);
-            Strings.Append (" ", ArgString);
-            Strings.Append (recipients, ArgString);
-        ELSE
-            Strings.Append (recipients, ArgString);
-            IF itemdata^.TempName[0] <> Nul THEN
-                Strings.Append (" ", ArgString);
-                Strings.Append (itemdata^.TempName, ArgString);
-            END (*IF*);
-        END (*IF*);
-
-        (* Special rule for ArgString: it must be terminated by two Nul *)
-        (* characters, and the program name and arguments must also be  *)
-        (* separated by a Nul.  We have to insert the separating Nul    *)
-        (* after everything else has been done, otherwise it would mess *)
-        (* up the Strings.Append operation.                             *)
-
-        j := LENGTH(ArgString) + 1;
-        IF j <= MAX(FilenameIndex) THEN
-            ArgString[j] := Nul;
-        END (*IF*);
-        ArgString[3] := Nul;
-
-        Obtain (FilterProgLock);
-        Serialise := SerialiseFilters;
-        Release (FilterProgLock);
-        IF Serialise THEN
-            Obtain(FilterAccess);
-        END (*IF*);
-        ReleaseScreen;
-        result := OS2.DosExecPgm (FailureObjectName, ONLength,
-                                  OS2.EXEC_SYNC, ArgString, NIL,
-                                  ExitStatus, "CMD.EXE");
-        RegainScreen;
-        IF Serialise THEN
-            Release(FilterAccess);
-        END (*IF*);
-
-        (* Starting in background (code 457) is not an error. *)
-
-        IF (result = 0) OR (result = 457) THEN
-            result := ExitStatus.codeResult;
-            IF (result > MaxResultCode) OR NOT (result IN LegalResultCodes) THEN
-                result := 0;
-            END (*IF*);
-        ELSE
-            result := 0;
-        END (*IF*);
-
-        FailureMessage[0] := Nul;
-        IF result = 1 THEN
-            IF OldFilterRules THEN
-                OldRebuildRecipientList (itemdata, recipients);
-            ELSE
-                NewRebuildRecipientList (itemdata, recipients);
-            END (*IF*);
-            result := 0;
-        ELSIF result = 4 THEN
-            ReadFailureMessage (recipients, FailureMessage);
-            DEC (result);
-        ELSIF result = 16 THEN
-            itemdata^.SkipFiltering := TRUE;
-            IF stage = 0 THEN
-                itemdata^.SkipFiltering0 := TRUE;
-            END (*IF*);
-            result := 0;
-        END (*IF*);
-        IF (result >= 3) AND (FailureMessage[0] = Nul) THEN
-
-            (* The apparent duplication below could probably be removed *)
-            (* by more efficient code, but I'm leaving options open for *)
-            (* future expansion.  Note also that, to ensure conformance *)
-            (* with the SMTP standard, the numeric code is different at *)
-            (* different stages.                                        *)
-
-            IF stage = 0 THEN
-                Strings.Assign ("421 Spammers not welcome here", FailureMessage);
-            ELSIF stage = 1 THEN
-                Strings.Assign ("421 Spammers not welcome here", FailureMessage);
-            ELSIF stage = 2 THEN
-                Strings.Assign ("421 Spammers not welcome here", FailureMessage);
-            ELSIF stage = 3 THEN
-                Strings.Assign ("554 Mail rejected by filter", FailureMessage);
-            ELSE
-                Strings.Assign ("554 Mail rejected by filter", FailureMessage);
-            END (*IF*);
-
-        END (*IF*);
-
-        FileSys.Remove (recipients, found);
-
-        IF (stage > 3) AND (result <= 2) THEN
-
-            (* The filter might have altered the sender address and/or  *)
-            (* the Return-Path header, so we should ensure (by altering *)
-            (* the Return-Path if necessary) that these agree with      *)
-            (* each other.                                              *)
-
-            RPBuffer := "Return-Path: ";
-            Strings.Append (itemdata^.returnpath, RPBuffer);
-            Strings.Append (CRLF, RPBuffer);
-            j := Strings.Length (RPBuffer);
-
-            (* The first j characters of the message file should  *)
-            (* match RPBuffer.                                    *)
-
-            cid := OpenOldFile (itemdata^.TempName, FALSE);
-            IF cid <> NoSuchChannel THEN
-                ReadRaw (cid, LineBuffer, j, k);
-                IF (j <> k) OR NOT Strings.Equal (LineBuffer, RPBuffer) THEN
-
-                    (* Mismatch.  Skip over the Return-Path. *)
-
-                    SetPosition (cid, StartPosition(cid));
-                    ReadLine (cid, LineBuffer);
-                    IF KeywordMatch ("Return-Path", LineBuffer) THEN
-
-                        (* Note that the Return-Path line might have continuation lines. *)
-
-                        REPEAT
-                            ReadLine (cid, LineBuffer);
-                        UNTIL (LineBuffer[0] <> ' ') AND (LineBuffer[0] <> Tab);
-
-                    END (*IF*);
-
-                    (* At this stage RPBuffer holds the true desired    *)
-                    (* new Return-Path line, LineBuffer holds the line  *)
-                    (* after the Return-Path.  Open a new file, copy    *)
-                    (* these two lines to it, then continue copying     *)
-                    (* from the old file.                               *)
-
-                    (* Remark: if we fail to create the new file, we    *)
-                    (* simply stay with the old file as it is.          *)
-
-                    FilterName := itemdata^.TempName;
-                    Strings.FindPrev ('\', FilterName, LENGTH(FilterName)-1, found, k);
-                    IF found THEN
-                        FilterName[k+1] := Nul;
-                    END (*IF*);
-                    cid2 := OpenNewOutputFile (FilterName, ".###", newfile);
-                    IF cid2 <> NoSuchChannel THEN
-                        WriteRaw (cid2, RPBuffer, j);
-                        itemdata^.offset := CurrentPosition(cid2);
-                        FWriteString (cid2, LineBuffer);
-                        FWriteLn (cid2);
-                        WHILE j > 0 DO
-                            ReadRaw (cid, LineBuffer, 1024, j);
-                            IF j > 0 THEN
-                                WriteRaw (cid2, LineBuffer, j);
-                            END (*IF*);
-                        END (*WHILE*);
-                        CloseFile (cid2);
-                    END (*IF*);
-                    CloseFile (cid);
-
-                    (* Copying complete.  Delete the old file, replace  *)
-                    (* it with the new file.                            *)
-
-                    DeleteFile (itemdata^.TempName);
-                    itemdata^.TempName := newfile;
-
-                ELSE
-                    CloseFile (cid);
-                END (*IF*);
-
-            END (*IF*);
-
-        END (*IF*);
-
-        (* The following code is obsolete, but I'm temporarily          *)
-        (* saving it until the new code has been tested.                *)
-
-        (*
-        IF (stage > 3) AND (result <= 2) THEN
-
-            (* Since the filter might have altered or removed the   *)
-            (* Return-Path header line, we need to recompute the    *)
-            (* offset.                                              *)
-
-            cid := OpenOldFile (itemdata^.TempName, FALSE);
-            IF cid <> NoSuchChannel THEN
-                itemdata^.offset := StartPosition(cid);
-                SetPosition (cid, itemdata^.offset);
-                ReadLine (cid, LineBuffer);
-                IF KeywordMatch ("Return-Path", LineBuffer) THEN
-                    itemdata^.offset := CurrentPosition(cid);
-
-                    (* Note that the Return-Path line might have continuation lines. *)
-
-                    REPEAT
-                        ReadLine (cid, LineBuffer);
-                        found := (LineBuffer[0] = ' ') OR (LineBuffer[0] = Tab);
-                        IF found THEN
-                            itemdata^.offset := CurrentPosition(cid);
-                        END (*IF*);
-                    UNTIL NOT found;
-
-                END (*IF*);
-                CloseFile (cid);
-            END (*IF*);
-
-        END (*IF*);
-        *)
-
-        RETURN result;
-
-    END RunFilter;
-*)
-
-(************************************************************************)
 
 PROCEDURE DistributeMessage (itemdata: ItemDescriptor);
 
     (* This procedure can be called after AcceptMessage has read the    *)
     (* whole message.  Now we put it into the local mailboxes, and/or   *)
     (* relay it, depending on the recipients.                           *)
+    (* This procedure is called only internally.                        *)
 
     BEGIN
         WITH itemdata^ DO
@@ -2172,6 +1892,123 @@ PROCEDURE DistributeMessage (itemdata: ItemDescriptor);
             TempName[0] := Nul;
         END (*WITH*);
     END DistributeMessage;
+
+(************************************************************************)
+
+PROCEDURE SingleFilterAndDistribute (itemdata: ItemDescriptor;
+                                        VAR (*IN*) filter: FilenameString;
+                                                    SB: SBuffer): BOOLEAN;
+
+    (* Runs the final filter on this message, and then delivers it      *)
+    (* unless the filter says not to.  Returns FALSE if the filter has  *)
+    (* rejected the message.  This version is for the case where we     *)
+    (* know we will be using the same filter for all recipients.        *)
+
+    VAR result: CARDINAL;
+        success: BOOLEAN;
+        ReplyString: ARRAY [0..127] OF CHAR;
+
+    BEGIN
+        IF itemdata^.SkipFiltering THEN
+            result := 0;
+        ELSE
+            result := RunFinalFilter (itemdata, filter, ReplyString);
+        END (*IF*);
+        success := result < 3;
+        IF success AND (result <> 2) THEN
+            DistributeMessage (itemdata);
+        END (*IF*);
+        IF success THEN
+            Strings.Assign ("250 OK", ReplyString);
+        ELSIF result > 3 THEN
+            Strings.Assign ("554 Server error, please report to postmaster", ReplyString);
+        END (*IF*);
+        LogTransaction (itemdata^.LogID, ReplyString);
+        EVAL (SendLine (SB, ReplyString));
+        FlushOutput (SB);
+        RETURN success;
+    END SingleFilterAndDistribute;
+
+(************************************************************************)
+
+PROCEDURE FilterAndDistribute (itemdata: ItemDescriptor;  SB: SBuffer): BOOLEAN;
+
+    (* Runs the final (stage 4) filter on this message, and then        *)
+    (* delivers it unless the filter says not to.  Returns FALSE if the *)
+    (* filter has rejected the message for all recipients.              *)
+
+    VAR list, next: ListOfRecipients;
+        OriginalFile, NewDir, NewFile: FilenameString;
+        cid: ChanId;
+        success: BOOLEAN;
+
+    BEGIN
+        (* Sort the recipients by filter name. *)
+
+        NEW (list);
+        Obtain (FilterProgLock);
+        list^.filtername := FilterProg[4];
+        Release (FilterProgLock);
+        list^.this := itemdata^.Recipients;
+        list^.next := NIL;
+        IF NOT itemdata^.SkipFiltering THEN
+            SortByFilter (list);
+        END (*IF*);
+
+        (* Save the message file. *)
+
+        OriginalFile := itemdata^.TempName;
+
+        (* Filter and deliver all the subjobs.  Remark: we do this by   *)
+        (* giving values to the Recipients and TempName fields of       *)
+        (* itemdata, reusing the same itemdata each time.  By now some  *)
+        (* itemdata fields, specifically the firstrecipient and         *)
+        (* recipientcount information, are incorrect, but that does not *)
+        (* matter because that information was needed only at an        *)
+        (* earlier stage of processing the message.                     *)
+
+        success := FALSE;
+        WHILE list <> NIL DO
+            itemdata^.Recipients := list^.this;
+
+            (* Make a copy of the message file. *)
+
+            ChooseIncomingFileDirectory (itemdata^.Recipients, NewDir);
+            cid := OpenNewOutputFile (NewDir, ".###", NewFile);
+            CloseFile (cid);
+            EVAL (OS2.DosCopy (OriginalFile,
+                                    NewFile, OS2.DCPY_EXISTING));
+            itemdata^.TempName := NewFile;
+            IF SingleFilterAndDistribute (itemdata, list^.filtername, SB) THEN
+                success := TRUE;
+            END (*IF*);
+            next := list^.next;
+            DISPOSE (list);
+            list := next;
+        END (*WHILE*);
+
+        (* Remove the original message file.  (The copies have been *)
+        (* removed during the delivery.)                            *)
+
+        DeleteFile (OriginalFile);
+
+        RETURN success;
+    END FilterAndDistribute;
+
+(************************************************************************)
+
+PROCEDURE LimitOnMessageSize(): CARDINAL;
+
+    (* Max allowable number of bytes in a message. *)
+
+    VAR result: CARDINAL;
+
+    BEGIN
+        Obtain (MaxMessageSizeLock);
+        result := MaxMessageSize;
+        Release (MaxMessageSizeLock);
+        RETURN result;
+    END LimitOnMessageSize;
 
 (************************************************************************)
 (*                        MODULE INITIALISATION                         *)
@@ -2212,7 +2049,25 @@ PROCEDURE UpdateINIData;
             IF NOT INIGetString (hini, app, key, SMTPLogName) THEN
                 SMTPLogName := "SMTP.LOG";
             END (*IF*);
+
+            Obtain (MaxMessageSizeLock);
+            key := "MaxMessageSize";
+            IF NOT INIGet (hini, app, key, MaxMessageSize) THEN
+                MaxMessageSize := MAX(CARDINAL);
+            END (*IF*);
+            Release (MaxMessageSizeLock);
+
+            key := "pmchecklevel";
+            IF NOT INIGet (hini, app, key, pmchecklevel) THEN
+                pmchecklevel := marksuspectfiles;
+            END (*IF*);
+            key := "MAILFROMcheck";
+            EVAL (INIGet (hini, app, key, MAILFROMcheck));
+            key := "SPFenabled";
+            EVAL (INIGet (hini, app, key, SPFenabled));
+
             CloseINIFile (hini);
+
         END (*IF*);
     END UpdateINIData;
 
@@ -2237,29 +2092,20 @@ PROCEDURE LoadSMTPINIData (TNImode: BOOLEAN);
         hini := OpenINIFile (key, UseTNI);
         IF INIData.INIValid (hini) THEN
 
-            key := "SerialiseFilters";
-            EVAL (INIGet (hini, app, key, SerialiseFilters));
-            FOR j := 0 TO 4 DO
-                FilterProg[j] := "";
-            END (*FOR*);
+            (* For the filters, convert from old version if necessary. *)
 
-            (* Transition rules to compensate for the new filter rules. *)
-
-            OldFilterRules := FALSE;
-            key := "FilterProg";
-            IF INIGetString (hini, app, key, FilterProg[4]) THEN
-                OldFilterRules := TRUE;
-            ELSE
+            key := "FilterProg4";
+            IF NOT INIGetString (hini, app, key, FilterProg[4]) THEN
+                key := "FilterProg2";
+                EVAL (INIGetString (hini, app, key, FilterProg[4]));
+                key := "FilterProg2";
+                INIPutString (hini, app, key, FilterProg[2]);
                 key := "FilterProg4";
-                IF NOT INIGetString (hini, app, key, FilterProg[4]) THEN
-                    key := "FilterProg2";
-                    EVAL (INIGetString (hini, app, key, FilterProg[4]));
-                    key := "FilterProg2";
-                    INIPutString (hini, app, key, FilterProg[2]);
-                    key := "FilterProg4";
-                    INIPutString (hini, app, key, FilterProg[4]);
-                END (*IF*);
+                INIPutString (hini, app, key, FilterProg[4]);
             END (*IF*);
+
+            (* NextName, which is stored in the INI file with key       *)
+            (* UName, is used when creating unique file names.          *)
 
             key := "UName";
             IF INIGet (hini, app, key, NextName) THEN
@@ -2275,8 +2121,6 @@ PROCEDURE LoadSMTPINIData (TNImode: BOOLEAN);
                 NextName := "00000000";
             END (*IF*);
 
-            key := "MAILFROMcheck";
-            EVAL (INIGet (hini, app, key, MAILFROMcheck));
             CloseINIFile (hini);
         END (*IF*);
         UpdateINIData;
@@ -2291,8 +2135,12 @@ VAR hini: INIData.HINI;
 BEGIN
     CRLF[0] := CR;  CRLF[1] := LF;
     UseTNI := FALSE;
+    MaxMessageSize := MAX(CARDINAL);
+    CreateLock (MaxMessageSizeLock);
     CreateLock (LogFileLock);
     LogSMTPItems := FALSE;
+    SPFenabled := FALSE;
+    pmchecklevel := marksuspectfiles;
     SerialiseFilters := TRUE;
     CreateLock (FilterAccess);
     CreateLock (FilterProgLock);
