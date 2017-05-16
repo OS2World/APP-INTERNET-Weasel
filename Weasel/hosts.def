@@ -6,7 +6,7 @@ DEFINITION MODULE Hosts;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            9 May 1998                      *)
-        (*  Last edited:        30 November 2016                *)
+        (*  Last edited:        11 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -14,11 +14,7 @@ DEFINITION MODULE Hosts;
 FROM Names IMPORT
     (* type *)  HostName, DomainName;
 
-FROM TransLog IMPORT
-    (* type *)  TransactionLogID;
-
-
-PROCEDURE OnBlacklist (LogID: TransactionLogID;  IPAddress: CARDINAL;
+PROCEDURE OnBlacklist (IPAddress: CARDINAL;
                             VAR (*OUT*) message: ARRAY OF CHAR): BOOLEAN;
 
     (* Returns TRUE if IPAddress is on one of the realtime blacklists   *)

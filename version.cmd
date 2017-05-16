@@ -2,7 +2,7 @@
    Returns the version number of Weasel.
 
            Author:       Peter Moylan
-           Last revised: 19 September 2014
+           Last revised: 19 March 2017
 
    Usage:
            ver = version()
@@ -23,6 +23,8 @@ END
 /* Extract the part of val inside double quotes. */
 
 PARSE VALUE val WITH v1 '"' version '"' v2
+
+rc = stream(DEFFile,'c','CLOSE')
 RETURN version
 
 exit

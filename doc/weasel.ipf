@@ -16,7 +16,7 @@ IMAP can be handled by running a separate IMAP add-on in parallel
 with Weasel. Both Weasel and the IMAP add-on are distributed as freeware,
 subject to the GNU GLP licence.
 
-:p.This documentation is for version 2.3.
+:p.This documentation is for version 2.36.
 
 :p.Weasel can be configured either to handle a single mail domain,
 or to host multiple domains. This choice, together with a variety of other
@@ -1764,6 +1764,11 @@ like gmail. Its value is, at present, doubtful, because the large spam
 factories make sure that their spam will pass the SPF test. Nevertheless, it
 is probably worth using because it will block at least some spam. You might want
 to disable this option if, for example, your filters are already doing SPF checks.
+:p.You should :hp1.not:ehp1. enable this option if the mail is reaching you via
+a relay (apart from one owned by the sending domain), because the IP address of
+the relay will fail the SPF check. If some subset of your mail is being relayed
+by, for example, a backup server, you can handle that case by whitelisting the
+relaying host.
 :dt.     :hp2.Authentication for relay mail:ehp2.
 :dd.This group of options allows your users to gain relay authentication,
 i.e. to get permission to send relay mail through your server. Users
@@ -3099,8 +3104,8 @@ would find it elementary to reverse the encoding.) It is not
 a highly secure method, but it might be the only method
 available to some clients.
 :dt.     LOGIN
-:dd.This variant is not, as far as I know, part of any mail
-standard, but it needs to be supported because apparently some
+:dd.This variant is officially obsolete,
+but it needs to be supported because apparently some
 mail software insists on using it. It is, in effect, the
 same as PLAIN but with a less efficient way of transferring the
 information.

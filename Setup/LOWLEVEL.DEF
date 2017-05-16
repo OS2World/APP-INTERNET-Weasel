@@ -5,7 +5,7 @@ DEFINITION MODULE LowLevel;
         (*         Miscellaneous low-level procedures           *)
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
-        (*  Last edited:        1 September 1998                *)
+        (*  Last edited:        15 December 2016                *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (*      Now appears to be working, but:                 *)
@@ -63,6 +63,11 @@ PROCEDURE ALLOCATE64 (VAR (*OUT*) p: ADDRESS;  amount: CARDINAL);
 (************************************************************************)
 (*                          BITWISE LOGIC                               *)
 (************************************************************************)
+
+PROCEDURE SwapIt (VAR (*INOUT*) arg: ARRAY OF LOC);
+
+    (* Reverses the byte order of its argument.  Used for conversion    *)
+    (* between BigEndian and LittleEndian format.                       *)
 
 PROCEDURE IAND (first, second: CARDINAL): CARDINAL;
 

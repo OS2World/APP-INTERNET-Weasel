@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2016   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -29,13 +29,13 @@ IMPLEMENTATION MODULE Delivery;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            12 May 1998                     *)
-        (*  Last edited:        31 January 2016                 *)
+        (*  Last edited:        7 May 2017                      *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
 
 
-FROM SYSTEM IMPORT CAST, ADDRESS, CARD8, CARD16, CARD32;
+FROM SYSTEM IMPORT CAST, ADR, ADDRESS, CARD8, CARD16, CARD32;
 
 IMPORT Strings, OS2, FileSys, INIData;
 
@@ -58,7 +58,7 @@ FROM NetDB IMPORT
 FROM SBuffers IMPORT
     (* type *)  SBuffer,
     (* proc *)  CreateSBuffer, CloseSBuffer, SendLine, SendChar,
-                SendString, SendEOL, PositiveResponse, GetLastLine,
+                SendString, SendEOL, SendRaw, PositiveResponse, GetLastLine,
                 SetTimeout, FlushOutput;
 
 FROM Domains IMPORT
@@ -117,7 +117,8 @@ FROM InetUtilities IMPORT
                 NameIsNumeric;
 
 FROM Inet2Misc IMPORT
-    (* proc *)  IPToString, AddressToHostName, StringMatch;
+    (* type *)  CharArrayPointer,
+    (* proc *)  IPToString, AddressToHostName, StringMatch, ConvertCard;
 
 FROM WildCard IMPORT
     (* proc *)  WildMatch;
@@ -142,14 +143,17 @@ FROM Timer IMPORT
     (* proc *)  TimedWait, Sleep;
 
 FROM Types IMPORT
-    (* type *)  CARD64;
+    (* type *)  CARD64, INT64;
+
+FROM LONGLONG IMPORT
+    (* proc *)  Diff64, Sub64, DEC64;
 
 FROM TaskControl IMPORT
     (* type *)  Lock, NameString,
     (* proc *)  CreateTask, CreateTask1, CreateLock, Obtain, Release;
 
 FROM LowLevel IMPORT
-    (* proc *)  EVAL, IAND;
+    (* proc *)  EVAL, IAND, AddOffset, Copy;
 
 FROM Heap IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE(*, SayHeapCount*);
@@ -187,6 +191,15 @@ CONST
 (*  RetryInterval = Interval {1,  1,  1,  1,  1,  1, 1, 300};  *)
 
 TYPE
+    (********************************************************************)
+    (*                                                                  *)
+    (*                         RECIPIENT LISTS                          *)
+    (*                                                                  *)
+    (* For each mail item, we keep separate lists of local and remote   *)
+    (* recipients.                                                      *)
+    (*                                                                  *)
+    (********************************************************************)
+
     (* Descriptor for the mailbox of a local user.  This is not a       *)
     (* global record; for each incoming mail item, a new list of        *)
     (* recipients is built.                                             *)
@@ -220,7 +233,6 @@ TYPE
                                Skip: BOOLEAN;
                            END (*RECORD*);
 
-
     (* A list of remote recipients for a single mail item. *)
 
     RelayListPointer = POINTER TO RelayListEntry;
@@ -238,9 +250,6 @@ TYPE
     (*                     internal process such as alias expansion.    *)
     (*   KeepTrying      TRUE if we haven't exhausted the possibilities *)
     (*                     for delivery to this recipient.              *)
-    (*   SecondChance    TRUE if KeepTrying is FALSE, but we still want *)
-    (*                     to allow for the possibility of sending      *)
-    (*                     via the relay host.                          *)
     (*   flag            temporary flag used in list processing         *)
 
     RelayListEntry = RECORD
@@ -249,7 +258,7 @@ TYPE
                          domain: HostName;
                          failuremessage: ARRAY [0..255] OF CHAR;
                          Original: BOOLEAN;
-                         KeepTrying, SecondChance, flag: BOOLEAN;
+                         KeepTrying, flag: BOOLEAN;
                      END (*RECORD*);
 
     (* A list of recipients for one mail item.  Note that there are     *)
@@ -278,11 +287,26 @@ TYPE
                     RemoteCount: CARDINAL;
                 END (*RECORD*);
 
+    (********************************************************************)
+    (*                                                                  *)
+    (*                 JOB DESCRIPTOR FOR A MAIL ITEM                   *)
+    (*                                                                  *)
+    (* An "OutJob" record is created for a mail item when it enters the *)
+    (* delivery system, then it moves through various queues (see       *)
+    (* below) as it passes through the system.  By the time it has      *)
+    (* passed the Sorter module, a job has no local recipients (i.e.    *)
+    (* the local deliveries have already been done), and either all     *)
+    (* recipients are in the same domain, or they all have to be sent   *)
+    (* through the same relay host.                                     *)
+    (*                                                                  *)
+    (********************************************************************)
+
     (* A list of mail items waiting to be sent.                         *)
     (*   next             next item on the list                         *)
     (*   sendtime         time that the item is due to be sent          *)
     (*   RetryNumber      number of times this has been tried already   *)
-    (*   size             the size of the file (not yet used)           *)
+    (*   size             the size of the file (calculated but          *)
+    (*                                          not yet used)           *)
     (*   ID               ID for transaction log                        *)
     (*   sender           the MAIL FROM parameter                       *)
     (*   domain           the mail domain and port to which to send     *)
@@ -335,6 +359,19 @@ TYPE
                  Recirculate: BOOLEAN;
              END (*RECORD*);
 
+    (********************************************************************)
+    (*                                                                  *)
+    (*               MAIL SITTING IN THE FORWARD DIRECTORY              *)
+    (*                                                                  *)
+    (* Outgoing mail might have to wait if the internal processing      *)
+    (* queues are too long.  It is also possible that there will still  *)
+    (* be unprocessed mail when the system shuts down.  To ensure that  *)
+    (* nothing is lost in such cases, each file in the forward          *)
+    (* directory is stored with a preamble containing the information   *)
+    (* that will be needed to put that mail back into the mail sack.    *)
+    (*                                                                  *)
+    (********************************************************************)
+
     (* While relay mail is waiting to be sent it is stored as a file    *)
     (* which starts with the following details.                         *)
     (*   4 bytes   format version, value 'V000'                         *)
@@ -353,7 +390,6 @@ TYPE
                        version: ARRAY [0..3] OF CHAR;
                        sendtime: CARDINAL;
                        RetryNumber: CARD8;
-                       (*NotifyOnFailure: BOOL8;*)
                        Flags: CARD8;
                    END (*RECORD*);
 
@@ -413,7 +449,9 @@ VAR
 
     LogFileLock: Lock;
 
-    (* "Enable" flag for logging the outgoing mail items. *)
+    (* "Enable" flag for logging the outgoing mail items to the SMTPOUT *)
+    (* item log.  Note: this is not the same as LogSMTPout, which       *)
+    (* controls whether we send details to the transaction log.         *)
 
     LogOutgoing: BOOLEAN;
 
@@ -1038,7 +1076,6 @@ PROCEDURE AddToOutQueue (p: OutJobPtr);
             LogTransactionL (p^.ID, "Moved a job to the output queue");
             (*ShowCounts;*)
             Signal (SomethingToSend);
-            (*LogTransactionL (p^.ID, "AddToOutQueue signalled on semaphore SomethingToSend");*)
         END (*IF*);
 
     END AddToOutQueue;
@@ -1424,7 +1461,7 @@ PROCEDURE AddToRelayList (VAR (*INOUT*) CRL: CombinedRecipientList;
                 username := newuser;  domain := newdomain;
                 failuremessage := "";
                 Original := MarkAsOriginal;
-                KeepTrying := TRUE;  SecondChance := FALSE;
+                KeepTrying := TRUE;
             END (*WITH*);
 
             IF tail = NIL THEN
@@ -2042,7 +2079,6 @@ PROCEDURE SeparateFilter (VAR (*INOUT*) CRL: CombinedRecipientList;
                     failuremessage[0] := Nul;
                     Original := TRUE;
                     KeepTrying := TRUE;
-                    SecondChance := FALSE;
                 END (*WITH*);
                 INC (NewCRL^.RemoteCount);
 
@@ -2398,7 +2434,7 @@ PROCEDURE SendRejectionLetter (job: OutJobPtr;  ID: TransactionLogID;
         WITH p^.sendto^.remote^ DO
             next := NIL;
             UserAndDomain (job^.sender, username, domain);
-            KeepTrying := TRUE;  SecondChance := FALSE;
+            KeepTrying := TRUE;
         END (*WITH*);
 
         (* Beware of the case where the sender is <>.  I think it's     *)
@@ -2523,6 +2559,24 @@ PROCEDURE ConnectToHost (IPaddress: CARDINAL;  SMTPport: CARDINAL;
 
 (************************************************************************)
 
+PROCEDURE SendCommandOnly (SB: SBuffer;  ID: TransactionLogID;
+                                    command: ARRAY OF CHAR;
+                                    VAR (*OUT*) ConnectionLost: BOOLEAN);
+
+    (* Sends and logs a command, but does not wait for a response.      *)
+
+    VAR logline: ARRAY [0..511] OF CHAR;  sent: CARDINAL;
+
+    BEGIN
+        Strings.Assign ("> ", logline);
+        Strings.Append (command, logline);
+        LogTransaction (ID, logline);
+        ConnectionLost := NOT SendLine (SB, command, sent);
+        EVAL (FlushOutput (SB));
+    END SendCommandOnly;
+
+(************************************************************************)
+
 PROCEDURE SendCommand (SB: SBuffer;  ID: TransactionLogID;  command: ARRAY OF CHAR;
                          VAR (*OUT*) ConnectionLost: BOOLEAN): BOOLEAN;
 
@@ -2530,37 +2584,40 @@ PROCEDURE SendCommand (SB: SBuffer;  ID: TransactionLogID;  command: ARRAY OF CH
     (* a positive response was returned.                                *)
 
     VAR result: BOOLEAN;
-        response: ARRAY [0..255] OF CHAR;
+        logline: ARRAY [0..511] OF CHAR;
 
     BEGIN
-        IF ExtraLogging THEN
-            LogTransaction (ID, command);
+        SendCommandOnly (SB, ID, command, ConnectionLost);
+        IF ConnectionLost THEN
+            Strings.Assign ("Connection lost", logline);
+            result := FALSE;
+        ELSE
+            result := PositiveResponse(SB, ConnectionLost);
+            GetLastLine (SB, logline);
+            Strings.Insert ("< ", 0, logline);
         END (*IF*);
-        ConnectionLost := NOT SendLine (SB, command);
-        FlushOutput (SB);
-        result := (NOT ConnectionLost) AND PositiveResponse(SB, ConnectionLost);
-        IF ExtraLogging THEN
-            GetLastLine (SB, response);
-            LogTransaction (ID, response);
-        END (*IF*);
+        LogTransaction (ID, logline);
         RETURN result;
     END SendCommand;
 
 (************************************************************************)
 
 PROCEDURE SendFile (SB: SBuffer;  name: FilenameString;  offset: FilePos;
-                         VAR (*OUT*) ConnectionLost: BOOLEAN): BOOLEAN;
+                         VAR (*OUT*) ConnectionLost: BOOLEAN;
+                         VAR (*OUT*) sent: CARDINAL): BOOLEAN;
 
     (* Sends the file, returns TRUE if it was successfully transmitted  *)
-    (* and a positive response was returned.                            *)
+    (* and a positive response was returned.  Output parameter 'sent'   *)
+    (* returns the number of bytes transmitted.                         *)
 
     CONST CtrlZ = CHR(26);
 
-    VAR success, MoreToGo: BOOLEAN;
+    VAR success, MoreToGo: BOOLEAN;  sent1, sent2: CARDINAL;
         cid: ChanId;
         buffer: ARRAY [0..2047] OF CHAR;
 
     BEGIN
+        sent := 0;  sent1 := 0;  sent2 := 0;
         cid := OpenOldFile (name, FALSE, FALSE);
         success := cid <> NoSuchChannel;
         IF success THEN
@@ -2575,16 +2632,18 @@ PROCEDURE SendFile (SB: SBuffer;  name: FilenameString;  offset: FilePos;
 
             ELSE
 
-                success := SendString (SB, buffer) AND SendEOL(SB);
+                success := SendString (SB, buffer, sent1) AND SendEOL(SB, sent2);
+                INC (sent, sent1+sent2);
 
             END (*IF*);
 
         END (*WHILE*);
         CloseFile (cid);
 
-        success := success AND SendChar (SB, '.') AND SendEOL (SB);
+        success := success AND SendChar (SB, '.', sent1) AND SendEOL (SB, sent2);
+        INC (sent, sent1+sent2);
         ConnectionLost := NOT success;
-        FlushOutput (SB);
+        INC (sent, FlushOutput (SB));
         RETURN success AND PositiveResponse (SB, ConnectionLost);
 
     END SendFile;
@@ -2624,7 +2683,7 @@ PROCEDURE WriteLogItem (job: OutJobPtr;  IPAddress: CARDINAL;
     END WriteLogItem;
 
 (************************************************************************)
-(*                        DELIVERING ONE ITEM                           *)
+(*                      SOME MISCELLANEOUS PROCEDURES                   *)
 (************************************************************************)
 
 PROCEDURE SetFailureMessage (job: OutJobPtr;  message: ARRAY OF CHAR);
@@ -2694,11 +2753,314 @@ PROCEDURE GetOurHostName (S: Socket;  VAR (*OUT*) name: HostName);
     END GetOurHostName;
 
 (************************************************************************)
+(*                                                                      *)
+(*                    SENDING ONE MESSAGE OUT                           *)
+(*                                                                      *)
+(*  The following procedures are called by the mailer task.  By the     *)
+(*  time a job has reached this point, there are no local recipients.   *)
+(*  Furthermore, either all recipients are in the same domain, or they  *)
+(*  have to be sent through the same relay host.                        *)
+(*                                                                      *)
+(************************************************************************)
+
+PROCEDURE SendDataFile (SB: SBuffer;  job: OutJobPtr;  UseChunking: BOOLEAN;
+                            VAR (*OUT*) ConnectionLost: BOOLEAN;
+                            VAR (*OUT*) failuremessage: ARRAY OF CHAR): BOOLEAN;
+
+    (* This implements the "send the message" part of the transaction,  *)
+    (* after we've dealt with logging in, specifying recipients, etc.   *)
+
+    VAR cid: ChanId;
+        p: CharArrayPointer;
+        bytesleft: CARD64;
+        HaveCR, HaveCRLF: BOOLEAN;
+        message: ARRAY [0..511] OF CHAR;
+
+    (********************************************************************)
+
+    PROCEDURE SendNextChunk (maxsize: CARDINAL;  final: BOOLEAN): BOOLEAN;
+
+        (* Sends up to maxsize more bytes of the file.  The actual      *)
+        (* chunk size might be less because of removal of '.' fillers   *)
+        (* at the beginning of lines.  We update bytesleft.             *)
+
+        VAR size, CharsLeft: CARDINAL;
+
+        (****************************************************************)
+
+        PROCEDURE RemoveByte (pos: CARDINAL);
+
+            (* Deletes the character at p^[pos].  *)
+
+            BEGIN
+                Copy (ADR (p^[pos+1]), ADR (p^[pos]), CharsLeft);
+                DEC (CharsLeft);
+                DEC (size);
+                DEC64 (bytesleft);
+            END RemoveByte;
+
+        (****************************************************************)
+
+        TYPE ThreeChar = ARRAY [0..2] OF CHAR;
+
+        CONST CRLFdot = ThreeChar {CR, LF, '.'};
+
+        VAR cmd: ARRAY [0..31] OF CHAR;
+            pos, checkpos, NumberRead, sent: CARDINAL;
+            success, found: BOOLEAN;
+
+        BEGIN
+            size := maxsize;
+
+            (* Read a chunk from the file, then strip out any   *)
+            (* superfluous dots at the beginning of lines.      *)
+
+            ReadRaw (cid, p^, size, NumberRead);
+            IF NumberRead <> size THEN
+                RETURN FALSE;
+            END (*IF*);
+            p^[size] := Nul;    (* to prevent running off the end *)
+            checkpos := 0;
+            CharsLeft := size;
+
+            (* Special case: check for a "CR LF ." that crosses *)
+            (* chunk boundaries.                                *)
+
+            IF HaveCR THEN
+                IF (CharsLeft > 0) AND (p^[0] = LF) THEN
+                    checkpos := 1;
+                    DEC (CharsLeft);
+                    HaveCRLF := TRUE;
+                END (*IF*);
+            END (*IF*);
+
+            IF HaveCRLF THEN
+                IF (CharsLeft > 0) AND (p^[checkpos] = '.') THEN
+                    RemoveByte (checkpos);
+                END (*IF*);
+            END (*IF*);
+
+            HaveCR := (size > 0) AND (p^[size-1] = CR);
+            HaveCRLF := (size > 1) AND (p^[size-2] = CR)
+                                        AND (p^[size-1] = LF);
+
+            (* Now the main scan of the buffer. *)
+
+            WHILE CharsLeft > 0 DO
+                Strings.FindNext (CRLFdot, p^, checkpos, found, pos);
+                IF found THEN
+                    DEC (CharsLeft, pos - checkpos + 3);
+                    checkpos := pos + 2;
+                    RemoveByte (checkpos);
+                ELSE
+                    CharsLeft := 0;
+                END (*IF*);
+            END (*WHILE*);
+
+            (* Create a suitable BDAT command. *)
+
+            Strings.Assign ("BDAT ", cmd);
+            pos := 5;
+            ConvertCard (size, cmd, pos);
+            cmd[pos] := Nul;
+            IF final THEN
+                Strings.Append (" LAST", cmd);
+            END (*IF*);
+
+            (* We cannot use SendCommand here, because the chunk    *)
+            (* must be send immediately after the command, without  *)
+            (* waiting for a reply.                                 *)
+
+            SendCommandOnly (SB, job^.ID, cmd, ConnectionLost);
+
+            IF size = 0 THEN
+                success := TRUE;
+            ELSE
+                success := SendRaw (SB, p^, size, sent) AND (sent = size)
+                                  AND PositiveResponse (SB, ConnectionLost);
+                Sub64 (bytesleft, sent);
+            END (*IF*);
+
+            Strings.Assign ('< ', message);
+            GetLastLine (SB, failuremessage);
+            Strings.Append (failuremessage, message);
+            LogTransaction (job^.ID, message);
+            IF success THEN
+                failuremessage[0] := Nul;
+            END (*IF*);
+            RETURN success;
+
+        END SendNextChunk;
+
+    (********************************************************************)
+
+    CONST MaxChunkSize = 32767;
+
+    VAR sent: CARDINAL;         (* a dummy in this version. *)
+        success: BOOLEAN;
+
+    BEGIN
+        ConnectionLost := FALSE;
+        IF UseChunking THEN
+            bytesleft := CAST(CARD64, Diff64(GetFileSize(job^.file), job^.offset));
+            cid := OpenOldFile (job^.file, FALSE, TRUE);
+            success := cid <> NoSuchChannel;
+            IF success THEN
+                SetPosition (cid, job^.offset);
+            ELSE
+                Strings.Assign ("Failed to open data file", failuremessage);
+                LogTransaction (job^.ID, failuremessage);
+                RETURN FALSE;
+            END (*IF*);
+            ALLOCATE (p, MaxChunkSize+1);
+            HaveCR := FALSE;  HaveCRLF := FALSE;
+            WHILE (bytesleft.high > 0) OR (bytesleft.low > MaxChunkSize) DO
+                success := SendNextChunk (MaxChunkSize, FALSE);
+                IF NOT success THEN
+                    (* Abandon the attempt. *)
+                    Strings.Assign ("Failed to send data chunk", failuremessage);
+                    LogTransaction (job^.ID, failuremessage);
+                    DEALLOCATE (p, MaxChunkSize+1);
+                    CloseFile (cid);
+                    RETURN FALSE;
+                END (*IF*);
+            END (*WHILE*);
+
+            (* Now send the final chunk, which might have size 0. *)
+
+            success := SendNextChunk (bytesleft.low, TRUE);
+            DEALLOCATE (p, MaxChunkSize+1);
+            CloseFile (cid);
+        ELSE
+            (* The non-chunked case. *)
+
+            success := SendCommand (SB, job^.ID, "DATA", ConnectionLost)
+                AND SendFile (SB, job^.file, job^.offset, ConnectionLost, sent);
+            IF NOT ConnectionLost THEN
+                Strings.Assign ('< ', message);
+                GetLastLine (SB, failuremessage);
+                Strings.Append (failuremessage, message);
+                LogTransaction (job^.ID, message);
+                IF success THEN
+                    failuremessage[0] := Nul;
+                END (*IF*);
+            END (*IF*);
+        END (*IF*);
+
+        IF ConnectionLost THEN
+            LogTransactionL (job^.ID, "Connection lost");
+        END (*IF*);
+        RETURN success;
+    END SendDataFile;
+
+(************************************************************************)
+
+(*
+PROCEDURE OldSendDataFile (SB: SBuffer;  job: OutJobPtr;  UseChunking: BOOLEAN;
+                            VAR (*OUT*) ConnectionLost: BOOLEAN): BOOLEAN;
+
+    (* This implements the "send the message" part of the transaction,  *)
+    (* after we've dealt with logging in, specifying recipients, etc.   *)
+
+    VAR cid: ChanId;
+        p: ADDRESS;
+        message, message2: ARRAY [0..511] OF CHAR;
+
+    (********************************************************************)
+
+    PROCEDURE OldSendNextChunk (size: CARDINAL;  final: BOOLEAN): BOOLEAN;
+
+        VAR cmd: ARRAY [0..31] OF CHAR;
+            pos: CARDINAL;  success: BOOLEAN;
+
+        BEGIN
+            (* Create a suitable BDAT command. *)
+
+            Strings.Assign ("BDAT ", cmd);
+            pos := 5;
+            ConvertCard (size, cmd, pos);
+            cmd[pos] := Nul;
+            IF final THEN
+                Strings.Append (" LAST", cmd);
+            END (*IF*);
+
+            (* We cannot use SendCommand here, because the chunk    *)
+            (* must be send immediately after the command, without  *)
+            (* waiting for a reply.                                 *)
+
+            SendCommandOnly (SB, job^.ID, cmd, ConnectionLost);
+            success := OldSendChunk (cid, SB, size, p)
+                        AND PositiveResponse (SB, ConnectionLost);
+            Strings.Assign ('< ', message);
+            GetLastLine (SB, message2);
+            Strings.Append (message2, message);
+            LogTransaction (job^.ID, message);
+            RETURN success;
+        END OldSendNextChunk;
+
+    (********************************************************************)
+
+    CONST ChunkSize = 16384;
+
+    VAR bytesleft: CARD64;
+        sent: CARDINAL;         (* a dummy in this version. *)
+        success: BOOLEAN;
+
+    BEGIN
+        ConnectionLost := FALSE;
+        IF UseChunking THEN
+            bytesleft := CAST(CARD64, Diff64(GetFileSize(job^.file), job^.offset));
+            cid := OpenOldFile (job^.file, FALSE, TRUE);
+            success := cid <> NoSuchChannel;
+            IF success THEN
+                SetPosition (cid, job^.offset);
+            ELSE
+                LogTransactionL (job^.ID, "Failed to open data file");
+                RETURN FALSE;
+            END (*IF*);
+            ALLOCATE (p, ChunkSize);
+            WHILE (bytesleft.high > 0) OR (bytesleft.low > ChunkSize) DO
+                success := OldSendNextChunk (ChunkSize, FALSE);
+                IF NOT success THEN
+                    (* Abandon the attempt. *)
+                    RETURN FALSE;
+                END (*IF*);
+                Sub64 (bytesleft, ChunkSize);
+            END (*WHILE*);
+
+            (* Now send the final chunk. *)
+
+            IF bytesleft.low > 0 THEN
+                success := OldSendNextChunk (bytesleft.low, TRUE);
+            END (*IF*);
+            DEALLOCATE (p, ChunkSize);
+            CloseFile (cid);
+        ELSE
+            (* The non-chunked case. *)
+
+            success := SendCommand (SB, job^.ID, "DATA", ConnectionLost)
+                AND SendFile (SB, job^.file, job^.offset, ConnectionLost, sent);
+            IF NOT ConnectionLost THEN
+                Strings.Assign ('< ', message);
+                GetLastLine (SB, message2);
+                Strings.Append (message2, message);
+                LogTransaction (job^.ID, message);
+            END (*IF*);
+        END (*IF*);
+
+        IF ConnectionLost THEN
+            LogTransactionL (job^.ID, "Connection lost");
+        END (*IF*);
+        RETURN success;
+    END OldSendDataFile;
+*)
+
+(************************************************************************)
 
 PROCEDURE DeliverDeLetter (job: OutJobPtr;  IPaddress, port: CARDINAL;
                            UseAuth: BOOLEAN;  AuthName: UserName;
                            AuthPass: PassString;
-                           SecondChanceGroup: BOOLEAN;
+                           VAR (*OUT*) TryNextOption: BOOLEAN;
                            VAR (*OUT*) RetryNeeded: BOOLEAN):  BOOLEAN;
 
     (* Sends one mail item to multiple recipients via the server at the *)
@@ -2710,36 +3072,32 @@ PROCEDURE DeliverDeLetter (job: OutJobPtr;  IPaddress, port: CARDINAL;
     (* and password AuthPass.  Note that local recipients are ignored;  *)
     (* they are handled elsewhere.  Precondition: job <> NIL.           *)
 
-    (* If SecondChanceGroup is TRUE, we send only to those recipients   *)
-    (* whose SecondChance flag is set.  Otherwise, we send only to      *)
-    (* those whose SecondChance flag is NOT set.  That means, if you    *)
-    (* think it through, that we should send the item precisely to      *)
-    (* those for whom p^.SecondChance = SecondChanceGroup.              *)
-
     (* The function result is TRUE iff we manage to send the message to *)
     (* at least one of the recipients.  Any failures, which are on the  *)
     (* job^.sendto^.remote list, are left for the caller to handle.     *)
-    (* On exit RetryNeeded is TRUE iff there are recipients on that     *)
-    (* list for which a retry could be justified.  There might also be  *)
-    (* recipients with the SecondChance flag set, but they aren't       *)
-    (* counted in making the RetryNeeded judgment.                      *)
+    (* On exit RetryNeeded is TRUE iff there is at least one recipient  *)
+    (* on that list for which a retry could be justified.               *)
 
-    VAR success, ConnectionLost, CreateSuccessList: BOOLEAN;
+    (* NOTE: RetryNeeded = TRUE means that there are some items that    *)
+    (* deserve another try.                                             *)
+    (* TryNextOption = TRUE means that the entire job failed, and that  *)
+    (* we should move on to the relay host if that option exists.       *)
+
+    VAR success, ConnectionLost, ChunkingAvailable, CreateSuccessList: BOOLEAN;
         s: Socket;
-        Buffer, Buffer2: ARRAY [0..255] OF CHAR;
+        Buffer, Buffer2, failuremessage: ARRAY [0..511] OF CHAR;
         SB: SBuffer;
         p, previous, current, successlist, prevsuccess: RelayListPointer;
-        failuremessage: ARRAY [0..255] OF CHAR;
-        RecipientCount, j, code: CARDINAL;
+        RecipientCount, j, code, sent: CARDINAL;
         ch: CHAR;
 
     BEGIN
-        IF ExtraLogging THEN
-            Buffer := "Trying ";
-            IPToString (IPaddress, TRUE, Buffer2);
-            Strings.Append (Buffer2, Buffer);
-            LogTransaction (job^.ID, Buffer);
-        END (*IF*);
+        failuremessage := "";
+        ChunkingAvailable := FALSE;
+        Buffer := "Trying ";
+        IPToString (IPaddress, TRUE, Buffer2);
+        Strings.Append (Buffer2, Buffer);
+        LogTransaction (job^.ID, Buffer);
 
         (* Ensure that the "from" address is delimited by angle brackets. *)
 
@@ -2758,31 +3116,33 @@ PROCEDURE DeliverDeLetter (job: OutJobPtr;  IPaddress, port: CARDINAL;
         SetTimeout (SB, 150);
         success := (CAST(ADDRESS,SB) <> NIL) AND (s <> NotASocket)
                        AND PositiveResponse(SB, ConnectionLost);
-        IF ExtraLogging THEN
-            IF s = NotASocket THEN
-                Strings.Assign (failuremessage, Buffer);
-            ELSIF CAST(ADDRESS,SB) = NIL THEN
-                Strings.Assign ("Out of memory, abandoning connection attempt", Buffer);
-            ELSE
-                GetLastLine (SB, Buffer);
-            END (*IF*);
-            LogTransaction (job^.ID, Buffer);
+        IF s = NotASocket THEN
+            Strings.Assign (failuremessage, Buffer);
+        ELSIF CAST(ADDRESS,SB) = NIL THEN
+            Strings.Assign ("Out of memory, abandoning connection attempt", failuremessage);
+            Strings.Assign (failuremessage, Buffer);
+        ELSE
+            Strings.Assign ('< ', Buffer);
+            GetLastLine (SB, failuremessage);
+            Strings.Append (failuremessage, Buffer);
         END (*IF*);
+        LogTransaction (job^.ID, Buffer);
         IF success THEN
+            failuremessage[0] := Nul;
             GetOurHostName (s, job^.LocalHost);
             SetTimeout (SB, 900);
             success := DoLogin (SB, job^.LocalHost, UseAuth,
                                 AuthName, AuthPass, ConnectionLost,
-                                ExtraLogging, job^.ID);
+                                ChunkingAvailable, job^.ID);
             IF NOT success THEN
                 GetLastLine (SB, failuremessage);
-                IF ExtraLogging THEN
-                    LogTransactionL (job^.ID, "Login failed");
-                END (*IF*);
+                LogTransactionL (job^.ID, "Login failed");
             END (*IF*);
         END (*IF*);
 
         RetryNeeded := NOT success;
+        TryNextOption := RetryNeeded;
+
         IF success THEN
 
             (* We are now logged in. *)
@@ -2798,54 +3158,48 @@ PROCEDURE DeliverDeLetter (job: OutJobPtr;  IPaddress, port: CARDINAL;
             IF success THEN
 
                 p := job^.sendto^.remote;
-                failuremessage := "500 No valid recipients";
+                (*failuremessage := "500 No valid recipients";*)
 
                 WHILE success AND (p <> NIL) DO
-                    IF p^.SecondChance = SecondChanceGroup THEN
-                        p^.flag := FALSE;
-                        IF p^.KeepTrying THEN
-                            Buffer := "RCPT TO: <";
-                            Strings.Append (p^.username, Buffer);
-                            IF p^.domain[0] <> Nul THEN
-                                Strings.Append ('@', Buffer);
-                                Strings.Append (p^.domain, Buffer);
+                    p^.flag := FALSE;
+                    IF p^.KeepTrying THEN
+                        Buffer := "RCPT TO: <";
+                        Strings.Append (p^.username, Buffer);
+                        IF p^.domain[0] <> Nul THEN
+                            Strings.Append ('@', Buffer);
+                            Strings.Append (p^.domain, Buffer);
+                        END (*IF*);
+                        Strings.Append ('>', Buffer);
+                        Strings.Assign ("> ", Buffer2);
+                        Strings.Append (Buffer, Buffer2);
+                        LogTransaction (job^.ID, Buffer2);
+                        ConnectionLost := NOT SendLine (SB, Buffer, sent);
+                        EVAL (FlushOutput (SB));
+                        Strings.Delete (Buffer, 0, 9);
+                        success := NOT ConnectionLost;
+                        IF success THEN
+                            p^.flag := PositiveResponse(SB, ConnectionLost);
+                            GetLastLine (SB, Buffer2);
+                            Strings.Insert ("< ", 0, Buffer2);
+                            LogTransaction (job^.ID, Buffer2);
+                            IF p^.flag THEN
+                                INC (RecipientCount);
+                                Strings.Append (" - accepted", Buffer);
+                            ELSE
+                                GetLastLine (SB, p^.failuremessage);
+                                code := 0;
+                                FOR j := 0 TO 2 DO
+                                    ch := p^.failuremessage[j];
+                                    IF ch IN Digits THEN
+                                        code := 10*code + (ORD(ch) - ORD('0'));
+                                    END (*IF*);
+                                END (*FOR*);
+                                p^.KeepTrying := (code < 550) OR (code > 553);
+                                RetryNeeded := RetryNeeded OR p^.KeepTrying;
+                                Strings.Append (" - ", Buffer);
+                                Strings.Append (p^.failuremessage, Buffer);
                             END (*IF*);
-                            Strings.Append ('>', Buffer);
-                            IF ExtraLogging THEN
-                                LogTransaction (job^.ID, Buffer);
-                            END (*IF*);
-                            ConnectionLost := NOT SendLine (SB, Buffer);
-                            FlushOutput (SB);
-                            Strings.Delete (Buffer, 0, 9);
-                            success := NOT ConnectionLost;
-                            IF success THEN
-                                p^.flag := PositiveResponse(SB, ConnectionLost);
-                                IF ExtraLogging THEN
-                                    GetLastLine (SB, Buffer2);
-                                    LogTransaction (job^.ID, Buffer2);
-                                END (*IF*);
-                                IF p^.flag THEN
-                                    INC (RecipientCount);
-                                    Strings.Append (" - accepted", Buffer);
-                                ELSE
-                                    GetLastLine (SB, p^.failuremessage);
-                                    code := 0;
-                                    FOR j := 0 TO 2 DO
-                                        ch := p^.failuremessage[j];
-                                        IF ch IN Digits THEN
-                                            code := 10*code + (ORD(ch) - ORD('0'));
-                                        END (*IF*);
-                                    END (*FOR*);
-                                    p^.SecondChance := (code = 550) OR (code = 553)
-                                                                 OR (code = 554);
-                                    p^.KeepTrying := (code < 550) OR (code = 552)
-                                                                 OR (code > 553);
-                                    RetryNeeded := RetryNeeded OR p^.KeepTrying;
-                                    Strings.Append (" - ", Buffer);
-                                    Strings.Append (p^.failuremessage, Buffer);
-                                END (*IF*);
-                                LogTransaction (job^.ID, Buffer);
-                            END (*IF*);
+                            LogTransaction (job^.ID, Buffer);
                         END (*IF*);
                     END (*IF*);
                     p := p^.next;
@@ -2855,16 +3209,10 @@ PROCEDURE DeliverDeLetter (job: OutJobPtr;  IPaddress, port: CARDINAL;
 
             success := success AND (RecipientCount > 0);
             IF success THEN
-                success := SendCommand (SB, job^.ID, "DATA", ConnectionLost)
-                             AND SendFile (SB, job^.file, job^.offset, ConnectionLost);
-            END (*IF*);
-
-            IF success THEN
-                failuremessage := "No error";
-            ELSIF ConnectionLost THEN
-                failuremessage := "Connection lost";
+                success := SendDataFile (SB, job, ChunkingAvailable,
+                                         ConnectionLost, failuremessage);
             ELSE
-                GetLastLine (SB, failuremessage);
+                LogTransactionL (job^.ID, "Failure before we could call SendDataFile");
             END (*IF*);
 
             (* We should try to log out even if the above failed. *)
@@ -2945,15 +3293,15 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
     (* local mail has already been delivered by the Sorter task.  Any   *)
     (* local mail still left on job^.sendto is a failed delivery.       *)
 
-    VAR RetryNeeded: BOOLEAN;  message: ARRAY [0..255] OF CHAR;
+    VAR TryNextOption, RetryNeeded: BOOLEAN;  message: ARRAY [0..511] OF CHAR;
         HostUsed: HostName;
 
     (********************************************************************)
 
     PROCEDURE SendViaRelay (host: HostName;  port: CARDINAL;
                            AuthOption: CARDINAL;
-                           AuthUser: UserName;  AuthPass: PassString;
-                           SecondChanceGroup: BOOLEAN): BOOLEAN;
+                           AuthUser: UserName;  AuthPass: PassString)
+                                                                : BOOLEAN;
 
         (* Try to send the mail via the given host, using host lookup   *)
         (* rather than MX lookup.  If necessary and we get multiple IP  *)
@@ -2966,10 +3314,6 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
         (* a relay host, a case where authentication should be used     *)
         (* as specified in the relay options.                           *)
 
-        (* If SecondChanceGroup is TRUE, we send only to those          *)
-        (* recipients whose SecondChance flag is set.  Otherwise, we    *)
-        (* send only to those whose SecondChance flag is NOT set.       *)
-
         (* The function result is TRUE iff we manage to send the        *)
         (* message to at least one of the recipients.  Any failures,    *)
         (* which are left on the job^.sendto^.remote list, are left for *)
@@ -2981,7 +3325,7 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
             HostInfo: HostEntPtr;
             p: AddressPointerArrayPointer;
             k: CARDINAL;
-            message: ARRAY [0..255] OF CHAR;
+            message: ARRAY [0..511] OF CHAR;
 
         BEGIN
             Strings.Assign ("Trying to send via host ", message);
@@ -2997,7 +3341,7 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
                 success := DeliverDeLetter (job, k, port,
                                             AuthOption = 1,
                                             AuthUser, AuthPass,
-                                            SecondChanceGroup, RetryNeeded);
+                                            TryNextOption, RetryNeeded);
             ELSE
                 HostInfo := gethostbyname (host);
                 IF HostInfo = NIL THEN p := NIL
@@ -3020,7 +3364,7 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
                             success := DeliverDeLetter (job, p^[k]^, port,
                                                         AuthOption = 1,
                                                         AuthUser, AuthPass,
-                                                        SecondChanceGroup, RetryNeeded);
+                                                        TryNextOption, RetryNeeded);
                             INC(k);
                         END (*IF*);
                     UNTIL success OR abort OR (NOT RetryNeeded) OR (p^[k] = NIL);
@@ -3031,13 +3375,17 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
                 HostUsed := host;
             ELSE
                 IF job^.sendto^.remote = NIL THEN
-                    Strings.Assign ("500 no recipients specified", message);
+
+                    (* Can this case ever occur?  I have a feeling that *)
+                    (* this check was done at an earlier stage, but we  *)
+                    (* need to check whether the list has been pruned   *)
+                    (* since then.                                      *)
+
+                    LogTransactionL (job^.ID, "500 no recipients specified");
                     RetryNeeded := FALSE;
                 ELSE
-                    Strings.Assign (job^.sendto^.remote^.failuremessage, message);
-                END (*IF*);
-                IF message[0] <> Nul THEN
-                    LogTransaction (job^.ID, message);
+                    (* No need to log failure message, because it was   *)
+                    (* already logged at the point of failure.          *)
                 END (*IF*);
             END (*IF*);
 
@@ -3066,7 +3414,7 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
 
         VAR success: BOOLEAN;  j: CARDINAL;
             address: ARRAY [0..Max] OF CARDINAL;
-            message: ARRAY [0..63] OF CHAR;
+            message: ARRAY [0..511] OF CHAR;
             IPstr: ARRAY [0..21] OF CHAR;
 
         BEGIN
@@ -3089,7 +3437,7 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
                         ELSE
                             success := DeliverDeLetter (job, address[j], port,
                                                         FALSE, '', '',
-                                                        FALSE, RetryNeeded);
+                                                        TryNextOption, RetryNeeded);
                             INC (j);
                         END (*IF*);
                     UNTIL (NOT RetryNeeded) OR (j > Max) OR (address[j] = 0);
@@ -3106,13 +3454,17 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
                 AddressToHostName (address[j-1], HostUsed);
             ELSE
                 IF job^.sendto^.remote = NIL THEN
-                    Strings.Assign ("500 no recipients specified", message);
+
+                    (* Can this case ever occur?  I have a feeling that *)
+                    (* this check was done at an earlier stage, but we  *)
+                    (* need to check whether the list has been pruned   *)
+                    (* since then.                                      *)
+
+                    LogTransactionL (job^.ID, "500 no recipients specified");
                     RetryNeeded := FALSE;
                 ELSE
-                    Strings.Assign (job^.sendto^.remote^.failuremessage, message);
-                END (*IF*);
-                IF message[0] <> Nul THEN
-                    LogTransaction (job^.ID, message);
+                    (* No need to log failure message, because it was   *)
+                    (* already logged at the point of failure.          *)
                 END (*IF*);
             END (*IF*);
 
@@ -3122,7 +3474,7 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
 
     (********************************************************************)
 
-    VAR success, SecondChance: BOOLEAN;
+    VAR success: BOOLEAN;
         p: RelayListPointer;
 
     BEGIN
@@ -3143,12 +3495,12 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
 
             AddressToHostName (LoopbackAddress, HostUsed);
             success := DeliverDeLetter (job, LoopbackAddress, OurSMTPPort,
-                                           FALSE, '', '', FALSE, RetryNeeded)
+                                           FALSE, '', '', TryNextOption, RetryNeeded)
                               AND NOT RetryNeeded;
 
         ELSIF ForwardRelayOption = 2 THEN
             success := SendViaRelay (ForwardRelayHost, ForwardRelayPort,
-                                    AuthOption, AuthUser, AuthPass, FALSE);
+                                    AuthOption, AuthUser, AuthPass);
         ELSE
             success := SendToDomain (job^.domain, job^.SMTPport);
         END (*IF*);
@@ -3160,55 +3512,37 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
                          AND NOT(job^.Recirculate
                                  OR ShutdownRequest OR WeAreOffline) THEN
 
-            (* Work out which of the recipients deserve a second chance *)
-            (* via the relay host, and which ones should be added to    *)
-            (* the retry list.                                          *)
+            (* If the entire job failed, try sending via the relay host.*)
 
-            p := job^.sendto^.remote;
-            RetryNeeded := FALSE;
-            SecondChance := FALSE;
-            WHILE p <> NIL DO
-                IF p^.SecondChance THEN
-                    SecondChance := TRUE;
-                ELSE
-                    RetryNeeded := RetryNeeded OR p^.KeepTrying;
-                END (*IF*);
-                p := p^.next;
-            END (*WHILE*);
-
-            (* Try to send the item for the "second chance" candidates. *)
-            (* These are the ones where a direct attempt failed but     *)
-            (* where routing via a relay host might work.               *)
-
-            IF SecondChance THEN
-                IF ExtraLogging THEN
-                    LogTransactionL (job^.ID, "Direct send failed, now trying the backup relay");
-                END (*IF*);
+            IF TryNextOption THEN
+                LogTransactionL (job^.ID, "Direct send failed, now trying the backup relay");
                 job^.domain := ForwardRelayHost;
                 job^.SMTPport := ForwardRelayPort;
                 success := SendViaRelay (ForwardRelayHost, ForwardRelayPort,
-                                        AuthOption, AuthUser, AuthPass, TRUE);
+                                        AuthOption, AuthUser, AuthPass);
             END (*IF*);
 
-            (* For the other failed items, a send via the relay host is *)
+            (* If there are still failures, work out whether any of     *)
+            (* them have the KeepTrying flag set.                       *)
+
+            p := job^.sendto^.remote;
+            RetryNeeded := FALSE;
+            WHILE (p <> NIL) AND NOT RetryNeeded DO
+                RetryNeeded := p^.KeepTrying;
+                p := p^.next;
+            END (*WHILE*);
+
+            (* For the failed items, a send via the relay host is       *)
             (* justified if we have items whose KeepTrying flag is set; *)
             (* but as a policy matter we don't do the retry until the   *)
             (* main host has been tried enough times.                   *)
 
-            IF job^.RetryNumber > 4 THEN
-                IF RetryNeeded THEN
-                    IF ExtraLogging THEN
-                        LogTransactionL (job^.ID, "Direct send failed, now trying the backup relay");
-                    END (*IF*);
-                    job^.domain := ForwardRelayHost;
-                    job^.SMTPport := ForwardRelayPort;
-                    success := SendViaRelay (ForwardRelayHost, ForwardRelayPort,
-                                            AuthOption, AuthUser, AuthPass, FALSE);
-                ELSE
-                    IF ExtraLogging THEN
-                        LogTransactionL (job^.ID, "No need to use backup relay");
-                    END (*IF*);
-                END (*IF*);
+            IF RetryNeeded AND (job^.RetryNumber > 4) THEN
+                LogTransactionL (job^.ID, "Direct send failed, now trying the backup relay");
+                job^.domain := ForwardRelayHost;
+                job^.SMTPport := ForwardRelayPort;
+                success := SendViaRelay (ForwardRelayHost, ForwardRelayPort,
+                                        AuthOption, AuthUser, AuthPass);
             END (*IF*);
 
         END (*IF*);
@@ -3250,7 +3584,6 @@ PROCEDURE MailOneMessage (VAR (*INOUT*) p: OutJobPtr);
 
     BEGIN
         IF FileSys.Exists (p^.file) THEN
-            (*LogTransactionL (p^.ID, "Calling SendToAllRecipients");*)
             SendToAllRecipients (p);
         ELSE
             p^.file := "";
@@ -3384,7 +3717,6 @@ PROCEDURE MailerTask (tasknum: ADDRESS);
                     Signal (TaskDone);
                     RETURN;
                 ELSE
-                    (*LogTransactionL (LogID, "Passing on Signal(SomethingToSend)");*)
                     Signal (SomethingToSend);
                 END (*IF*);
             END (*IF*);
@@ -3415,7 +3747,6 @@ PROCEDURE MailerTask (tasknum: ADDRESS);
             InProgress[TaskNumber][0] := Nul;
             Release (OutboundMail.access);
             Wait (SomethingToSend);
-            (*LogTransactionL (LogID, "Received signal on SomethingToSend");*)
             IF ShutdownRequest THEN
                 EXIT (*LOOP*);
             END (*IF*);
@@ -3479,7 +3810,6 @@ PROCEDURE MailerTask (tasknum: ADDRESS);
                 END (*WITH*);
 
                 IF p^.sendto^.remote <> NIL THEN
-                    (*LogTransactionL (LogID, "Calling MailOneMessage");*)
                     MailOneMessage (p);
                 END (*IF*);
                 (*ShowCounts;*)
@@ -3993,12 +4323,9 @@ PROCEDURE RetryTask;
         Wait (SystemUp);
         Signal (SystemUp);
         LogID := CreateLogID (WCtx, "Retry  ");
-        (*LogTransactionL (LogID, "Checkpoint #0");*)
         CheckInterval := DefaultCheckInterval;
         LOOP
-            (*LogTransactionL (LogID, "Checkpoint #1");*)
             TimedWait (Retry, CheckInterval, TimedOut);
-            (*LogTransactionL (LogID, "Checkpoint #2");*)
             IF ShutdownRequest THEN
                 EXIT (*LOOP*);
             END (*IF*);
@@ -4123,7 +4450,7 @@ PROCEDURE ReadNameList (cid: ChanId;  VAR (*OUT*) count: CARDINAL;
                 INC (count);
                 NEW(p);
                 p^.next := NIL;  p^.failuremessage := "";
-                p^.KeepTrying := TRUE;  p^.SecondChance := FALSE;
+                p^.KeepTrying := TRUE;
                 EVAL( FReadChar(cid, NextChar)
                           AND FReadString (cid, forwardpath,
                                            CharSet{',', ')'}, NextChar));
@@ -4258,14 +4585,10 @@ PROCEDURE OnlineChecker;
     BEGIN
         loopcount := 0;
         LogID := CreateLogID (WCtx, "Online ");
-        (*LogTransactionL (LogID, "Checkpoint #0");*)
         CheckInterval := InitialDelay;
         LOOP
             WeWereOffline := WeAreOffline;
-            (*LogTransactionL (LogID, "Checkpoint #1");*)
             TimedWait (CheckIfOnline, CheckInterval, TimedOut);
-            (*Wait (CheckIfOnline);*)
-            (*LogTransactionL (LogID, "Checkpoint #2");*)
             IF ShutdownRequest THEN
                 WeAreOffline := TRUE;
                 EXIT (*LOOP*);
@@ -4308,7 +4631,6 @@ PROCEDURE OnlineChecker;
                     WITH OfflineData DO
                         Obtain (access);
                         WHILE PendingCount > 0 DO
-                            (*LogTransactionL (LogID, "OnlineChecker Signal(SomethingToSend)");*)
                             Signal (SomethingToSend);
                             DEC (PendingCount);
                         END (*WHILE*);

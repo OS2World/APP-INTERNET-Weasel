@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  PMOS/2 software library                                               *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2016   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -27,7 +27,7 @@ IMPLEMENTATION MODULE LowLevel;
         (*         Miscellaneous low-level procedures           *)
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
-        (*  Last edited:        1 September 1998                *)
+        (*  Last edited:        15 December 2106                *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -198,6 +198,22 @@ PROCEDURE ALLOCATE64 (VAR (*OUT*) p: ADDRESS;  amount: CARDINAL);
 
 (************************************************************************)
 (*                          BITWISE LOGIC                               *)
+(************************************************************************)
+
+PROCEDURE SwapIt (VAR (*INOUT*) arg: ARRAY OF LOC);
+
+    (* Reverses the byte order of its argument.  Used for conversion    *)
+    (* between BigEndian and LittleEndian format.                       *)
+
+    VAR j, top: CARDINAL;  temp: LOC;
+
+    BEGIN
+        top := HIGH(arg);
+        FOR j := 0 TO top DIV 2 DO
+            temp := arg[j];  arg[j] := arg[top-j];  arg[top-j] := temp;
+        END (*FOR*);
+    END SwapIt;
+
 (************************************************************************)
 
 PROCEDURE IAND (first, second: CARDINAL): CARDINAL;

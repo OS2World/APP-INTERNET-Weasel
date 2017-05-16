@@ -6,7 +6,7 @@ DEFINITION MODULE LONGLONG;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            17 October 2001                 *)
-        (*  Last edited:        28 May 2011                     *)
+        (*  Last edited:        7 May 2017                      *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -32,6 +32,10 @@ PROCEDURE Sub64 (VAR (*INOUT*) A: CARD64;  B: CARDINAL);
 
     (* Computes  A := A - B.  This differs from Diff64 (below) in the   *)
     (* type of B, and in the way the result is returned.                *)
+
+PROCEDURE DEC64 (VAR (*INOUT*) A: CARD64);
+
+    (* Decrements A by 1.  *)
 
 PROCEDURE ShortSub (A, B: CARD64): CARDINAL;
 

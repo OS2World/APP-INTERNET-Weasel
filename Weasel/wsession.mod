@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2016   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE WSession;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            28 April 1998                   *)
-        (*  Last edited:        12 December 2016                *)
+        (*  Last edited:        11 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -392,6 +392,24 @@ PROCEDURE HandleCommand (session: Session;  VAR (*IN*) command: ARRAY OF CHAR;
         END (*WITH*);
     END HandleCommand;
 
+(********************************************************************************)
+
+PROCEDURE Reply (s: Socket;  ID: TransactionLogID;  message: ARRAY OF CHAR);
+
+    (* Sends message to client, and logs it. *)
+
+    VAR buffer: ARRAY [0..511] OF CHAR;
+        size: CARDINAL;
+
+    BEGIN
+        Strings.Assign ("> ", buffer);
+        Strings.Append (message, buffer);
+        LogTransaction (ID, buffer);
+        Strings.Delete (buffer, 0, 2);
+        size := AddEOL (buffer);
+        EVAL (send (s, buffer, size, 0));
+    END Reply;
+
 (************************************************************************)
 
 PROCEDURE SessionHandler (arg: ADDRESS);
@@ -449,7 +467,7 @@ PROCEDURE SessionHandler (arg: ADDRESS);
         Quit, ServerAbort: BOOLEAN;
         LogFilePrefix: ARRAY [0..6] OF CHAR;
         IPBuffer: ARRAY [0..16] OF CHAR;
-        LogMessage: ARRAY [0..127] OF CHAR;
+        LogMessage: ARRAY [0..511] OF CHAR;
         OurHostName: HostName;
         ServerName: SockAddr;
         IsBanned, whitelisted, MayRelay: BOOLEAN;
@@ -510,16 +528,13 @@ PROCEDURE SessionHandler (arg: ADDRESS);
         (* Check for too many users. *)
 
         UserNumber := UpdateCount (sess.service, +1);
+        Release (ThreadCreationLock[sess.service]);
         IF UserNumber = 0 THEN
-            LogTransactionL (sess.LogID, "Too many users");
             Strings.Assign (TooManyUsers[sess.service], pCmdBuffer^);
-            size := AddEOL (pCmdBuffer^);
-            EVAL (send (S, pCmdBuffer^, size, 0));
-            Release (ThreadCreationLock[sess.service]);
+            Reply (S, sess.LogID, pCmdBuffer^);
             AbandonSession;
         END (*IF*);
 
-        Release (ThreadCreationLock[sess.service]);
 
         (* Check whether the client is on one of our special lists. *)
 
@@ -540,18 +555,15 @@ PROCEDURE SessionHandler (arg: ADDRESS);
 
             Sleep (5000);
             Strings.Assign (AccessDenied[sess.service], pCmdBuffer^);
-            size := AddEOL (pCmdBuffer^);
-            EVAL (send (S, pCmdBuffer^, size, 0));
-            LogTransactionL (sess.LogID, "Banned client rejected");
+            Reply (S, sess.LogID, pCmdBuffer^);
             AbandonSession;
         END (*IF*);
 
         (* Check the realtime blacklists, if this check is enabled. *)
 
         IF (NOT whitelisted) AND (NOT MayRelay) AND (sess.service = SMTP)
-                   AND OnBlacklist(sess.LogID, sess.ClientIPAddress, pCmdBuffer^) THEN
-            size := AddEOL (pCmdBuffer^);
-            EVAL (send (S, pCmdBuffer^, size, 0));
+                   AND OnBlacklist(sess.ClientIPAddress, pCmdBuffer^) THEN
+            Reply (S, sess.LogID, pCmdBuffer^);
             AbandonSession;
         END (*IF*);
 
@@ -560,9 +572,7 @@ PROCEDURE SessionHandler (arg: ADDRESS);
 
         IF (sess.service = POP) AND POPData.ThrottlePOP(sess.ClientIPAddress) THEN
             Strings.Assign ("-ERR Too many password errors", pCmdBuffer^);
-            LogTransaction (sess.LogID, pCmdBuffer^);
-            size := AddEOL (pCmdBuffer^);
-            EVAL (send (S, pCmdBuffer^, size, 0));
+            Reply (S, sess.LogID, pCmdBuffer^);
             AbandonSession;
         END (*IF*);
 
@@ -573,9 +583,7 @@ PROCEDURE SessionHandler (arg: ADDRESS);
         SB := CreateSBuffer (S, TRUE);
         IF SB = NilSBuffer THEN
             Strings.Assign ("Out of memory, closing session", pCmdBuffer^);
-            LogTransaction (sess.LogID, pCmdBuffer^);
-            size := AddEOL (pCmdBuffer^);
-            EVAL (send (S, pCmdBuffer^, size, 0));
+            Reply (S, sess.LogID, pCmdBuffer^);
             AbandonSession;
         END (*IF*);
         Obtain (ParamLock);
@@ -614,7 +622,9 @@ PROCEDURE SessionHandler (arg: ADDRESS);
             Strings.Append (' ', pCmdBuffer^);
             POPCommands.AppendTimeStamp (sess.SP, pCmdBuffer^);
         END (*IF*);
-        LogTransaction (sess.LogID, pCmdBuffer^);
+        Strings.Assign ("> ", LogMessage);
+        Strings.Append (pCmdBuffer^, LogMessage);
+        LogTransaction (sess.LogID, LogMessage);
         size := AddEOL (pCmdBuffer^);
         Quit := send (S, pCmdBuffer^, size, 0) = MAX(CARDINAL);
         ServerAbort := FALSE;

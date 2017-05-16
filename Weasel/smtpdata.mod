@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2016   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,12 +28,12 @@ IMPLEMENTATION MODULE SMTPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 April 1998                   *)
-        (*  Last edited:        13 December 2016                *)
+        (*  Last edited:        11 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
 
-FROM SYSTEM IMPORT CARD8, CARD16, ADDRESS, CAST, ADR;
+FROM SYSTEM IMPORT CARD8, CARD16, ADDRESS, CAST, ADR, LOC;
 
 IMPORT WV, Strings, OS2, FileSys, INIData;
 
@@ -41,7 +41,7 @@ FROM Heap IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 FROM LowLevel IMPORT
-    (* proc *)  EVAL;
+    (* proc *)  EVAL, AddOffset;
 
 FROM Sockets IMPORT
     (* type *)  Socket;
@@ -80,7 +80,7 @@ FROM SPF IMPORT
 
 FROM SBuffers IMPORT
     (* type *)  SBuffer,
-    (* proc *)  SocketOf, Getch, SendLine, FlushOutput;
+    (* proc *)  SocketOf, Getch, GetRaw, SendLine, FlushOutput;
 
 FROM MXCheck IMPORT
     (* proc *)  DoMXLookup;
@@ -96,6 +96,7 @@ FROM InetUtilities IMPORT
     (* proc *)  WriteCard;
 
 FROM Inet2Misc IMPORT
+    (* type *)  LocArrayPointer, CharArrayPointer,
     (* proc *)  IPToString, AddressToHostName, StringMatch;
 
 FROM SMTPLogin IMPORT
@@ -130,6 +131,18 @@ CONST
     ReceivedOffset = 0;
 
 TYPE
+    (* The ChunkPtr data structure is needed only if we are accepting   *)
+    (* data in chunks.  The data array is allocated one more byte than  *)
+    (* is implied by the size field, so that a Nul can be added to      *)
+    (* stop searches from running off the end.                          *)
+
+    ChunkPtr = POINTER TO
+                    RECORD
+                        next: ChunkPtr;
+                        size: CARDINAL;
+                        data: CharArrayPointer;
+                    END (*RECORD*);
+
     (* An ItemDescriptor record keeps track of the information needed   *)
     (* to send one item of mail.  The fields are                        *)
     (*   RealIPAddr        the sender's real IP address as determined   *)
@@ -143,6 +156,8 @@ TYPE
     (*   TempName          name of a file where the incoming item is    *)
     (*                       stored before being distributed to all     *)
     (*                       recipients.                                *)
+    (*   firstchunk,                                                    *)
+    (*      lastchunk      list pointers for chunked data.              *)
     (*   offset            effective starting point of the file if it   *)
     (*                       has to be relayed.                         *)
     (*   charcount         bytes received, used for logging             *)
@@ -157,6 +172,7 @@ TYPE
     (*   RelayAllowed      TRUE iff the sending host is one that is     *)
     (*                       allowed to relay through us, and allowed   *)
     (*                       access to non-public aliases.              *)
+    (*   dataOK            The data so far received has been acceptable *)
     (*   postmasterOK      The sender domain (in returnpath) has a      *)
     (*                          valid postmaster account.               *)
     (*   softfail          The postmaster check resulted in a           *)
@@ -173,6 +189,7 @@ TYPE
                OurHostname: HostName;
                LogID: TransactionLogID;
                TempName: FilenameString;
+               firstchunk, lastchunk: ChunkPtr;
                offset: FilePos;
                charcount: CARDINAL;
                returnpath, firstrecipient: PathString;
@@ -180,7 +197,7 @@ TYPE
                Recipients: CombinedRecipientList;
                SPFans1, SPFans2: SPFresult;
                whitelisted, RelayAllowed: BOOLEAN;
-               postmasterOK, softfail: BOOLEAN;
+               dataOK, postmasterOK, softfail: BOOLEAN;
                SkipFiltering0, SkipFiltering: BOOLEAN;
            END (*RECORD*);
 
@@ -265,6 +282,7 @@ PROCEDURE CreateItemDescriptor (SB: SBuffer;  ClientIPAddress: CARDINAL;
             OurHostname := "localhost";      (* fallback default *)
             GetOurHostName (SocketOf(SB), OurHostname);
             TempName := "";
+            firstchunk := NIL;  lastchunk := NIL;
             firstrecipient := "";
             recipientcount := 0;
             Recipients := CreateCombinedRecipientList();
@@ -272,6 +290,7 @@ PROCEDURE CreateItemDescriptor (SB: SBuffer;  ClientIPAddress: CARDINAL;
             SPFans2 := SPF_none;
             RelayAllowed := MayRelay;
             whitelisted := OnWhitelist;
+            dataOK := TRUE;
             postmasterOK := TRUE;
             softfail := FALSE;
             SkipFiltering0 := FALSE;
@@ -293,6 +312,7 @@ PROCEDURE ResetReturnPath (desc: ItemDescriptor);
             returnpath[0] := EmptyReversePathMarker;
             returnpath[1] := Nul;
             SkipFiltering := SkipFiltering0;
+            dataOK := TRUE;
             postmasterOK := FALSE;
             softfail := FALSE;
         END (*WITH*);
@@ -303,6 +323,26 @@ PROCEDURE ResetReturnPath (desc: ItemDescriptor);
 PROCEDURE ParsePathString (path: ARRAY OF CHAR;
                             VAR (*OUT*) user: UserName;
                             VAR (*OUT*) domain: HostName);  FORWARD;
+
+(************************************************************************)
+
+PROCEDURE DiscardChunks (desc: ItemDescriptor);
+
+    (* Discards any chunked data that has been collected.  *)
+
+    VAR next: ChunkPtr;
+
+    BEGIN
+        WITH desc^ DO
+            WHILE firstchunk <> NIL DO
+                next := firstchunk^.next;
+                DEALLOCATE (firstchunk^.data, firstchunk^.size + 1);
+                DEALLOCATE (firstchunk, SIZE (ChunkPtr));
+                firstchunk := next;
+            END (*WHILE*);
+            lastchunk := NIL;
+        END (*WITH*);
+    END DiscardChunks;
 
 (************************************************************************)
 
@@ -325,9 +365,11 @@ PROCEDURE ResetItemDescriptor (desc: ItemDescriptor;
             ClearCombinedRecipientList (desc^.Recipients);
             desc^.firstrecipient := "";
             desc^.recipientcount := 0;
+            desc^.dataOK := TRUE;
             desc^.postmasterOK := FALSE;
             desc^.softfail := FALSE;
             desc^.SkipFiltering := desc^.SkipFiltering0;
+            DiscardChunks (desc);
         END (*IF*);
     END ResetItemDescriptor;
 
@@ -347,14 +389,51 @@ PROCEDURE DiscardItemDescriptor (VAR (*INOUT*) desc: ItemDescriptor);
     END DiscardItemDescriptor;
 
 (************************************************************************)
+(*                          HELO/EHLO PROCESSING                        *)
+(************************************************************************)
+
+PROCEDURE SPFcheck (desc: ItemDescriptor;  user: ARRAY OF CHAR;
+                                VAR (*IN*) domain: DomainName): SPFresult;
+
+    (* Does an SPF check to see whether ipaddr is a valid sender for    *)
+    (* the given domain.  The actual SPF string, which may be up to     *)
+    (* 450 characters in length, is returned in case the caller wants   *)
+    (* to record it.                                                    *)
+
+    VAR SPFstring, message: ARRAY [0..512] OF CHAR;
+        IPstring: ARRAY [0..19] OF CHAR;
+        status: SPFresult;
+
+    BEGIN
+        message := "[spf] Checking address ";
+        IPToString (desc^.RealIPAddr, TRUE, IPstring);
+        Strings.Append (IPstring, message);
+        Strings.Append (", domain ", message);
+        Strings.Append (domain, message);
+        LogTransaction (desc^.LogID, message);
+
+        status := DoSPFLookup (desc^.RealIPAddr, domain,
+                                 desc^.HELOname, user, domain, SPFstring);
+
+        message := "[spf] SPF string = ";
+        Strings.Append (SPFstring, message);
+        LogTransaction (desc^.LogID, message);
+        message := "[spf] SPF result = ";
+        SPFresultToString (status, SPFstring);
+        Strings.Append (SPFstring, message);
+        LogTransaction (desc^.LogID, message);
+
+        RETURN status;
+
+    END SPFcheck;
+
+(************************************************************************)
 
 PROCEDURE SetClaimedSendingHost (desc: ItemDescriptor;
                                  VAR (*IN*) ClaimedName: HostName): BOOLEAN;
 
     (* ClaimedName is the sending host's name as supplied in the HELO   *)
     (* command.  Returns TRUE if name is acceptable.                    *)
-
-    VAR SPFstring: ARRAY [0..511] OF CHAR;
 
     BEGIN
         Strings.Assign (ClaimedName, desc^.HELOname);
@@ -363,15 +442,14 @@ PROCEDURE SetClaimedSendingHost (desc: ItemDescriptor;
         ELSIF BannedHost(ClaimedName) THEN
             RETURN FALSE;
         ELSIF SPFenabled THEN
-            WITH desc^ DO
-                SPFans1 := DoSPFLookup (RealIPAddr, HELOname,
-                                        HELOname, "postmaster", HELOname, SPFstring);
-            END (*WITH*);
+            desc^.SPFans1 := SPFcheck (desc, "postmaster", ClaimedName);
             RETURN (desc^.SPFans1 <> SPF_fail);
         END (*IF*);
         RETURN TRUE;
     END SetClaimedSendingHost;
 
+(************************************************************************)
+(*                         RCPT TO: PROCESSING                          *)
 (************************************************************************)
 
 PROCEDURE ParsePathString (path: ARRAY OF CHAR;
@@ -475,6 +553,9 @@ PROCEDURE ProcessRCPTAddress (desc: ItemDescriptor;
     END ProcessRCPTAddress;
 
 (************************************************************************)
+(*                        MAIL FROM: PROCESSING                         *)
+(*  The "from" address has already been stored, in ResetItemDescriptor  *)
+(************************************************************************)
 
 PROCEDURE FromAddressAcceptable (desc: ItemDescriptor;  S: Socket;
                                watchdog: Semaphore;
@@ -496,7 +577,6 @@ PROCEDURE FromAddressAcceptable (desc: ItemDescriptor;  S: Socket;
         j: CARDINAL;
         address: ARRAY [0..max] OF CARDINAL;
         message: ARRAY [0..127] OF CHAR;
-        SPFstring: ARRAY [0..511] OF CHAR;
         domain, OurDomainName: DomainName;
 
     BEGIN
@@ -512,41 +592,59 @@ PROCEDURE FromAddressAcceptable (desc: ItemDescriptor;  S: Socket;
         desc^.postmasterOK := TRUE;
 
         (* The SMTP standard says that a completely empty FROM address  *)
-        (* is acceptable.  Otherwise, both user and domain must be nonempty. *)
+        (* is acceptable.  (In which case all of the following checks   *)
+        (* are redundant.)  Otherwise, both user and domain must be     *)
+        (* nonempty.                                                    *)
+
+        IF E1 AND E2 THEN
+            RETURN TRUE;
+        END (*IF*);
 
         OK := (E1 = E2);
 
-        (* If we pass that check, do the "banned hosts" checks if       *)
-        (* the MAILFROMcheck option has been set.                       *)
+        (* Skip the next couple of checks if the domain matches the     *)
+        (* HELO name, because in that case we have already done those   *)
+        (* checks.                                                      *)
 
-        IF OK AND MAILFROMcheck AND NOT StringMatch(domain, desc^.HELOname) THEN
-            OK := NOT BannedHost(domain);
-            IF OK AND (DoMXLookup (domain, address) = 0) THEN
-                j := 0;
-                WHILE OK AND (j <= max) AND (address[j] <> 0) DO
-                    CheckHost (address[j], IsBanned, whitelisted, MayRelay);
-                    IF IsBanned THEN
-                        OK := FALSE;
-                    ELSIF NOT MayRelay THEN
-                        OK := NOT OnBlacklist (desc^.LogID, address[j],
-                                                            message);
-                    END (*IF*);
-                    INC(j);
-                END (*WHILE*);
+        IF NOT StringMatch(domain, desc^.HELOname) THEN
+
+            (* Do the "banned hosts" checks if the  *)
+            (* MAILFROMcheck option has been set.   *)
+
+            IF OK AND MAILFROMcheck THEN
+                OK := NOT BannedHost(domain);
+                IF OK AND (DoMXLookup (domain, address) = 0) THEN
+                    j := 0;
+                    WHILE OK AND (j <= max) AND (address[j] <> 0) DO
+                        CheckHost (address[j], IsBanned, whitelisted, MayRelay);
+                        IF IsBanned THEN
+                            OK := FALSE;
+                        ELSIF NOT MayRelay THEN
+                            OK := NOT OnBlacklist (address[j], message);
+                        END (*IF*);
+                        INC(j);
+                    END (*WHILE*);
+                END (*IF*);
             END (*IF*);
-        END (*IF*);
 
-        (* Now the SPF check.  *)
+            (* Now the SPF check.  *)
 
-        IF SPFenabled THEN
-            desc^.SPFans2 := DoSPFLookup (desc^.RealIPAddr, domain,
-                                    desc^.HELOname, user, domain, SPFstring);
-            OK := OK AND (desc^.SPFans2 <> SPF_fail);
+            IF SPFenabled THEN
+                IF OK THEN
+                    desc^.SPFans2 := SPFcheck (desc, user, domain);
+                    OK := desc^.SPFans2 <> SPF_fail;
+                ELSE
+                    desc^.SPFans2 := SPF_none;
+                END (*IF*);
+            END (*IF*);
+
         END (*IF*);
 
         (* Now the postmaster check, unless it's disabled.  We give an  *)
-        (* exemption to a completely empty FROM address, and to the     *)
-        (* username "postmaster".                                       *)
+        (* exemption to a completely empty FROM address and to          *)
+        (* whitelisted clients, both cases handled earlier in this      *)
+        (* procedure.  We also exempt local domains, for obvious        *)
+        (* reasons, and the username "postmaster".                      *)
 
         IF OK AND (pmchecklevel <> disabled)
                 AND NOT StringMatch (user, "postmaster")
@@ -746,6 +844,16 @@ PROCEDURE WriteEOL (cid: ChanId);
 
 (************************************************************************)
 
+PROCEDURE NoChunksYet (desc: ItemDescriptor): BOOLEAN;
+
+    (* Returns TRUE if there is not yet any chunked data. *)
+
+    BEGIN
+        RETURN desc^.firstchunk = NIL;
+    END NoChunksYet;
+
+(************************************************************************)
+
 PROCEDURE AcceptOneLine (SB: SBuffer;
                              VAR (*OUT*) Buffer: ARRAY OF CHAR): CARDINAL;
 
@@ -814,9 +922,10 @@ PROCEDURE AcceptOneLine (SB: SBuffer;
 
 (************************************************************************)
 
-PROCEDURE InsertMessageID (cid: ChanId;  LocalHost: HostName);
+PROCEDURE InsertMessageID (cid: ChanId;  LocalHost: HostName): CARDINAL;
 
-    (* Writes a "Message-ID" line to the file. *)
+    (* Writes a "Message-ID" line to the file.  Returns the number of   *)
+    (* characters written.                                              *)
 
     VAR Buffer: ARRAY [0..1023] OF CHAR;
         uname: ARRAY [0..7] OF CHAR;
@@ -832,6 +941,7 @@ PROCEDURE InsertMessageID (cid: ChanId;  LocalHost: HostName);
         Strings.Append (">", Buffer);
         WriteRaw (cid, Buffer, LENGTH(Buffer));
         WriteEOL (cid);
+        RETURN LENGTH(Buffer) + 2;
     END InsertMessageID;
 
 (************************************************************************)
@@ -866,16 +976,20 @@ PROCEDURE KeywordMatch (kwd: ARRAY OF CHAR;
     END KeywordMatch;
 
 (************************************************************************)
+(*                      RECEIVING THE MESSAGE TEXT                      *)
+(************************************************************************)
 
 PROCEDURE ReceiveMessage0 (SB: SBuffer;  cid: ChanId;  LocalHost: HostName;
                              sem: Semaphore;  StoreIt: BOOLEAN;
-                              VAR (*OUT*) TooManyHops: BOOLEAN): CARDINAL;
+                              VAR (*OUT*) FromPresent,
+                                          TooManyHops: BOOLEAN): CARDINAL;
 
     (* Receives an incoming message, stores it to a previously opened   *)
     (* file.  We periodically signal on sem to confirm that the         *)
     (* operation has not timed out.  The returned value is a character  *)
     (* count, or MAX(CARDINAL) if the transfer failed.                  *)
     (* If StoreIt = FALSE then we don't write to the file.              *)
+    (* FromPresent = TRUE iff "From:" header is present.                *)
 
     VAR LineBuffer: ARRAY [0..1023] OF CHAR;
 
@@ -897,6 +1011,7 @@ PROCEDURE ReceiveMessage0 (SB: SBuffer;  cid: ChanId;  LocalHost: HostName;
     BEGIN
         EndOfMessage := FALSE;
         MessageIDPresent := FALSE;
+        FromPresent := FALSE;
         InHeader := TRUE;
         ReceivedCount := 0;
         total := 0;
@@ -920,8 +1035,12 @@ PROCEDURE ReceiveMessage0 (SB: SBuffer;  cid: ChanId;  LocalHost: HostName;
 
                         InHeader := FALSE;
                         IF NOT MessageIDPresent THEN
-                            InsertMessageID (cid, LocalHost);
+                            INC (total, InsertMessageID (cid, LocalHost));
                         END (*IF*);
+
+                    ELSIF KeywordMatch ("From", LineBuffer) THEN
+
+                        FromPresent := TRUE;
 
                     ELSIF KeywordMatch ("Received", LineBuffer) THEN
                         INC (ReceivedCount);
@@ -959,7 +1078,8 @@ PROCEDURE ReceiveMessage0 (SB: SBuffer;  cid: ChanId;  LocalHost: HostName;
 
 PROCEDURE ReceiveMessage (SB: SBuffer;  cid: ChanId;  LocalHost: HostName;
                               sem: Semaphore;
-                              VAR (*OUT*) TooManyHops: BOOLEAN): CARDINAL;
+                              VAR (*OUT*) FromPresent,
+                                          TooManyHops: BOOLEAN): CARDINAL;
 
     (* Receives an incoming message, stores it to a previously opened   *)
     (* file.  We periodically signal on sem to confirm that the         *)
@@ -968,9 +1088,12 @@ PROCEDURE ReceiveMessage (SB: SBuffer;  cid: ChanId;  LocalHost: HostName;
 
     (* TooManyHops = TRUE means that the message has too many header    *)
     (* lines saying "Received:".                                        *)
+    (* FromPresent = TRUE iff "From:" header is present.                *)
+    (* Invariant: called only if itemdata^.dataOK = TRUE.               *)
 
     BEGIN
-        RETURN ReceiveMessage0 (SB, cid, LocalHost, sem, TRUE, TooManyHops);
+        RETURN ReceiveMessage0 (SB, cid, LocalHost, sem, TRUE,
+                                                FromPresent, TooManyHops);
     END ReceiveMessage;
 
 (************************************************************************)
@@ -979,22 +1102,22 @@ PROCEDURE SkipMessage (SB: SBuffer;  sem: Semaphore);
 
     (* Like ReceiveMessage, but the incoming data are discarded rather  *)
     (* than being written to a file.                                    *)
+    (* Invariant: called only if itemdata^.dataOK = FALSE.              *)
 
-    VAR dummy: BOOLEAN;  dummyhost: HostName;
+    VAR dummy1, dummy2: BOOLEAN;  dummyhost: HostName;
 
     BEGIN
-        EVAL (ReceiveMessage0 (SB, NoSuchChannel, dummyhost, sem, FALSE, dummy));
+        EVAL (ReceiveMessage0 (SB, NoSuchChannel, dummyhost, sem,
+                                                  FALSE, dummy1, dummy2));
     END SkipMessage;
 
 (************************************************************************)
 
-PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
-                         sem: Semaphore;
-                         VAR (*OUT*) FailureReason: ARRAY OF CHAR): BOOLEAN;
+PROCEDURE StartNewMessage (itemdata: ItemDescriptor): ChanId;
 
-    (* Receives an incoming message, stores it in a temporary file      *)
-    (* whose name is recorded in itemdata.  We periodically signal on   *)
-    (* sem to confirm that the reception has not timed out.             *)
+    (* Creates a temporary file whose name is recorded in itemdata, and *)
+    (* inserts the first few header lines.  The number of characters    *)
+    (* inserted is stored in itemdata^.charcount.                       *)
 
     CONST MaxPosInLine = 80;
 
@@ -1013,35 +1136,53 @@ PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
             length := LENGTH(str);
             IF PosInLine + length > MaxPosInLine THEN
                 FWriteLn (cid);  FWriteString (cid, ' ');
+                INC (itemdata^.charcount, 3);
                 PosInLine := 1;
             END (*IF*);
             FWriteString (cid, str);
             INC (PosInLine, length);
+            INC (itemdata^.charcount, length);
         END AddString;
 
     (********************************************************************)
 
-    VAR success, dummy, TooManyHops: BOOLEAN;
-        cid: ChanId;
+    VAR cid: ChanId;
         BaseName: FilenameString;
         StringBuffer: ARRAY [0..255] OF CHAR;
-        LocalHost: HostName;
+        success: BOOLEAN;
 
     BEGIN
-        success := NOT NoRecipients(itemdata);
+        itemdata^.charcount := 0;
 
-        IF success THEN
+        (* Create a temporary file in the mailbox of the first recipient, *)
+        (* or in the Forward directory if there are no local recipients.  *)
 
-            (* Create a temporary file in the mailbox of the first recipient, *)
-            (* or in the Forward directory if there are no local recipients.  *)
-
-            ChooseIncomingFileDirectory (itemdata^.Recipients, BaseName);
-            cid := OpenNewOutputFile (BaseName, ".###", itemdata^.TempName);
+        ChooseIncomingFileDirectory (itemdata^.Recipients, BaseName);
+        cid := OpenNewOutputFile (BaseName, ".###", itemdata^.TempName);
             success := cid <> NoSuchChannel;
             IF success THEN
 
+                (* Create a "Return-Path:" header line. *)
+
+                PosInLine := 0;
+                AddString (cid, "Return-Path: ");
+                AddString (cid, itemdata^.returnpath);
+                FWriteLn (cid);
+                INC (itemdata^.charcount, 2);
+
+                (* The above parts of the file will be removed if this  *)
+                (* message is relayed to another server.                *)
+
+                itemdata^.offset := CurrentPosition(cid);
+
                 (* Create an "Authentication-Results" header line, but only *)
-                (* if we're using SPF.                                      *)
+                (* if we're using SPF.  The RFC for this header says that   *)
+                (* this header should come ahead of any other trace field,  *)
+                (* but the examples in that document do not include any     *)
+                (* Return-Path header lines.  In my opinion the             *)
+                (* Return-Path should be displayed only on final delivery,  *)
+                (* while the Authentication-Results should be preserved     *)
+                (* through all intermediate servers.                        *)
 
                 IF SPFenabled THEN
                     PosInLine := 0;
@@ -1069,19 +1210,8 @@ PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
                         AddString (cid, itemdata^.fromdomain);
                     END (*IF*);
                     FWriteLn (cid);
+                    INC (itemdata^.charcount, 2);
                 END (*IF*);
-
-                (* Create a "Return-Path:" header line. *)
-
-                PosInLine := 0;
-                AddString (cid, "Return-Path: ");
-                AddString (cid, itemdata^.returnpath);
-                FWriteLn (cid);
-
-                (* The above parts of the file will be removed if this  *)
-                (* message is relayed to another server.                *)
-
-                itemdata^.offset := CurrentPosition(cid);
 
                 (* Create a "Received:" header line. *)
 
@@ -1094,10 +1224,9 @@ PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
                 IPToString (itemdata^.RealIPAddr, TRUE, StringBuffer);
                 AddString (cid, StringBuffer);
                 FWriteChar (cid, ')');  INC(PosInLine);
+                INC (itemdata^.charcount);
                 AddString (cid, " by " );
-                LocalHost := "[127.0.0.1]";      (* fallback default *)
-                GetOurHostName (SocketOf(SB), LocalHost);
-                AddString (cid, LocalHost);
+                AddString (cid, itemdata^.OurHostname);
                 AddString (cid, " (Weasel v");
                 AddString (cid, WV.version);
                 AddString (cid, ")");
@@ -1109,32 +1238,74 @@ PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
                 CurrentDateAndTime (StringBuffer);
                 AddString (cid, StringBuffer);
                 FWriteLn (cid);
+                INC (itemdata^.charcount, 2);
 
                 (* Add an X-PostmasterCheck header if needed. *)
 
                 IF (NOT itemdata^.postmasterOK) AND (pmchecklevel = marksuspectfiles) THEN
                     IF itemdata^.softfail THEN
                         FWriteString (cid, "X-PostmasterCheck: DEFERRED");
+                        INC (itemdata^.charcount, 27);
                     ELSE
                         FWriteString (cid, "X-PostmasterCheck: FAIL");
+                        INC (itemdata^.charcount, 23);
                     END (*IF*);
                     FWriteLn (cid);
+                    INC (itemdata^.charcount, 2);
                 END (*IF*);
+
+            END (*IF*);
+
+        RETURN cid;
+
+    END StartNewMessage;
+
+(************************************************************************)
+
+PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
+                         sem: Semaphore;
+                         VAR (*OUT*) FailureReason: ARRAY OF CHAR): BOOLEAN;
+
+    (* Receives an incoming message, stores it in a temporary file      *)
+    (* whose name is recorded in itemdata.  We periodically signal on   *)
+    (* sem to confirm that the reception has not timed out.             *)
+
+    VAR success, dummy, TooManyHops, FromPresent: BOOLEAN;
+        count: CARDINAL;
+        cid: ChanId;
+
+    BEGIN
+        success := NOT NoRecipients(itemdata);
+        itemdata^.dataOK := success;
+
+        IF success THEN
+
+            cid := StartNewMessage (itemdata);
+            success := cid <> NoSuchChannel;
+
+            IF success THEN
 
                 (* Read the new message into the temporary file. *)
 
-                itemdata^.charcount := ReceiveMessage (SB, cid, LocalHost,
-                                                        sem, TooManyHops);
+                count := ReceiveMessage (SB, cid, itemdata^.OurHostname,
+                                                 sem, FromPresent, TooManyHops);
+                success := count <> MAX(CARDINAL);
+                IF success THEN
+                    INC (itemdata^.charcount, count);
+                END (*IF*);
                 CloseFile (cid);
                 Signal (sem);
 
                 IF TooManyHops THEN
                     Strings.Assign ("554 too many hops (max 25)", FailureReason);
                     success := FALSE;
+                ELSIF NOT FromPresent THEN
+                    Strings.Assign ("554 From: header line is missing", FailureReason);
+                    success := FALSE;
                 ELSE
-                    success := itemdata^.charcount <> MAX(CARDINAL);
                     IF NOT success THEN
                         Strings.Assign ("554 connection lost", FailureReason);
+                        itemdata^.dataOK := FALSE;
                     ELSIF itemdata^.charcount > LimitOnMessageSize() THEN
                         Strings.Assign ("552 message size exceeds fixed maximum message size",
                                                             FailureReason);
@@ -1143,12 +1314,14 @@ PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
                 END (*IF*);
 
             ELSE
+                itemdata^.dataOK := FALSE;
                 Strings.Assign ("554 could not create message file", FailureReason);
                 SkipMessage (SB, sem);
                 itemdata^.TempName[0] := Nul;
             END (*IF*);
 
         ELSE
+            itemdata^.dataOK := FALSE;
             Strings.Assign ("554 no recipients", FailureReason);
             SkipMessage (SB, sem);
         END (*IF*);
@@ -1167,6 +1340,294 @@ PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
 
     END AcceptMessage;
 
+(************************************************************************)
+(*                           CHUNKED MESSAGES                           *)
+(************************************************************************)
+
+PROCEDURE CheckHeader (cid: ChanId;
+                           VAR (*OUT*) FromPresent, TooManyHops: BOOLEAN);
+
+    (* This is the equivalent of AcceptMessage for the case of chunked  *)
+    (* data.  The difference is that AcceptMessage processes the        *)
+    (* message while it is being received, while with chunked data we   *)
+    (* receive the entire message before calling this procedure.        *)
+    (* We do some checks on the headers, but do not alter the headers   *)
+    (* or touch the message body.  This means, unlike the non-chunked   *)
+    (* case, that we trust the sender to have included a Message-ID.    *)
+
+    CONST CtrlZ = CHR(26);
+
+    VAR LineBuffer: ARRAY [0..1023] OF CHAR;
+
+    VAR EndOfMessage, InHeader: BOOLEAN;
+        ReceivedCount: CARDINAL;
+
+    BEGIN
+        FromPresent := FALSE;
+        InHeader := TRUE;
+        ReceivedCount := 0;
+        SetPosition (cid, StartPosition(cid));
+        WHILE InHeader DO
+            ReadLine (cid, LineBuffer);
+            EndOfMessage := LineBuffer[0] = CtrlZ;
+
+            IF EndOfMessage OR (LineBuffer[0] = Nul) THEN
+                InHeader := FALSE;
+
+            ELSIF KeywordMatch ("From", LineBuffer) THEN
+
+                FromPresent := TRUE;
+
+            ELSIF KeywordMatch ("Received", LineBuffer) THEN
+                INC (ReceivedCount);
+            END (*IF*);
+
+        END (*WHILE*);
+
+        TooManyHops := ReceivedCount > 25;
+
+    END CheckHeader;
+
+(************************************************************************)
+
+PROCEDURE CopyChunksToFile (cid: ChanId;  itemdata: ItemDescriptor);
+
+    (* The incoming data are in a linear list starting with             *)
+    (* itemdata^.firstchunk.  We copy this to an already-opened file,   *)
+    (* discarding the original chunks as we go.                         *)
+
+    (* To be compatible with the file format used elsewhere in Weasel,  *)
+    (* we also have to byte-stuff any line that begins with a '.'.      *)
+    (* This is a major overhead -- I would have preferred the           *)
+    (* byte-stuffing to have been done by the sender, as is standard    *)
+    (* for other SMTP and POP operations -- but GMail chose the less    *)
+    (* efficient interpretation of the standard, and GMail has more     *)
+    (* influence than I have.  (Ignoring the byte-stuffing rule does    *)
+    (* actually make sense for a webmail system.)  An alternative       *)
+    (* solution would have been to store all "in-transit" messages      *)
+    (* with the byte-stuffing removed, but that would make chunking     *)
+    (* efficient at the expense of the more common transfer methods.    *)
+
+    TYPE ThreeChar = ARRAY [0..2] OF CHAR;
+
+    CONST CRLFdot = ThreeChar {CR, LF, '.'};
+
+    VAR p, next: ChunkPtr;
+        q: CharArrayPointer;
+        pos, CharsLeft, gap: CARDINAL;
+        dot: CHAR;
+        found, HaveCRLF, HaveCR: BOOLEAN;
+
+    BEGIN
+        dot := '.';
+        p := itemdata^.firstchunk;
+        HaveCRLF := FALSE;  HaveCR := FALSE;
+        WHILE p <> NIL DO
+
+            (* All we want to do here is copy the chunk to the file,    *)
+            (* but we have to insert an extra '.' in front of every     *)
+            (* line that starts with a '.'.                             *)
+
+            q := p^.data;  CharsLeft := p^.size;
+
+            (* Special case: check for a "CR LF ." that crosses *)
+            (* chunk boundaries.                                *)
+
+            IF HaveCR THEN
+                IF (CharsLeft > 0) AND (q^[0] = LF) THEN
+                    WriteRaw (cid, q^, 1);
+                    q := AddOffset (q, 1);
+                    DEC (CharsLeft);
+                    HaveCRLF := TRUE;
+                END (*IF*);
+            END (*IF*);
+
+            IF HaveCRLF THEN
+                IF (CharsLeft > 0) AND (q^[0] = '.') THEN
+                    WriteRaw (cid, dot, 1);
+                    INC (itemdata^.charcount);
+                END (*IF*);
+            END (*IF*);
+
+            HaveCR := (CharsLeft > 0) AND (q^[CharsLeft-1] = CR);
+            HaveCRLF := (CharsLeft > 1) AND (q^[CharsLeft-2] = CR)
+                                        AND (q^[CharsLeft-1] = LF);
+
+            WHILE CharsLeft > 0 DO
+                Strings.FindNext (CRLFdot, q^, 0, found, pos);
+                IF found THEN
+                    gap := pos + 3;
+                    WriteRaw (cid, q^, gap);
+                    q := AddOffset (q, gap);
+                    DEC (CharsLeft, gap);
+                    WriteRaw (cid, dot, 1);
+                    INC (itemdata^.charcount);
+                ELSE
+                    WriteRaw (cid, q^, CharsLeft);
+                    CharsLeft := 0;
+                END (*IF*);
+            END (*WHILE*);
+
+            INC (itemdata^.charcount, p^.size);
+            DEALLOCATE (p^.data, p^.size + 1);
+            next := p^.next;
+            DISPOSE (p);
+            p := next;
+        END (*WHILE*);
+
+        itemdata^.firstchunk := NIL;
+        itemdata^.lastchunk := NIL;
+
+    END CopyChunksToFile;
+
+(************************************************************************)
+
+PROCEDURE SkipBytes (SB: SBuffer;  size: CARDINAL);
+
+    (* Reads 'size' bytes from the input channel without storing them.  *)
+    (* This is for the case where there has been an error but the       *)
+    (* sender does not yet know that anything is wrong.                 *)
+
+    CONST blocksize = 256;
+
+    VAR dummy: ARRAY [0..blocksize-1] OF CHAR;
+        amount: CARDINAL;
+
+    BEGIN
+        WHILE size > 0 DO
+            IF size >= blocksize THEN
+                amount := blocksize;
+            ELSE
+                amount := size;
+            END (*IF*);
+            EVAL (GetRaw (SB, amount, ADR(dummy)));
+            DEC (size, amount);
+        END (*WHILE*);
+    END SkipBytes;
+
+(************************************************************************)
+
+PROCEDURE AcceptChunk (SB: SBuffer;  itemdata: ItemDescriptor;
+                         sem: Semaphore;  chunksize: CARDINAL;
+                         finalchunk: BOOLEAN;
+                         VAR (*OUT*) FailureReason: ARRAY OF CHAR): BOOLEAN;
+
+    (* Receives one chunk of an incoming message.  When the last chunk  *)
+    (* is received, stores it in a temporary file                       *)
+    (* whose name is recorded in itemdata.  We periodically signal on   *)
+    (* sem to confirm that the reception has not timed out.             *)
+
+    VAR cid: ChanId;  p: ChunkPtr;
+        success, FromPresent, TooManyHops, dummy: BOOLEAN;
+
+    BEGIN
+        success := TRUE;
+        FailureReason[0] := Nul;
+        IF itemdata^.firstchunk = NIL THEN
+            itemdata^.dataOK := TRUE;
+        END (*IF*);
+
+        (* Receive the chunk, put it on our temporary list.  Note that  *)
+        (* we keep accepting chunks even if there has been a previous   *)
+        (* error, but in that case there is no point in storing them.   *)
+
+        IF chunksize > 0 THEN
+            NEW (p);
+            IF p <> NIL THEN
+                p^.next := NIL;
+                p^.size := chunksize;
+                ALLOCATE (p^.data, chunksize + 1);
+            END (*IF*);
+            IF (p = NIL) OR (p^.data = NIL) THEN
+                Strings.Assign ("452 out of memory, try again later", FailureReason);
+                SkipBytes (SB, chunksize);
+                IF p <> NIL THEN
+                    DISPOSE (p);
+                END (*IF*);
+                success := FALSE;
+            END (*IF*);
+            IF success THEN
+                p^.data^[chunksize] := Nul;
+                                          (* guard against search overflow *)
+                IF itemdata^.firstchunk = NIL THEN
+                    itemdata^.firstchunk := p;
+                ELSE
+                    itemdata^.lastchunk^.next := p;
+                END (*IF*);
+                itemdata^.lastchunk := p;
+                IF NOT GetRaw (SB, chunksize, CAST(LocArrayPointer, p^.data)) THEN
+                    itemdata^.dataOK := FALSE;
+                END (*IF*);
+            END (*IF*);
+        END (*IF*);
+
+        Signal (sem);
+
+        IF NOT success THEN
+            (* Fall through to end of IF statement. *)
+
+        ELSIF NOT itemdata^.dataOK THEN
+            Strings.Assign ("554 Data transfer failed", FailureReason);
+            success := FALSE;
+
+        (* Once the final chunk has been received, move the data    *)
+        (* into a message file.                                     *)
+
+        ELSIF finalchunk THEN
+
+            FromPresent := TRUE;
+            TooManyHops := FALSE;
+
+            cid := StartNewMessage (itemdata);
+            IF cid <> NoSuchChannel THEN
+
+                (* Move the chunks to the message file. *)
+
+                CopyChunksToFile (cid, itemdata);
+
+                IF itemdata^.charcount > LimitOnMessageSize() THEN
+                    Strings.Assign ("552 message size exceeds limit on this server", FailureReason);
+                    success := FALSE;
+                ELSE
+                    CheckHeader (cid, FromPresent, TooManyHops);
+                END (*IF*);
+
+                CloseFile (cid);
+                Signal (sem);
+
+                IF TooManyHops THEN
+                    Strings.Assign ("554 too many hops (max 25)", FailureReason);
+                    success := FALSE;
+
+                ELSIF NOT FromPresent THEN
+                    Strings.Assign ("554 From: header line is missing", FailureReason);
+                    success := FALSE;
+
+                END (*IF*);
+
+                IF NOT success AND (itemdata^.TempName[0] <> Nul) THEN
+                    FileSys.Remove (itemdata^.TempName, dummy);
+                    itemdata^.TempName[0] := Nul;
+                END (*IF*);
+
+                IF success AND LogSMTPItems THEN
+                    WriteLogItem (itemdata);
+                END (*IF*);
+
+            END (*IF*);
+
+        END (*IF*);
+
+        IF NOT success THEN
+            DiscardChunks (itemdata);
+        END (*IF*);
+
+        RETURN success;
+
+    END AcceptChunk;
+
+(************************************************************************)
+(*                            FILTERS                                   *)
 (************************************************************************)
 
 PROCEDURE MakeRecipientListFile (stage: CARDINAL;  desc: ItemDescriptor;
@@ -1877,6 +2338,8 @@ PROCEDURE RunFinalFilter (itemdata: ItemDescriptor;
     END RunFinalFilter;
 
 (************************************************************************)
+(*                   DISTRIBUTING A RECEIVED MESSAGE                    *)
+(************************************************************************)
 
 PROCEDURE DistributeMessage (itemdata: ItemDescriptor);
 
@@ -1903,8 +2366,9 @@ PROCEDURE SingleFilterAndDistribute (itemdata: ItemDescriptor;
     (* unless the filter says not to.  Returns FALSE if the filter has  *)
     (* rejected the message.  This version is for the case where we     *)
     (* know we will be using the same filter for all recipients.        *)
+    (* Sends the success or failure reply to the client.                *)
 
-    VAR result: CARDINAL;
+    VAR result, sent: CARDINAL;
         success: BOOLEAN;
         ReplyString: ARRAY [0..127] OF CHAR;
 
@@ -1923,10 +2387,17 @@ PROCEDURE SingleFilterAndDistribute (itemdata: ItemDescriptor;
         ELSIF result > 3 THEN
             Strings.Assign ("554 Server error, please report to postmaster", ReplyString);
         END (*IF*);
+
+        (* It is possible that the next few lines are redundant,        *)
+        (* because the caller replies and logs the reply.               *)
+
+        EVAL (SendLine (SB, ReplyString, sent));
+        EVAL (FlushOutput (SB));
+        Strings.Insert ("> ", 0, ReplyString);
         LogTransaction (itemdata^.LogID, ReplyString);
-        EVAL (SendLine (SB, ReplyString));
-        FlushOutput (SB);
+
         RETURN success;
+
     END SingleFilterAndDistribute;
 
 (************************************************************************)

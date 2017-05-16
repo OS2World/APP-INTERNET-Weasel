@@ -28,12 +28,14 @@ IMPLEMENTATION MODULE Authentication;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            31 January 2003                 *)
-        (*  Last edited:        23 July 2012                    *)
+        (*  Last edited:        1 April 2017                    *)
         (*  Status:             CHEAT,PLAIN,LOGIN,CRAM-MD5:     *)
         (*                             working                  *)
         (*                                                      *)
         (********************************************************)
 
+
+FROM SplitScreen IMPORT  WriteString, WriteLn;    (* ONLY WHILE DEBUGGING *)
 
 IMPORT Strings, Base64, OS2;
 
@@ -86,6 +88,7 @@ CONST
     Nul = CHR(0);
     ParamStringLength = 512;
     CheatAccepted = FALSE;          (* TRUE for testing *)
+    debugging = FALSE;
 
 TYPE
     AuthMethod = (cheat, plain, login, crammd5, dummy);
@@ -274,6 +277,8 @@ PROCEDURE RcLogin (state: AuthenticationState;
 PROCEDURE ChCramMD5 (state: AuthenticationState;
                           VAR (*OUT*) challenge: ARRAY OF CHAR);
 
+    (* Creates the challenge, also stores it in state^.cache.   *)
+
     VAR LocalHostName: HostName;
         ctx: LogContext;
         ID: TransactionLogID;
@@ -324,6 +329,17 @@ PROCEDURE RcCramMD5 (state: AuthenticationState;
                           pass, LENGTH(pass), digest);
                 MD5DigestToString (digest, digeststr);
                 state^.success := Strings.Equal (digeststr, txtdigest);
+
+                (* Temporary code while debugging. *)
+
+                IF debugging THEN
+                    WriteString ("Challenge ");  WriteString (state^.cache);  WriteLn;
+                    WriteString ("User='");  WriteString (state^.user);
+                    WriteString ("', password='");  WriteString (pass);  WriteString ("'");
+                    WriteLn;
+                    WriteString ("Received ");  WriteString (txtdigest);  WriteLn;
+                    WriteString ("Expected ");  WriteString (digeststr);  WriteLn;
+                END (*IF*);
 
             END (*WHILE*);
             EndPasswordSearch (s);

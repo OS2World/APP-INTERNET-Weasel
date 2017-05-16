@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2016   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Inet2Misc;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            17 January 2002                 *)
-        (*  Last edited:        19 October 2016                 *)
+        (*  Last edited:        9 March 2017                    *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -55,6 +55,9 @@ FROM NetDB IMPORT
     (* type *)  HostEntPtr,
     (* proc *)  gethostbyaddr;
 
+FROM LowLevel IMPORT
+    (* proc *)  SwapIt;
+
 FROM TaskControl IMPORT
     (* type *)  Lock,
     (* proc *)  CreateLock, Obtain, Release;
@@ -73,21 +76,6 @@ VAR
 
 (********************************************************************************)
 
-PROCEDURE SwapIt (VAR (*INOUT*) arg: ARRAY OF LOC);
-
-    (* Reverses the byte order of its argument. *)
-
-    VAR j, top: CARDINAL;  temp: LOC;
-
-    BEGIN
-        top := HIGH(arg);
-        FOR j := 0 TO top DIV 2 DO
-            temp := arg[j];  arg[j] := arg[top-j];  arg[top-j] := temp;
-        END (*FOR*);
-    END SwapIt;
-
-(************************************************************************)
-
 PROCEDURE Swap2 (val: CARD16): CARD16;
 
     (* Returns the argument value in byte-reversed order.  This is needed       *)
@@ -102,7 +90,7 @@ PROCEDURE Swap2 (val: CARD16): CARD16;
         RETURN temp;
     END Swap2;
 
-(************************************************************************)
+(********************************************************************************)
 
 PROCEDURE Swap4 (val: CARD32): CARD32;
 
@@ -301,42 +289,39 @@ PROCEDURE NameIsNumeric (VAR (*INOUT*) name: ARRAY OF CHAR): BOOLEAN;
 
 (********************************************************************************)
 
+PROCEDURE GetNum (str: ARRAY OF CHAR;  VAR (*INOUT*) pos: CARDINAL): CARDINAL;
+
+    (* Picks up a number at str[pos], increments pos. *)
+
+    VAR ans: CARDINAL;
+
+    BEGIN
+        ans := 0;
+        WHILE str[pos] IN DecimalDigits DO
+            ans := 10*ans + (ORD(str[pos]) - ORD('0'));
+            INC (pos);
+        END (*WHILE*);
+        RETURN ans;
+    END GetNum;
+
+(********************************************************************************)
+
 PROCEDURE StringToIP (name: ARRAY OF CHAR): CARDINAL;
 
     (* Converts an N.N.N.N string to an address in network byte order.  We      *)
     (* assume that the caller has already checked that the string is in this    *)
     (* format.                                                                  *)
 
-    VAR pos: CARDINAL;
-
-    (****************************************************************************)
-
-    PROCEDURE GetNum(): CARDINAL;
-
-        (* Picks up a number at name[pos], increments pos. *)
-
-        VAR ans: CARDINAL;
-
-        BEGIN
-            ans := 0;
-            WHILE name[pos] IN DecimalDigits DO
-                ans := 10*ans + (ORD(name[pos]) - ORD('0'));
-                INC (pos);
-            END (*WHILE*);
-            RETURN ans;
-        END GetNum;
-
-    (****************************************************************************)
-
     TYPE Arr4 = ARRAY [0..3] OF CARD8;
 
     VAR k: [0..3];  val: Arr4;
+        pos: CARDINAL;
 
     BEGIN
         pos := 0;  k := 0;
         val := CAST(Arr4, VAL(CARDINAL,0));
         LOOP
-            val[k] := GetNum();
+            val[k] := GetNum(name, pos);
             IF (k = 3) OR (name[pos] <> '.') THEN
                 EXIT (*LOOP*);
             END (*IF*);

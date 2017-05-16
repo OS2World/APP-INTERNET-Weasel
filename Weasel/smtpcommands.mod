@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2016   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,11 +28,8 @@ IMPLEMENTATION MODULE SMTPCommands;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 April 1998                   *)
-        (*  Last edited:        14 December 2016                *)
-        (*  Status:             Basically OK                    *)
-        (*                                                      *)
-        (*  Improvements needed:                                *)
-        (*    HELO: should check validity of sending host name? *)
+        (*  Last edited:        25 April 2017                   *)
+        (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
 
@@ -51,7 +48,9 @@ IMPLEMENTATION MODULE SMTPCommands;
 (*                                                                              *)
 (*      AUTH (RFC2554), EHLO (RFC1869), EXPN (RFC821)                           *)
 (*                                                                              *)
-(* We also support the SIZE parameter in MAIL (RFC1870).                        *)
+(*      BDAT (RFC3030) is implemented but not yet tested.                       *)
+(*                                                                              *)
+(* We also support the SIZE and BODY parameters in MAIL (RFC1870, RFC6152).     *)
 (*                                                                              *)
 (********************************************************************************)
 
@@ -59,6 +58,9 @@ IMPORT Strings, Delivery;
 
 FROM Heap IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE(*, SayHeapCount*);
+
+FROM LowLevel IMPORT
+    (* proc *)  EVAL;
 
 FROM SBuffers IMPORT
     (* type *)  SBuffer,
@@ -79,7 +81,7 @@ FROM InetUtilities IMPORT
     (* proc *)  ConvertCard, AddEOL, CurrentTimeToString;
 
 FROM Inet2Misc IMPORT
-    (* proc *)  SplitArg, ToLower, StringMatch;
+    (* proc *)  SplitArg, ToLower, StringMatch, HeadMatch, GetNum;
 
 FROM Names IMPORT
     (* type *)  UserName, HostName, DomainName;
@@ -101,9 +103,9 @@ FROM SMTPData IMPORT
     (* type *)  ItemDescriptor,
     (* proc *)  LimitOnMessageSize, CreateItemDescriptor, DiscardItemDescriptor,
                 ResetItemDescriptor, ResetReturnPath, SetClaimedSendingHost,
-                AddLocalRecipient, AddRelayRecipient, AcceptMessage,
+                AddLocalRecipient, AddRelayRecipient, AcceptMessage, AcceptChunk,
                 RunFilter03, (*RunFinalFilter, DistributeMessage,*) FilterAndDistribute,
-                SenderNotSpecified, NoRecipients,
+                SenderNotSpecified, NoRecipients, NoChunksYet,
                 ProcessRCPTAddress, FromAddressAcceptable;
 
 FROM Extra IMPORT
@@ -191,16 +193,19 @@ PROCEDURE Reply3 (session: Session;  message1, message2, message3: ARRAY OF CHAR
     (* If the operation fails, session^.state is set to MustExit.               *)
 
     VAR buffer: ARRAY [0..511] OF CHAR;
+        sent: CARDINAL;
 
     BEGIN
-        Strings.Assign (message1, buffer);
+        Strings.Assign ("> ", buffer);
+        Strings.Append (message1, buffer);
         Strings.Append (message2, buffer);
         Strings.Append (message3, buffer);
         LogTransaction (session^.ID, buffer);
-        IF NOT SendLine (session^.sbuffer, buffer) THEN
+        Strings.Delete (buffer, 0, 2);
+        IF NOT SendLine (session^.sbuffer, buffer, sent) THEN
             session^.state := MustExit;
         END (*IF*);
-        FlushOutput (session^.sbuffer);
+        EVAL (FlushOutput (session^.sbuffer));
     END Reply3;
 
 (********************************************************************************)
@@ -211,15 +216,18 @@ PROCEDURE Reply2 (session: Session;  message1, message2: ARRAY OF CHAR);
     (* If the operation fails, session^.state is set to MustExit.               *)
 
     VAR buffer: ARRAY [0..511] OF CHAR;
+        sent: CARDINAL;
 
     BEGIN
-        Strings.Assign (message1, buffer);
+        Strings.Assign ("> ", buffer);
+        Strings.Append (message1, buffer);
         Strings.Append (message2, buffer);
         LogTransaction (session^.ID, buffer);
-        IF NOT SendLine (session^.sbuffer, buffer) THEN
+        Strings.Delete (buffer, 0, 2);
+        IF NOT SendLine (session^.sbuffer, buffer, sent) THEN
             session^.state := MustExit;
         END (*IF*);
-        FlushOutput (session^.sbuffer);
+        EVAL (FlushOutput (session^.sbuffer));
     END Reply2;
 
 (********************************************************************************)
@@ -229,14 +237,17 @@ PROCEDURE Reply (session: Session;  message: ARRAY OF CHAR);
     (* Like Reply2, except that there is no message2. *)
 
     VAR buffer: ARRAY [0..511] OF CHAR;
+        sent: CARDINAL;
 
     BEGIN
-        Strings.Assign (message, buffer);
+        Strings.Assign ("> ", buffer);
+        Strings.Append (message, buffer);
         LogTransaction (session^.ID, buffer);
-        IF NOT SendLine (session^.sbuffer, buffer) THEN
+        Strings.Delete (buffer, 0, 2);
+        IF NOT SendLine (session^.sbuffer, buffer, sent) THEN
             session^.state := MustExit;
         END (*IF*);
-        FlushOutput (session^.sbuffer);
+        EVAL (FlushOutput (session^.sbuffer));
     END Reply;
 
 (********************************************************************************)
@@ -284,7 +295,7 @@ PROCEDURE CloseSession (S: Session);
 
     BEGIN
         IF S <> NIL THEN
-            FlushOutput (S^.sbuffer);
+            EVAL (FlushOutput (S^.sbuffer));
             DiscardItemDescriptor (S^.desc);
             DEALLOCATE (S, SIZE(SessionRecord));
         END (*IF*);
@@ -337,7 +348,7 @@ PROCEDURE NotLoggedIn (session: Session;  VAR (*IN*) dummy: ARRAY OF CHAR);
 PROCEDURE AUTH (session: Session;  VAR (*IN*) args: ARRAY OF CHAR);
 
     VAR mechanism: ARRAY [0..20] OF CHAR;
-        message:  ARRAY [0..511] OF CHAR;
+        message, logline:  ARRAY [0..511] OF CHAR;
         domainname: DomainName;
         state: AuthenticationState;
         working, ReplySent: BOOLEAN;
@@ -364,7 +375,9 @@ PROCEDURE AUTH (session: Session;  VAR (*IN*) args: ARRAY OF CHAR);
                         CreateNextChallenge (state, message);
                         Reply2 (session, "334 ", message);
                         IF GetLine (session^.sbuffer, message) THEN
-                            LogTransaction (session^.ID, message);
+                            Strings.Assign ("< ", logline);
+                            Strings.Append (message, logline);
+                            LogTransaction (session^.ID, logline);
                             IF (message[0] = '*') AND (message[1] = Nul) THEN
                                 Reply (session, "501 Authentication cancelled");
                                 ReplySent := TRUE;
@@ -414,6 +427,75 @@ PROCEDURE AUTH (session: Session;  VAR (*IN*) args: ARRAY OF CHAR);
             END (*IF*);
         END (*IF*);
     END AUTH;
+
+(********************************************************************************)
+
+PROCEDURE BDAT (session: Session;  VAR (*IN*) params: ARRAY OF CHAR);
+
+    (* The BDAT command (RFC 3030) is an alternative to DATA, where the data is *)
+    (* sent in chunks of a size specified in the command.                       *)
+
+    VAR result, pos, chunksize: CARDINAL;
+        lastchunk: BOOLEAN;
+        FailureReason: ARRAY [0..127] OF CHAR;
+
+    BEGIN
+        IF SenderNotSpecified (session^.desc) THEN
+            Reply (session, "503 Sender has not been specified");
+        ELSIF NoRecipients (session^.desc) THEN
+            Reply (session, "503 No valid recipients");
+        ELSE
+            (* First parameter should be the chunk size. *)
+
+            pos := 0;
+            chunksize := GetNum (params, pos);
+            WHILE params[pos] = ' ' DO INC(pos) END(*WHILE*);
+            Strings.Delete (params, 0, pos);
+
+            (* Optional second parameter can only be LAST. *)
+
+            lastchunk := HeadMatch (params, "LAST");
+
+            IF NoChunksYet(session^.desc) THEN
+
+                (* Pre-reception filtering. *)
+
+                result := RunFilter03(3, session^.desc, FailureReason);
+                IF result = 3 THEN
+                    ResetItemDescriptor (session^.desc, "");
+                    Reply (session, FailureReason);
+                    session^.state := MustAbort;
+                END (*IF*);
+
+            END (*IF*);
+
+            IF session^.state <> MustAbort THEN
+
+                WITH session^ DO
+                    IF AcceptChunk (sbuffer, desc, watchdog, chunksize, lastchunk, FailureReason) THEN
+
+                        IF lastchunk THEN
+                            Reply (session, "250 final chunk received");
+
+                            (* Post-reception filtering and delivery. *)
+
+                            IF NOT FilterAndDistribute (desc, sbuffer) THEN
+                                 session^.state := MustAbort;
+                            END (*IF*);
+                            ResetItemDescriptor (desc, "");
+                        ELSE
+                            Reply (session, "250 chunk received");
+                        END (*IF*);
+
+                    ELSE
+                        Reply (session, FailureReason);
+                    END (*IF*);
+
+                END (*WITH*);
+            END (*IF*);
+        END (*IF*);
+
+    END BDAT;
 
 (********************************************************************************)
 
@@ -490,7 +572,9 @@ PROCEDURE EHLO (session: Session;  VAR (*IN*) name: ARRAY OF CHAR);
             ConvertCard (MaxMessageSize, buffer, pos);
             buffer[pos] := Nul;
             Reply (session, buffer);
-            Reply (session, "250 EXPN");
+            Reply (session, "250-CHUNKING");
+            Reply (session, "250-EXPN");
+            Reply (session, "250 8BITMIME");
 
             (* N.B. No continuation marker on last line. *)
 
@@ -536,10 +620,46 @@ PROCEDURE HELO (session: Session;  VAR (*IN*) name: ARRAY OF CHAR);
 
 PROCEDURE MAIL (session: Session;  VAR (*IN*) from: ARRAY OF CHAR);
 
-    CONST SizeEq = "SIZE=";
+    VAR params: ARRAY [0..1023] OF CHAR;
+        size: CARDINAL;
 
-    VAR j, pos, spacepos, size: CARDINAL;  found, TempFailure: BOOLEAN;
-        ch: CHAR;
+    (****************************************************************************)
+
+    PROCEDURE HandleParam;
+
+        (* Deal with the next parameter.  We allow for SIZE and BODY, but since *)
+        (* we don't actually do anything with the BODY value we treat it the    *)
+        (* same as an unknown parameter, by skipping it.                        *)
+
+        CONST SizeEq = "SIZE=";
+
+        VAR pos: CARDINAL;  found: BOOLEAN;
+
+        BEGIN
+            pos := 0;
+            IF HeadMatch (params, "SIZE=") THEN
+
+                (* Have found "SIZE=", now decode following number. *)
+
+                pos := 5;
+                size := GetNum (params, pos);
+            END (*IF*);
+
+            (* Delete this parameter, and the following space if any.  Note     *)
+            (* that we silently discard ill-formed or unknown parameters.       *)
+
+            Strings.FindNext (' ', params, pos, found, pos);
+            IF found THEN
+                Strings.Delete (params, 0, pos+1)
+            ELSE
+                params[0] := Nul;
+            END (*IF*);
+
+        END HandleParam;
+
+    (****************************************************************************)
+
+    VAR j, spacepos: CARDINAL;  found, TempFailure: BOOLEAN;
         FailureReason: ARRAY [0..127] OF CHAR;
 
     BEGIN
@@ -553,26 +673,19 @@ PROCEDURE MAIL (session: Session;  VAR (*IN*) from: ARRAY OF CHAR);
             INC (j);
         END (*WHILE*);
         Strings.Delete (from, 0, j);
-
-        (* Check for a possible SIZE value after the address. *)
-
         size := 0;
+
+        (* Check for optional parameters after the address.  This can update    *)
+        (* the value of size.                                                   *)
+
         Strings.FindNext (' ', from, 0, found, spacepos);
         IF found THEN
-            pos := spacepos + 1;
-            j := 0;
-            WHILE (j < 5) AND (CAP(from[pos]) = SizeEq[j]) DO
-                INC (j);  INC(pos);
-            END (*WHILE*);
-            IF j = 5 THEN
-                (* Have found "SIZE=", now decode following number. *)
-                ch := from[pos];
-                WHILE (ch >= '0') AND (ch <= '9') DO
-                    size := 10*size + ORD(ch) - ORD('0');
-                    INC (pos);  ch := from[pos];
-                END (*WHILE*);
-            END (*IF*);
+            Strings.Assign (from, params);
             from[spacepos] := Nul;
+            Strings.Delete (params, 0, spacepos+1);
+            WHILE params[0] <> Nul DO
+                HandleParam;
+            END (*WHILE*);
         END (*IF*);
 
         ResetItemDescriptor (session^.desc, from);
@@ -728,18 +841,18 @@ PROCEDURE VRFY (session: Session;  VAR (*IN*) username: ARRAY OF CHAR);
 (********************************************************************************)
 
 TYPE
-    KeywordNumber = [0..10];
+    KeywordNumber = [0..11];
     HandlerProc = PROCEDURE (Session, VAR (*IN*) ARRAY OF CHAR);
     HandlerArray = ARRAY KeywordNumber OF HandlerProc;
     KeywordArray = ARRAY KeywordNumber OF FourChar;
 
 CONST
-    KeywordList = KeywordArray {'AUTH', 'DATA', 'EHLO', 'EXPN', 'HELO', 'MAIL',
-                                'NOOP', 'QUIT', 'RCPT', 'RSET', 'VRFY'};
+    KeywordList = KeywordArray {'AUTH', 'BDAT', 'DATA', 'EHLO', 'EXPN', 'HELO',
+                                'MAIL', 'NOOP', 'QUIT', 'RCPT', 'RSET', 'VRFY'};
 
 CONST
-    HandlerList = HandlerArray {AUTH, DATA, EHLO, EXPN, HELO, MAIL, NOOP, QUIT,
-                                RCPT, RSET, VRFY};
+    HandlerList = HandlerArray {AUTH, BDAT, DATA, EHLO, EXPN, HELO, MAIL, NOOP,
+                                QUIT, RCPT, RSET, VRFY};
 
 (********************************************************************************)
 
@@ -819,7 +932,9 @@ PROCEDURE HandleCommand (S: Session;  VAR (*IN*) Command: ARRAY OF CHAR;
 
         (* Echo command to transaction log. *)
 
+        Strings.Insert ("< ", 0, Command);
         LogTransaction (S^.ID, Command);
+        Strings.Delete (Command, 0, 2);
 
         IF (Handler <> NoSuchCommand) AND (Handler <> GarbledCommandSequence) THEN
 

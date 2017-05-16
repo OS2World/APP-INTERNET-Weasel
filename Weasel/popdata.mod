@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2016   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE POPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 April 1998                   *)
-        (*  Last edited:        25 May 2016                     *)
+        (*  Last edited:        21 April 2017                   *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -902,6 +902,7 @@ PROCEDURE GetUID (M: Mailbox;  MessageNumber: CARDINAL;
 
 PROCEDURE SendFile (SB: SBuffer;  sem: Semaphore;
                     VAR (*IN*) filename: ARRAY OF CHAR;
+                    VAR (*OUT*) bytessent: CARDINAL;
                       id: TransactionLogID): BOOLEAN;
 
     (* Sends the contents of a file via SB.  *)
@@ -910,7 +911,7 @@ PROCEDURE SendFile (SB: SBuffer;  sem: Semaphore;
         CR = CHR(13);  LF = CHR(10);
         BufferSize = 8192;
 
-    VAR success, MoreToGo, AtEOL: BOOLEAN;  amount: CARDINAL;
+    VAR success, MoreToGo, AtEOL: BOOLEAN;  amount, actual: CARDINAL;
         cid: ChanId;
         buffer: ARRAY [0..BufferSize-1] OF CHAR;
 
@@ -919,6 +920,7 @@ PROCEDURE SendFile (SB: SBuffer;  sem: Semaphore;
         cid := OpenOldFile (filename, FALSE, TRUE);
         success := cid <> NoSuchChannel;
         MoreToGo := TRUE;  AtEOL := TRUE;
+        bytessent := 0;
         WHILE success AND MoreToGo DO
             Signal (sem);
             ReadRaw (cid, buffer, BufferSize, amount);
@@ -930,7 +932,8 @@ PROCEDURE SendFile (SB: SBuffer;  sem: Semaphore;
 
                 AtEOL := (amount > 1) AND (buffer[amount-2] = CR)
                                        AND (buffer[amount-1] = LF);
-                success := SendRaw (SB, buffer, amount);
+                success := SendRaw (SB, buffer, amount, actual);
+                INC (bytessent, actual);
 
             END (*IF*);
 
@@ -939,11 +942,14 @@ PROCEDURE SendFile (SB: SBuffer;  sem: Semaphore;
 
         IF success THEN
             IF NOT AtEOL THEN
-                success := SendEOL(SB);
+                success := SendEOL(SB, actual);
+                INC (bytessent, actual);
             END (*IF*);
-            success := success AND SendChar(SB, '.') AND SendEOL(SB);
+            amount := 0;  actual := 0;
+            success := success AND SendChar(SB, '.', amount) AND SendEOL(SB, actual);
+            INC (bytessent, amount+actual);
         END (*IF*);
-        FlushOutput (SB);
+        INC (bytessent, FlushOutput (SB));
 
         RETURN success;
 
@@ -963,7 +969,7 @@ PROCEDURE SendPartFile (SB: SBuffer;  sem: Semaphore;
     VAR success, MoreToGo, PastHeader: BOOLEAN;
         cid: ChanId;
         buffer: ARRAY [0..2047] OF CHAR;
-        lines: CARDINAL;
+        lines, sent: CARDINAL;
 
     BEGIN
         LogTransaction (id, filename);
@@ -980,7 +986,7 @@ PROCEDURE SendPartFile (SB: SBuffer;  sem: Semaphore;
 
             ELSE
 
-                success := SendString (SB, buffer) AND SendEOL(SB);
+                success := SendString (SB, buffer, sent) AND SendEOL(SB, sent);
 
                 IF PastHeader THEN
                     INC (lines);
@@ -997,9 +1003,9 @@ PROCEDURE SendPartFile (SB: SBuffer;  sem: Semaphore;
 
         IF success THEN
             buffer[0] := '.';  buffer[1] := Nul;
-            success := SendLine (SB, buffer);
+            success := SendLine (SB, buffer, sent);
         END (*IF*);
-        FlushOutput (SB);
+        EVAL (FlushOutput (SB));
 
         RETURN success;
 
@@ -1008,7 +1014,9 @@ PROCEDURE SendPartFile (SB: SBuffer;  sem: Semaphore;
 (************************************************************************)
 
 PROCEDURE SendMessage (SB: SBuffer;  sem: Semaphore;  M: Mailbox;
-                   N, MaxLines: CARDINAL;  id: TransactionLogID): BOOLEAN;
+                               N, MaxLines: CARDINAL;
+                               VAR (*OUT*) bytessent: CARDINAL;
+                                         id: TransactionLogID): BOOLEAN;
 
     (* Sends message N in mailbox N via SB.  The caller must            *)
     (* already have confirmed that this message exists.                 *)
@@ -1029,9 +1037,10 @@ PROCEDURE SendMessage (SB: SBuffer;  sem: Semaphore;  M: Mailbox;
             Strings.Append (p^.shortname, name);
             Strings.Append (".MSG", name);
             IF MaxLines = MAX(CARDINAL) THEN
-                success := SendFile (SB, sem, name, id);
+                success := SendFile (SB, sem, name, bytessent, id);
             ELSE
                 success := SendPartFile (SB, sem, name, MaxLines, id);
+                bytessent := 0;         (* dummy info *)
             END (*IF*);
         END (*IF*);
         RETURN success;

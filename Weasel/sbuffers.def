@@ -6,15 +6,15 @@ DEFINITION MODULE SBuffers;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            19 May 1998                     *)
-        (*  Last edited:        17 October 2013                 *)
+        (*  Last edited:        24 April 2017                   *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
 
 
-FROM SYSTEM  IMPORT (*type*) LOC, (*proc*) CAST;
-FROM Sockets IMPORT (*type*) Socket;
-
+FROM SYSTEM    IMPORT (*type*) LOC, (*proc*) CAST;
+FROM Sockets   IMPORT (*type*) Socket;
+FROM Inet2Misc IMPORT (*type*) LocArrayPointer;
 
 TYPE SBuffer;        (* is private *)
 
@@ -50,33 +50,39 @@ PROCEDURE SocketOf (SB: SBuffer): Socket;
         (********************************************************)
 
 PROCEDURE SendRaw (SB: SBuffer;  VAR (*IN*) data: ARRAY OF LOC;
-                                               amount: CARDINAL): BOOLEAN;
+                  amount: CARDINAL;  VAR (*OUT*) sent: CARDINAL): BOOLEAN;
 
-    (* Sends uninterpreted data. *)
+    (* Sends uninterpreted data.  Output parameter 'sent' says how      *)
+    (* many bytes were actually sent.                                   *)
 
-PROCEDURE SendLine (SB: SBuffer;  VAR (*IN*) line: ARRAY OF CHAR): BOOLEAN;
+PROCEDURE SendLine (SB: SBuffer;  VAR (*IN*) line: ARRAY OF CHAR;
+                                VAR (*OUT*) sent: CARDINAL): BOOLEAN;
 
     (* Sends the string, appending a CRLF. *)
 
-PROCEDURE SendLineL (SB: SBuffer;  line: ARRAY OF CHAR): BOOLEAN;
+PROCEDURE SendLineL (SB: SBuffer;  line: ARRAY OF CHAR;
+                                VAR (*OUT*) sent: CARDINAL): BOOLEAN;
 
     (* Like SendLine, but for a literal string. *)
 
-PROCEDURE SendString (SB: SBuffer;  line: ARRAY OF CHAR): BOOLEAN;
+PROCEDURE SendString (SB: SBuffer;  line: ARRAY OF CHAR;
+                                VAR (*OUT*) sent: CARDINAL): BOOLEAN;
 
     (* Sends the string, without appending a CRLF. *)
 
-PROCEDURE SendChar (SB: SBuffer;  ch: CHAR): BOOLEAN;
+PROCEDURE SendChar (SB: SBuffer;  ch: CHAR;
+                                VAR (*OUT*) sent: CARDINAL): BOOLEAN;
 
     (* Sends a single character. *)
 
-PROCEDURE SendEOL (SB: SBuffer): BOOLEAN;
+PROCEDURE SendEOL (SB: SBuffer;  VAR (*OUT*) sent: CARDINAL): BOOLEAN;
 
     (* Sends a CRLF. *)
 
-PROCEDURE FlushOutput (SB: SBuffer);
+PROCEDURE FlushOutput (SB: SBuffer): CARDINAL;
 
-    (* Sends out any remaining buffered output. *)
+    (* Sends out any remaining buffered output.  Returns the actual     *)
+    (* number of bytes sent.  Sets SB^.OutputFailed on failure.         *)
 
         (********************************************************)
         (*                       INPUT                          *)
@@ -90,6 +96,12 @@ PROCEDURE GetLine (SB: SBuffer;  VAR (*OUT*) result: ARRAY OF CHAR): BOOLEAN;
 
     (* Receives a single line of text from the server.  A function      *)
     (* return of FALSE meant that the connection failed.                *)
+
+PROCEDURE GetRaw (SB: SBuffer;  size: CARDINAL;
+                                p: LocArrayPointer): BOOLEAN;
+
+    (* Fetches a block of exactly size uninterpreted bytes, stores the  *)
+    (* result at p^.  Returns FALSE if the operation failed.            *)
 
 PROCEDURE ResponseCode (SB: SBuffer): CARDINAL;
 

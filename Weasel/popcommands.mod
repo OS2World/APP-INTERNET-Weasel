@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE POPCommands;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            21 April 1998                   *)
-        (*  Last edited:        25 May 2016                     *)
+        (*  Last edited:        24 April 2017                   *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -364,7 +364,7 @@ PROCEDURE CloseSession (S: Session);
     (* Destroys the session state record. *)
 
     BEGIN
-        FlushOutput (S^.sbuffer);
+        EVAL (FlushOutput (S^.sbuffer));
         IF LogPOPusers AND ((S^.retrcount > 0) OR (S^.delecount > 0)) THEN
             WriteLogData (S);
         END (*IF*);
@@ -520,15 +520,18 @@ PROCEDURE Reply2 (session: Session;  message1, message2: ARRAY OF CHAR);
     (* If the operation fails, session^.state is set to MustExit.               *)
 
     VAR buffer: ARRAY [0..511] OF CHAR;
+        sent: CARDINAL;
 
     BEGIN
-        Strings.Assign (message1, buffer);
+        Strings.Assign ("> ", buffer);
+        Strings.Append (message1, buffer);
         Strings.Append (message2, buffer);
         LogTransaction (session^.ID, buffer);
-        IF NOT SendLine (session^.sbuffer, buffer) THEN
+        Strings.Delete (buffer, 0, 2);
+        IF NOT SendLine (session^.sbuffer, buffer, sent) THEN
             session^.state := MustExit;
         END (*IF*);
-        FlushOutput (session^.sbuffer);
+        EVAL (FlushOutput (session^.sbuffer));
     END Reply2;
 
 (********************************************************************************)
@@ -538,14 +541,17 @@ PROCEDURE Reply (session: Session;  message: ARRAY OF CHAR);
     (* Like Reply2, except that there is no message2. *)
 
     VAR buffer: ARRAY [0..511] OF CHAR;
+        sent: CARDINAL;
 
     BEGIN
-        Strings.Assign (message, buffer);
+        Strings.Assign ("> ", buffer);
+        Strings.Append (message, buffer);
         LogTransaction (session^.ID, buffer);
-        IF NOT SendLine (session^.sbuffer, buffer) THEN
+        Strings.Delete (buffer, 0, 2);
+        IF NOT SendLine (session^.sbuffer, buffer, sent) THEN
             session^.state := MustExit;
         END (*IF*);
-        FlushOutput (session^.sbuffer);
+        EVAL (FlushOutput (session^.sbuffer));
     END Reply;
 
 (********************************************************************************)
@@ -640,7 +646,7 @@ PROCEDURE APOP (session: Session;  VAR (*IN*) args: ARRAY OF CHAR);
 PROCEDURE AUTH (session: Session;  VAR (*IN*) args: ARRAY OF CHAR);
 
     VAR mechanism: ARRAY [0..20] OF CHAR;
-        message:  ARRAY [0..511] OF CHAR;
+        message, logline:  ARRAY [0..511] OF CHAR;
         state: AuthenticationState;
         working, authenticated: BOOLEAN;
         username: UserName;
@@ -662,7 +668,9 @@ PROCEDURE AUTH (session: Session;  VAR (*IN*) args: ARRAY OF CHAR);
                         CreateNextChallenge (state, message);
                         Reply2 (session, "+ ", message);
                         IF GetLine (session^.sbuffer, message) THEN
-                            LogTransaction (session^.ID, message);
+                            Strings.Assign ("< ", logline);
+                            Strings.Append (message, logline);
+                            LogTransaction (session^.ID, logline);
                             IF (message[0] = '*') AND (message[1] = Nul) THEN
                                 Reply (session, "-ERR Authentication cancelled");
                                 working := FALSE;
@@ -880,15 +888,25 @@ PROCEDURE QUIT (session: Session;  VAR (*IN*) dummy: ARRAY OF CHAR);
 
 PROCEDURE RETR (session: Session;  VAR (*IN*) number: ARRAY OF CHAR);
 
-    VAR N, size: CARDINAL;
+    VAR N, pos, size, bytessent: CARDINAL;
+        message: ARRAY [0..31] OF CHAR;
 
     BEGIN
         N := StringToCardinal (number);
         IF SizeOfMessage (session^.mailbox, N, size) THEN
-            Reply (session, "+OK");
+            message := "+OK ";  pos := 4;
+            ConvertCard (size, message, pos);  message[pos] := Nul;
+            Strings.Append (" bytes", message);
+            Reply (session, message);
             IF SendMessage (session^.sbuffer, session^.watchdog,
-                            session^.mailbox, N, MAX(CARDINAL), session^.ID) THEN
-                INC (session^.retrcount);  INC (session^.retrchars, size);
+                            session^.mailbox, N, MAX(CARDINAL),
+                             bytessent, session^.ID) THEN
+                INC (session^.retrcount);  INC (session^.retrchars, bytessent);
+                pos := 0;  ConvertCard (bytessent, message, pos);  message[pos] := Nul;
+                Strings.Append (" bytes sent", message);
+                LogTransaction (session^.ID, message);
+            Strings.Append (" bytes", message);
+
             ELSE
                 session^.state := MustExit;
             END (*IF*);
@@ -935,7 +953,7 @@ PROCEDURE STAT (session: Session;  VAR (*IN*) dummy: ARRAY OF CHAR);
 
 PROCEDURE TOP (session: Session;  VAR (*IN*) Params: ARRAY OF CHAR);
 
-    VAR N, size, lines: CARDINAL;
+    VAR N, size, lines, dummy: CARDINAL;
 
     BEGIN
         N := StringToCardinal (Params);
@@ -948,7 +966,7 @@ PROCEDURE TOP (session: Session;  VAR (*IN*) Params: ARRAY OF CHAR);
         IF SizeOfMessage (session^.mailbox, N, size) THEN
             Reply (session, "+OK");
             IF NOT SendMessage (session^.sbuffer, session^.watchdog,
-                            session^.mailbox, N, lines, session^.ID) THEN
+                            session^.mailbox, N, lines, dummy, session^.ID) THEN
                 session^.state := MustExit;
             END (*IF*);
         ELSE
@@ -1210,9 +1228,11 @@ PROCEDURE HandleCommand (S: Session;  VAR (*IN*) Command: ARRAY OF CHAR;
         (* Echo command to transaction log. *)
 
         IF Handler = PASS THEN
-            LogTransactionL (S^.ID, "PASS ******");
+            LogTransactionL (S^.ID, "< PASS ******");
         ELSE
+            Strings.Insert ("< ", 0, Command);
             LogTransaction (S^.ID, Command);
+            Strings.Delete (Command, 0, 2);
         END (*IF*);
 
         IF (Handler <> NoSuchCommand) AND (Handler <> GarbledCommandSequence) THEN

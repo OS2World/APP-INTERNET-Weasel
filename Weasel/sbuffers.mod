@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,8 +28,8 @@ IMPLEMENTATION MODULE SBuffers;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            24 May 1998                     *)
-        (*  Last edited:        27 October 2013                 *)
-        (*  Status:             Working                         *)
+        (*  Last edited:        24 April 2017                   *)
+        (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
 
@@ -55,8 +55,8 @@ FROM Heap IMPORT
 
 CONST
     Nul = CHR(0); CR = CHR(13); LF = CHR(10); CtrlZ = CHR(26);
-    InBufferSize = 8192;
-    OutBufferSize = 8192;
+    InBufferSize = 16384;
+    OutBufferSize = 16384;
 
 TYPE
     InputBufferSubscript = [0..InBufferSize-1];
@@ -169,33 +169,48 @@ PROCEDURE SocketOf (SB: SBuffer): Socket;
 (*                            SOCKET OUTPUT                             *)
 (************************************************************************)
 
-PROCEDURE FlushOutput (SB: SBuffer);
+PROCEDURE FlushOutput (SB: SBuffer): CARDINAL;
 
-    (* Sends out any remaining buffered output. *)
+    (* Sends out any remaining buffered output.  Returns the actual     *)
+    (* number of bytes sent.  Sets SB^.OutputFailed on failure.         *)
+
+    VAR amountsent: CARDINAL;
 
     BEGIN
+        amountsent := 0;
         IF SB <> NIL THEN
             WITH SB^ DO
                 IF OutAmount > 0 THEN
-                    OutputFailed := send(socket, OutBuffer, OutAmount, 0)
-                                                         = MAX(CARDINAL);
+                    amountsent := send(socket, OutBuffer, OutAmount, 0);
+                    IF amountsent = MAX(CARDINAL) THEN
+                        amountsent := 0;
+                        OutputFailed := TRUE;
+                    END (*IF*);
                     OutAmount := 0;
                     Inet2Misc.Synch (socket);
                 END (*IF*);
             END (*WITH*);
         END (*IF*);
+        RETURN amountsent;
     END FlushOutput;
 
 (************************************************************************)
 
 PROCEDURE AddToBuffer (SB: SBuffer;  VAR (*IN*) data: ARRAY OF LOC;
-                                       amount: CARDINAL): BOOLEAN;
+                                  amount: CARDINAL;
+                                  VAR (*OUT*) sent: CARDINAL): BOOLEAN;
 
-    (* Puts 'amount' characters into the output buffer. *)
+    (* Puts 'amount' characters into the output buffer.  Output value   *)
+    (* 'sent' gives the number of characters actually sent.  This could *)
+    (* be less than amount if there was a network problem, or if some   *)
+    (* of the data are still sitting in SB^.OutBuffer at the end of     *)
+    (* the operation (and still available to be sent out by calling     *)
+    (* FlushOutput).                                                    *)
 
     VAR place, count: CARDINAL;
 
     BEGIN
+        sent := 0;
         IF SB = NIL THEN
             RETURN FALSE;
         END (*IF*);
@@ -203,12 +218,13 @@ PROCEDURE AddToBuffer (SB: SBuffer;  VAR (*IN*) data: ARRAY OF LOC;
         WHILE amount > 0 DO
             count := OutBufferSize - SB^.OutAmount;
             IF count <= amount THEN
-                Copy (ADR(data[place]), ADR(SB^.OutBuffer[SB^.OutAmount]),
+                Copy (ADR(data[place]),
+                        ADR(SB^.OutBuffer[SB^.OutAmount]),
                                         count);
                 INC (place, count);
                 DEC (amount, count);
                 INC (SB^.OutAmount, count);
-                FlushOutput (SB);
+                INC (sent, FlushOutput (SB));
             ELSE
                 Copy (ADR(data[place]), ADR(SB^.OutBuffer[SB^.OutAmount]),
                                         amount);
@@ -221,55 +237,68 @@ PROCEDURE AddToBuffer (SB: SBuffer;  VAR (*IN*) data: ARRAY OF LOC;
 
 (************************************************************************)
 
-PROCEDURE SendLine (SB: SBuffer;  VAR (*IN*) line: ARRAY OF CHAR): BOOLEAN;
+PROCEDURE SendLine (SB: SBuffer;  VAR (*IN*) line: ARRAY OF CHAR;
+                                VAR (*OUT*) sent: CARDINAL): BOOLEAN;
 
     (* Sends the string, appending a CRLF. *)
 
-    VAR success: BOOLEAN;
+    VAR sent1, sent2: CARDINAL;  success: BOOLEAN;
 
     BEGIN
-        success := AddToBuffer(SB, line, LENGTH(line))
-                          AND AddToBuffer(SB, CRLF, 2);
+        sent2 := 0;
+        success := AddToBuffer(SB, line, LENGTH(line), sent1)
+                          AND AddToBuffer(SB, CRLF, 2, sent2);
+        sent := sent1 + sent2;
         IF success THEN
-            FlushOutput (SB);
+            INC (sent, FlushOutput (SB));
         END (*IF*);
         RETURN success;
     END SendLine;
 
 (************************************************************************)
 
-PROCEDURE SendLineL (SB: SBuffer;  line: ARRAY OF CHAR): BOOLEAN;
+PROCEDURE SendLineL (SB: SBuffer;  line: ARRAY OF CHAR;
+                                VAR (*OUT*) sent: CARDINAL): BOOLEAN;
 
     (* Like SendLine, but for a literal string. *)
 
     BEGIN
-        RETURN SendLine (SB, line);
+        RETURN SendLine (SB, line, sent);
     END SendLineL;
 
 (************************************************************************)
 
-PROCEDURE SendString (SB: SBuffer;  line: ARRAY OF CHAR): BOOLEAN;
+PROCEDURE SendString (SB: SBuffer;  line: ARRAY OF CHAR;
+                                VAR (*OUT*) sent: CARDINAL): BOOLEAN;
 
     (* Sends the string, without appending a CRLF. *)
 
     BEGIN
-        RETURN AddToBuffer(SB, line, LENGTH(line));
+        RETURN AddToBuffer(SB, line, LENGTH(line), sent);
     END SendString;
 
 (************************************************************************)
 
 PROCEDURE SendRaw (SB: SBuffer;  VAR (*IN*) data: ARRAY OF LOC;
-                                               amount: CARDINAL): BOOLEAN;
+                  amount: CARDINAL;  VAR (*OUT*) sent: CARDINAL): BOOLEAN;
 
-    (* Sends uninterpreted data. *)
+    (* Sends uninterpreted data.  Output parameter 'sent' says how      *)
+    (* many bytes were actually sent.                                   *)
+
+    VAR success: BOOLEAN;
 
     BEGIN
-        RETURN AddToBuffer(SB, data, amount);
+        success := AddToBuffer(SB, data, amount, sent);
+        IF success THEN
+            INC (sent, FlushOutput (SB));
+        END (*IF*);
+        RETURN success;
     END SendRaw;
 
 (************************************************************************)
 
-PROCEDURE SendChar (SB: SBuffer;  ch: CHAR): BOOLEAN;
+PROCEDURE SendChar (SB: SBuffer;  ch: CHAR;
+                             VAR (*OUT*) sent: CARDINAL): BOOLEAN;
 
     (* Sends a single character. *)
 
@@ -277,20 +306,20 @@ PROCEDURE SendChar (SB: SBuffer;  ch: CHAR): BOOLEAN;
 
     BEGIN
         buffer[0] := ch;
-        RETURN AddToBuffer(SB, buffer, 1);
+        RETURN AddToBuffer(SB, buffer, 1, sent);
     END SendChar;
 
 (************************************************************************)
 
-PROCEDURE SendEOL (SB: SBuffer): BOOLEAN;
+PROCEDURE SendEOL (SB: SBuffer;  VAR (*OUT*) sent: CARDINAL): BOOLEAN;
 
     (* Sends a CRLF. *)
 
     VAR result: BOOLEAN;
 
     BEGIN
-        result := AddToBuffer(SB, CRLF, 2);
-        FlushOutput (SB);
+        result := AddToBuffer(SB, CRLF, 2, sent);
+        INC (sent, FlushOutput (SB));
         RETURN result;
     END SendEOL;
 
@@ -336,9 +365,91 @@ PROCEDURE Getch (SB: SBuffer): CHAR;
 
 (************************************************************************)
 
+PROCEDURE GetBlock (SB: SBuffer;  wanted: CARDINAL;
+                                  p: Inet2Misc.LocArrayPointer): CARDINAL;
+
+    (* Gets at most "wanted" bytes of raw data, returns the number of   *)
+    (* bytes actually fetched.  A function return of MAX(CARDINAL)      *)
+    (* means that the connection failed.                                *)
+
+    VAR amount: CARDINAL;
+        source: ADDRESS;
+
+    BEGIN
+        WITH SB^ DO
+
+            (* InputBuffer holds RBlength-RBpos unused characters.  *)
+
+            IF RBpos >= RBlength THEN
+
+                (* No data available, so reload input buffer. *)
+
+                RBpos := 0;
+                IF Inet2Misc.WaitForSocket (socket, Timeout) > 0 THEN
+                    IF wanted > InBufferSize THEN
+                        wanted := InBufferSize;
+                    END (*IF*);
+                    RBlength := recv (socket, InputBuffer, wanted, 0);
+                ELSE
+                    RBlength := MAX(CARDINAL);
+                END (*IF*);
+            END (*IF*);
+
+            IF RBlength = MAX(CARDINAL) THEN
+                amount := MAX(CARDINAL);
+            ELSE
+                amount := RBlength - RBpos;
+                IF amount > wanted THEN
+                    amount := wanted;
+                END (*IF*);
+                IF amount > 0 THEN
+                    source := ADR(InputBuffer[RBpos]);
+                    Copy (source, p, amount);
+                    INC (RBpos, amount);
+                END (*IF*);
+            END (*IF*);
+
+        END (*WITH*);
+
+        RETURN amount;
+
+    END GetBlock;
+
+(************************************************************************)
+
+PROCEDURE GetRaw (SB: SBuffer;  size: CARDINAL;
+                                p: Inet2Misc.LocArrayPointer): BOOLEAN;
+
+    (* Fetches a block of exactly size uninterpreted bytes, stores the  *)
+    (* result at p^.  Returns FALSE if the operation failed.            *)
+
+    VAR wanted, amount, EmptyResponseCount: CARDINAL;
+
+    BEGIN
+        EmptyResponseCount := 0;
+        wanted := size;
+        WHILE wanted > 0 DO
+            amount := GetBlock (SB, wanted, p);
+            IF amount = 0 THEN
+                INC (EmptyResponseCount);
+                IF EmptyResponseCount > 20 THEN
+                    RETURN FALSE;
+                END (*IF*);
+            ELSIF amount = MAX(CARDINAL) THEN
+                RETURN FALSE;
+            ELSIF amount > 0 THEN
+                p := AddOffset (p, amount);
+                DEC (wanted, amount);
+            END (*IF*);
+        END (*WHILE*);
+        RETURN TRUE;
+    END GetRaw;
+
+(************************************************************************)
+
 PROCEDURE LoadLineBuffer (SB: SBuffer): BOOLEAN;
 
-    (* Loads the next incoming line of text into SB.LineBuffer.         *)
+    (* Loads the next incoming line of text into SB^.LineBuffer.        *)
     (* Assumption: a line ends with CRLF.  To avoid tortuous logic, I   *)
     (* take the LF as end of line and skip the CR.  At end of input we  *)
     (* return with line[0] = Ctrl/Z.                                    *)
@@ -362,8 +473,7 @@ PROCEDURE LoadLineBuffer (SB: SBuffer): BOOLEAN;
                 IF RBpos >= RBlength THEN
                     RBpos := 0;
                     IF Inet2Misc.WaitForSocket (socket, Timeout) > 0 THEN
-                        RBlength := recv (socket, InputBuffer,
-                                      MAX(InputBufferSubscript) + 1, 0);
+                        RBlength := recv (socket, InputBuffer, InBufferSize, 0);
                     ELSE
                         RBlength := MAX(CARDINAL);
                     END (*IF*);
@@ -381,8 +491,8 @@ PROCEDURE LoadLineBuffer (SB: SBuffer): BOOLEAN;
 
                 IF NOT found THEN
                     source := ADR(InputBuffer[RBpos]);
-                    IF RBpos + RBlength <= MAX(InputBufferSubscript) THEN
-                        InputBuffer[RBpos+RBlength] := Nul;
+                    IF RBlength <= MAX(InputBufferSubscript) THEN
+                        InputBuffer[RBlength] := Nul;
                     END (*IF*);
                     Strings.FindNext (LineFeed, InputBuffer, RBpos, found, pos);
                     IF found AND (pos < RBlength) THEN

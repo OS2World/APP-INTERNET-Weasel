@@ -6,7 +6,7 @@ IMPLEMENTATION MODULE SPF;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            03 October 2016                 *)
-        (*  Last edited:        13 December 2016                *)
+        (*  Last edited:        23 December 2016                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (*       The 'exp' modifier is not yet handled.         *)
@@ -31,14 +31,10 @@ FROM FileOps IMPORT             (* only if debugging *)
 IMPORT Strings;
 
 FROM SYSTEM IMPORT
-    (* type *)  CARD8, CARD16, CARD32;
+    (* type *)  CARD32;
 
 FROM Names IMPORT
     (* type *)  DomainName, DomainNameIndex;
-
-FROM NameServer IMPORT
-    (* const*)  C_IN, T_TXT,
-    (* proc *)  res_query;
 
 FROM Sockets IMPORT
     (* const*)  AF_INET;
@@ -47,17 +43,20 @@ FROM NetDB IMPORT
     (* type *)  HostEntPtr, AddressPointerArrayPointer,
     (* proc *)  tcp_h_errno, gethostbyaddr, gethostbyname;
 
-FROM STextIO IMPORT
-    (* proc *)  WriteChar, WriteString, WriteLn;
-
 FROM Inet2Misc IMPORT
-    (* proc *)  NameIsNumeric, ConvertCard, StringToIP, IPToString, HeadMatch;
+    (* proc *)  NameIsNumeric, StringToIP, IPToString, HeadMatch;
 
 FROM LowLevel IMPORT
     (* proc *)  IAND;
 
 FROM MXCheck IMPORT
     (* proc *)  MakeMask, MXMatch;
+
+FROM STextIO IMPORT
+    (* proc *)  WriteString, WriteLn;
+
+FROM GetDNStxt IMPORT
+    (* proc *)  GetFirstTXTrecord;
 
 (************************************************************************)
 
@@ -204,195 +203,6 @@ PROCEDURE GetNum (VAR (*INOUT*) str: ARRAY OF CHAR): CARDINAL;
         END (*IF*);
         RETURN result;
     END GetNum;
-
-(************************************************************************)
-(*             GETTING THE SPF STRING FROM THE NAMESERVER               *)
-(************************************************************************)
-
-PROCEDURE Get16 (VAR (*IN*) buffer: ARRAY OF CARD8;
-                            VAR (*INOUT*) j: CARDINAL): CARDINAL;
-
-    (* Picks up a two-byte value, most significant byte first. *)
-
-    VAR b1, b2: CARD8;
-
-    BEGIN
-        b1 := buffer[j];  INC(j);
-        b2 := buffer[j];  INC(j);
-        RETURN 256*b1 + b2;
-    END Get16;
-
-(************************************************************************)
-
-PROCEDURE SkipName (VAR (*IN*) buffer: ARRAY OF CARD8;
-                          VAR (*INOUT*) j: CARDINAL);
-
-    (* Skips over a name in the buffer. *)
-
-    VAR count: CARD8;
-
-    BEGIN
-        REPEAT
-            count := buffer[j];  INC(j);
-            IF count >= 192 THEN
-                INC (j);  count := 0;
-            ELSIF count > 0 THEN
-                INC (j, count);
-            END (*IF*);
-        UNTIL count = 0;
-    END SkipName;
-
-(************************************************************************)
-
-PROCEDURE SkipQuestion (VAR (*IN*) buffer: ARRAY OF CARD8;
-                          VAR (*INOUT*) j: CARDINAL;  count: CARDINAL);
-
-    (* Skips over the "question" records.  *)
-
-    VAR k: CARDINAL;
-
-    BEGIN
-        FOR k := 1 TO count DO
-            SkipName (buffer, j);
-            INC (j, 4);
-        END (*FOR*);
-    END SkipQuestion;
-
-(************************************************************************)
-
-PROCEDURE InterpretResourceRecords (VAR (*IN*) buffer: ARRAY OF CARD8;
-                                        VAR (*INOUT*) j: CARDINAL;
-                                        count: CARDINAL;
-                                        VAR (*OUT*) result: ARRAY OF CHAR);
-
-    (* Interpretation starts at buffer[j], and stops when we've         *)
-    (* extracted all information for this section or when j >= count.   *)
-    (* On exit buffer[j] is the first byte we haven't used.             *)
-
-    VAR k, m, n, QTYPE, size, subsize: CARDINAL;
-        txtbuf: ARRAY [0..511] OF CHAR;
-
-    BEGIN
-        result[0] := Nul;
-        k := 0;
-        WHILE k < count DO
-
-            (* We can ignore the name in the resource record. *)
-
-            SkipName (buffer, j);
-            QTYPE := Get16 (buffer, j);
-            INC (j, 6);    (* skip class and TTL *)
-
-            IF QTYPE = T_TXT THEN
-
-                (* TXT records are the only records that interest   *)
-                (* us.  The record may contain a sequence of        *)
-                (* substrings.                                      *)
-
-                size := Get16 (buffer, j);
-                n := 0;
-                WHILE size > 0 DO
-                    subsize := buffer[j];  INC (j);  DEC(size);
-                    IF subsize > 0 THEN
-                        FOR m := 0 TO subsize-1 DO
-                            txtbuf[n] := CHR(buffer[j]);
-                            INC (n);  INC (j);  DEC(size);
-                        END (*FOR*);
-                    END (*FOR*);
-                END (*WHILE*);
-                txtbuf[n] := Nul;
-
-                (* An spf record must start with "v=spf1 ".  *)
-
-                IF HeadMatch (txtbuf, "v=spf1 ") THEN
-                    Strings.Assign (txtbuf, result);
-                    k := count;
-                END (*IF*);
-
-            ELSE
-                size := Get16 (buffer, j);
-                INC (j, size);
-            END (*IF*);
-
-            INC (k);
-        END (*WHILE*);
-
-    END InterpretResourceRecords;
-
-(************************************************************************)
-
-PROCEDURE ExtractSPFstring (VAR (*IN*) buffer: ARRAY OF CARD8;
-                             VAR (*OUT*) result: ARRAY OF CHAR): CARDINAL;
-
-    (* Extracts the SPF string out of a nameserver response.  Returns   *)
-    (* the RCODE success code of the query.                             *)
-
-    VAR j, QuestionCount, AnswerCount: CARDINAL;
-        flags: CARD16;
-
-    BEGIN
-        (*DumpBuffer (buffer, 256);*)
-        j := 2;  result[0] := Nul;
-
-        (* Interpret the flags, ignoring the bits that don't interest us. *)
-
-        flags := IAND (Get16 (buffer, j), 000FH);
-        IF flags = 0 THEN
-
-            QuestionCount := Get16 (buffer, j);
-            AnswerCount := Get16 (buffer, j);
-
-            (* Skip the authority and additional counts. *)
-
-            INC (j, 4);
-
-            (* Skip the question, extract the answer. *)
-
-            SkipQuestion (buffer, j, QuestionCount);
-            InterpretResourceRecords (buffer, j, AnswerCount, result);
-
-        END (*IF*);
-
-        RETURN flags;
-
-    END ExtractSPFstring;
-
-(************************************************************************)
-
-PROCEDURE GetSPFstring (VAR (*IN*) host: ARRAY OF CHAR;
-                  VAR (*OUT*) SPFstring: ARRAY OF CHAR): CARDINAL;
-
-    (* Does a TXT query for the given host, returns the SPF record.     *)
-    (* Function result is 0 iff the nameserver gave a useable result.   *)
-
-    CONST
-        BufferSize = 512;  MaxResultSize = 450;
-
-    TYPE BufferSubscript = [0..BufferSize-1];
-
-    VAR length, rcode: CARDINAL;
-        buffer: ARRAY BufferSubscript OF CARD8;
-
-    BEGIN
-        length := res_query (host, C_IN, T_TXT, buffer, BufferSize);
-        IF length = MAX(CARDINAL) THEN
-
-            (* There are several possible causes for failure, but for   *)
-            (* our purposes they can all be treated as "no useful       *)
-            (* result from nameserver".                                 *)
-
-            rcode := 1;
-
-        ELSIF length >= MaxResultSize THEN
-            rcode := 1;
-            SPFstring[0] := Nul;
-        ELSE
-            rcode := ExtractSPFstring (buffer, SPFstring);
-        END (*IF*);
-
-        RETURN rcode;
-
-    END GetSPFstring;
 
 (************************************************************************)
 (*                       MORE NAMESERVER LOOKUPS                        *)
@@ -1018,7 +828,7 @@ PROCEDURE CheckHost (domain: DomainName;
     BEGIN
         params.validated := "";
         SPFstring[0] := Nul;
-        code := GetSPFstring (domain, SPFstring);
+        code := GetFirstTXTrecord (domain, "v=spf1 ", SPFstring);
         IF code = 0 THEN
             IF SPFstring[0] = Nul THEN result := SPF_none;
             ELSE

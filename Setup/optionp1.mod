@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE OptionP1;
         (*                 Option page 1 of the notebook                *)
         (*                                                              *)
         (*        Started:        30 June 1999                          *)
-        (*        Last edited:    13 December 2016                      *)
+        (*        Last edited:    24 March 2017                         *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -133,12 +133,10 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
         VAR val: BOOLEAN;
 
         BEGIN
-            IF INIFetch ('$SYS', INIlabel, val) THEN
-                oldval := val;
-            ELSE
+            IF NOT INIFetch ('$SYS', INIlabel, val) THEN
                 val := default;
-                oldval := NOT default;
             END (*IF*);
+            oldval := val;
             OS2.WinSendDlgItemMsg (hwnd, boxid, OS2.BM_SETCHECK,
                                      OS2.MPFROMSHORT(ORD(val)), NIL);
         END LoadCheckbox;

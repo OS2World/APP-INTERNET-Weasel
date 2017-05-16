@@ -1,0 +1,45 @@
+DEFINITION MODULE GetDNStxt;
+
+        (********************************************************)
+        (*                                                      *)
+        (*       Extracting TXT records from a nameserver       *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            22 December 2016                *)
+        (*  Last edited:        23 December 2016                *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+TYPE StringList =
+            POINTER TO RECORD
+                next: StringList;
+                val: ARRAY [0..511] OF CHAR;
+            END (*RECORD*);
+
+
+PROCEDURE GetTXTrecords (VAR (*IN*) host: ARRAY OF CHAR;
+                  filter: ARRAY OF CHAR;
+                  VAR (*OUT*) list: StringList): CARDINAL;
+
+    (* Does a TXT query for the given host, returns a list of TXT       *)
+    (* records that begin with the filter string.  (If the filter is an *)
+    (* empty string, returns all TXT records.)                          *)
+    (* Function result is 0 iff the nameserver gave a useable result.   *)
+
+PROCEDURE DiscardResults (VAR (*INOUT*) head: StringList);
+
+    (* Deletes a StringList. Must be called after extracting the        *)
+    (* results, unless the caller has taken responsibility for deleting *)
+    (* the list.                                                        *)
+
+PROCEDURE GetFirstTXTrecord (VAR (*IN*) host: ARRAY OF CHAR;
+                  filter: ARRAY OF CHAR;
+                  VAR (*OUT*) result: ARRAY OF CHAR): CARDINAL;
+
+    (* Like GetTXTrecords, but for the case where we know we will only  *)
+    (* accept the first result that matches the filter.                 *)
+
+END GetDNStxt.
+

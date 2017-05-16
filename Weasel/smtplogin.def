@@ -7,7 +7,7 @@ DEFINITION MODULE SMTPLogin;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            5 February 2003                 *)
-        (*  Last edited:        2 October 2016                  *)
+        (*  Last edited:        12 April 2017                   *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -22,7 +22,8 @@ FROM TransLog IMPORT  (*type*) TransactionLogID;
 PROCEDURE DoLogin (SB: SBuffer;  LocalHostName: HostName;
                    UseAuth: BOOLEAN;  user: UserName;  pass: PassString;
                    VAR (*OUT*) ConnectionLost: BOOLEAN;
-                   LogIt: BOOLEAN;  LogID: TransactionLogID): BOOLEAN;
+                   VAR (*OUT*) ChunkingAvailable: BOOLEAN;
+                   LogID: TransactionLogID): BOOLEAN;
 
     (* Assumption: we already have a connection to the server via SB.   *)
     (* We now do an EHLO login if possible, or a HELO if the EHLO is    *)
@@ -31,8 +32,8 @@ PROCEDURE DoLogin (SB: SBuffer;  LocalHostName: HostName;
     (* provided that the server will accept one of the AUTH methods     *)
     (* that we support.                                                 *)
 
-    (* The insertPC parameter should normally be FALSE.  It is for use  *)
-    (* with the PostmasterCheck operation.                              *)
+    (* ChunkingAvailable is TRUE iff the remote server supports the     *)
+    (* CHUNKING option.                                                 *)
 
 PROCEDURE DoPOPLogin (IPAddr, port: CARDINAL;
                            user: UserName;  pass: PassString;

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2016   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ MODULE Weasel;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            12 April 1998                   *)
-        (*  Last edited:        13 December 2016                *)
+        (*  Last edited:        13 January 2017                 *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -591,7 +591,7 @@ PROCEDURE RunTheServer;
                 Strings.Append ("            ", message);
                 UpdateTopScreenLine (0, message);
                 (*SetOurTitle (message);*)
-                UpdateTopScreenLine (25, "(C) 1998-2016 Peter Moylan");
+                UpdateTopScreenLine (25, "(C) 1998-2017 Peter Moylan");
 
                 EVAL (SetBreakHandler (ControlCHandler));
             END (*IF*);

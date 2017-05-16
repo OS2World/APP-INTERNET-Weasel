@@ -6,7 +6,7 @@ DEFINITION MODULE POPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 April 1998                   *)
-        (*  Last edited:        25 May 2016                     *)
+        (*  Last edited:        21 April 2017                   *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -102,7 +102,9 @@ PROCEDURE GetUID (M: Mailbox;  MessageNumber: CARDINAL;
     (* result is FALSE and UID is undefined.                            *)
 
 PROCEDURE SendMessage (SB: SBuffer;  sem: Semaphore;  M: Mailbox;
-                   N, MaxLines: CARDINAL;  id: TransactionLogID): BOOLEAN;
+                               N, MaxLines: CARDINAL;
+                               VAR (*OUT*) bytessent: CARDINAL;
+                                         id: TransactionLogID): BOOLEAN;
 
     (* Sends message N in mailbox N via SB.  The caller must            *)
     (* already have confirmed that this message exists.                 *)

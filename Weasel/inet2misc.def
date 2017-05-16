@@ -6,7 +6,7 @@ DEFINITION MODULE Inet2Misc;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            17 January 2002                 *)
-        (*  Last edited:        16 October 2015                 *)
+        (*  Last edited:        9 March 2017                    *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -88,6 +88,10 @@ PROCEDURE Synch (S: Socket);
     (* Ensures that outgoing data is sent right now rather than being   *)
     (* buffered.  This reduces performance a little, but is needed to   *)
     (* work around a bug in Netscape and MS FTP Exploder.               *)
+
+PROCEDURE GetNum (str: ARRAY OF CHAR;  VAR (*INOUT*) pos: CARDINAL): CARDINAL;
+
+    (* Picks up a number at str[pos], increments pos. *)
 
 PROCEDURE StringToIP (name: ARRAY OF CHAR): CARDINAL;
 

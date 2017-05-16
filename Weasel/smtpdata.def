@@ -6,7 +6,7 @@ DEFINITION MODULE SMTPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 April 1998                   *)
-        (*  Last edited:        30 October 2016                 *)
+        (*  Last edited:        9 March 2017                    *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -105,6 +105,20 @@ PROCEDURE AddRelayRecipient (desc: ItemDescriptor;
                              VAR (*IN*) name: ARRAY OF CHAR);
 
     (* Adds one non-local recipient to the list of recipients. *)
+
+PROCEDURE NoChunksYet (desc: ItemDescriptor): BOOLEAN;
+
+    (* Returns TRUE if there is not yet any chunked data. *)
+
+PROCEDURE AcceptChunk (SB: SBuffer;  itemdata: ItemDescriptor;
+                         sem: Semaphore;  chunksize: CARDINAL;
+                         lastchunk: BOOLEAN;
+                         VAR (*OUT*) FailureReason: ARRAY OF CHAR): BOOLEAN;
+
+    (* Receives one chunk of an incoming message.  When the last chunk  *)
+    (* is received, stores it in a temporary file                       *)
+    (* whose name is recorded in itemdata.  We periodically signal on   *)
+    (* sem to confirm that the reception has not timed out.             *)
 
 PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
                          sem: Semaphore;

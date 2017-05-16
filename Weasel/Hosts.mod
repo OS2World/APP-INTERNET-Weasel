@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2016   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Hosts;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            9 May 1998                      *)
-        (*  Last edited:        30 October 2016                 *)
+        (*  Last edited:        11 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -61,7 +61,7 @@ FROM INIData IMPORT
 
 FROM TransLog IMPORT
     (* type *)  TransactionLogID,
-    (* proc *)  LogTransaction, DummyLogID;
+    (* proc *)  DummyLogID;
 
 (************************************************************************)
 
@@ -133,7 +133,7 @@ PROCEDURE DumpList (j: HostCategory);
 (*                 THE EXTERNALLY CALLABLE PROCEDURES                   *)
 (************************************************************************)
 
-PROCEDURE OnBlacklist (LogID: TransactionLogID;  IPAddress: CARDINAL;
+PROCEDURE OnBlacklist (IPAddress: CARDINAL;
                             VAR (*OUT*) message: ARRAY OF CHAR): BOOLEAN;
 
     (* Returns TRUE if IPAddress is on one of the realtime blacklists   *)
@@ -163,7 +163,6 @@ PROCEDURE OnBlacklist (LogID: TransactionLogID;  IPAddress: CARDINAL;
             Strings.Append (IPBuffer, message);
             Strings.Append (" is on blacklist at ", message);
             Strings.Append (BLCheckSuffix[j], message);
-            LogTransaction (LogID, message);
         ELSE
             message[0] := Nul;
         END (*IF*);

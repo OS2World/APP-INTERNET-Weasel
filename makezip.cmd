@@ -3,18 +3,20 @@
 
 'del weasel*.zip 2>nul'
 'copy D:\Dev1\general\doc\gpl.txt'
-'cd doc'
+'del temp /N 2>nul'
+'call deltree /Y temp >nul'           /* deltree3.zip from Hobbes */
 
 /* Create the INF files. */
 
+'cd doc'
 'ipfc -i weasel.ipf'
 'ipfc -i viosetup.ipf'
 'ipfc -i weaselpro.ipf'
 'ipfc -i techdata.ipf'
+'cd ..'
 
 /* Build the executables.  */
 
-'cd ..'
 'cd ..\WSU'
 'xc =p setup.prj'
 'cd ..\Weasel'
@@ -75,8 +77,6 @@ mkdir doc
 rmdir doc
 'del tools\* /n'
 rmdir tools
-'del filters\* /n'
-rmdir filters
 'del * /n'
 
 /* SOURCE FILES */
@@ -105,7 +105,7 @@ rmdir filters
 
 'cd ..\WSU'
 'del src.zip 2>nul'
-'Imports Setup | zip -q -j -u src.zip -@'
+'Imports Setup | zip -j -u src.zip -@'
 'zip src.zip Setup.prj RES\DID.RES'
 'move src.zip ..\Weasel\temp\Setup'
 'cd ..\Weasel'

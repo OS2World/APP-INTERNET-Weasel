@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2016   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -29,7 +29,7 @@ IMPLEMENTATION MODULE SMTPLogin;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            5 February 2003                 *)
-        (*  Last edited:        2 October 2016                  *)
+        (*  Last edited:        24 April 2017                   *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -46,6 +46,8 @@ IMPLEMENTATION MODULE SMTPLogin;
 (*  For more detail see module Authentication.                          *)
 (*                                                                      *)
 (************************************************************************)
+
+FROM SplitScreen IMPORT  WriteString, WriteLn;    (* ONLY WHILE DEBUGGING *)
 
 IMPORT Strings, Base64;
 
@@ -95,6 +97,7 @@ FROM LowLevel IMPORT
 (************************************************************************)
 
 CONST
+    debugging = FALSE;
     Nul = CHR(0);
     ParamStringLength = 512;
 
@@ -109,6 +112,11 @@ TYPE
 CONST
     MNames = MethodNameArray {"CHEAT", "PLAIN", "LOGIN", "CRAM-MD5", ""};
 
+    (* Option used only in testing: a flag that says to use AUTH only   *)
+    (* with the most secure available method.                           *)
+
+    UseOnlyMostSecure = TRUE;
+
 (************************************************************************)
 (*                      MISCELLANEOUS UTILITIES                         *)
 (************************************************************************)
@@ -119,9 +127,11 @@ PROCEDURE SendCommand (SB: SBuffer;  command: ARRAY OF CHAR;
     (* Sends a command, returns TRUE if the command was sent OK and     *)
     (* a positive response was returned.                                *)
 
+    VAR sent: CARDINAL;
+
     BEGIN
-        ConnectionLost := NOT SendLine (SB, command);
-        FlushOutput (SB);
+        ConnectionLost := NOT SendLine (SB, command, sent);
+        EVAL (FlushOutput (SB));
         RETURN (NOT ConnectionLost) AND PositiveResponse(SB, ConnectionLost);
     END SendCommand;
 
@@ -136,16 +146,17 @@ PROCEDURE SendCommandPC (SB: SBuffer;  command: ARRAY OF CHAR;
     (* with a prepended [pc] in the log.                                *)
 
     VAR LogLine: ParamString;
+        sent: CARDINAL;
         result: BOOLEAN;
 
     BEGIN
         TempFailure := FALSE;
-        ConnectionLost := NOT SendLine (SB, command);
+        ConnectionLost := NOT SendLine (SB, command, sent);
         IF Logit THEN
-            Strings.Insert ("[pc]", 0, command);
+            Strings.Insert ("[pc]>", 0, command);
             LogTransaction (LogID, command);
         END (*IF*);
-        FlushOutput (SB);
+        EVAL (FlushOutput (SB));
         IF ConnectionLost THEN
             result := FALSE;
         ELSE
@@ -153,7 +164,7 @@ PROCEDURE SendCommandPC (SB: SBuffer;  command: ARRAY OF CHAR;
             GetLastLine (SB, LogLine);
             TempFailure := LogLine[0] = '4';
             IF Logit THEN
-                Strings.Insert ("[pc]", 0, LogLine);
+                Strings.Insert ("[pc]<", 0, LogLine);
                 LogTransaction (LogID, LogLine);
             END (*IF*);
         END (*IF*);
@@ -197,7 +208,7 @@ PROCEDURE AuthenticateWith (method: AuthMethod;  SB: SBuffer;
     (* FALSE if the attempt fails.                                      *)
 
     VAR success, ConnectionLost: BOOLEAN;
-        j, k: CARDINAL;
+        j, k, sent: CARDINAL;
         Buffer, Buffer2, B64Buffer: ParamString;
         TimeStamp: FilenameString;
         digest: MD5_DigestType;
@@ -224,8 +235,9 @@ PROCEDURE AuthenticateWith (method: AuthMethod;  SB: SBuffer;
             Strings.Append (' ', Buffer);
             Strings.Append (B64Buffer, Buffer);
         END (*IF*);
+        success := SendLine (SB, Buffer, sent);
+        Strings.Insert ("> ", 0, Buffer);
         LogTransaction (LogID, Buffer);
-        success := SendLine (SB, Buffer);
 
         IF success THEN
             CASE method OF
@@ -237,35 +249,56 @@ PROCEDURE AuthenticateWith (method: AuthMethod;  SB: SBuffer;
 
               | login:
                     success := GetLine (SB, Buffer) AND (Buffer[0] = '3');
+                    Strings.Insert ("< ", 0, Buffer);
                     LogTransaction (LogID, Buffer);
                     IF success THEN
                         Base64.Encode (user, LENGTH(user), B64Buffer);
-                        success := SendLine (SB, B64Buffer);
+                        success := SendLine (SB, B64Buffer, sent);
+                        Strings.Insert ("> ", 0, B64Buffer);
                         LogTransaction (LogID, B64Buffer);
                     END (*IF*);
                     success := success AND PositiveResponse (SB, ConnectionLost);
                     IF success THEN
                         GetLastLine (SB, Buffer);
+                        Strings.Insert ("< ", 0, Buffer);
                         LogTransaction (LogID, Buffer);
                         Base64.Encode (pass, LENGTH(pass), B64Buffer);
-                        success := SendLine (SB, B64Buffer);
+                        success := SendLine (SB, B64Buffer, sent);
+                        Strings.Insert ("> ", 0, B64Buffer);
                         LogTransaction (LogID, B64Buffer);
                     END (*IF*);
 
               | crammd5:
                     success := GetLine (SB, Buffer) AND (Buffer[0] = '3');
+                    Strings.Insert ("< ", 0, Buffer);
                     LogTransaction (LogID, Buffer);
                     IF success THEN
-                        Strings.Delete (Buffer, 0, 4);
+                        Strings.Delete (Buffer, 0, 5);
                         k := Base64.Decode (Buffer, TimeStamp);
-                        HMAC_MD5 (TimeStamp, k,
+
+                        (* For some unexplained reason (compiler bug?), we  *)
+                        (* cannot trust the value of k here.                *)
+
+                        HMAC_MD5 (TimeStamp, LENGTH(TimeStamp),
                                   pass, LENGTH(pass), digest);
                         MD5DigestToString (digest, digeststr);
+
+                        (* Temporary code while debugging. *)
+
+                        IF debugging THEN
+                            WriteString ("Challenge ");  WriteString (TimeStamp);  WriteLn;
+                            WriteString ("User='");  WriteString (user);
+                            WriteString ("', password='");  WriteString (pass);  WriteString ("'");
+                            WriteLn;
+                            WriteString ("Sending ");  WriteString (digeststr);  WriteLn;
+                        END (*IF*);
+
                         Strings.Assign (user, Buffer);
                         Strings.Append (' ', Buffer);
                         Strings.Append (digeststr, Buffer);
                         Base64.Encode (Buffer, LENGTH(Buffer), B64Buffer);
-                        success := SendLine (SB, B64Buffer);
+                        success := SendLine (SB, B64Buffer, sent);
+                        Strings.Insert ("> ", 0, B64Buffer);
                         LogTransaction (LogID, B64Buffer);
                     END (*IF*);
 
@@ -283,6 +316,7 @@ PROCEDURE AuthenticateWith (method: AuthMethod;  SB: SBuffer;
             success := (k > 0) AND (k < 4);
         END (*IF*);
         GetLastLine (SB, Buffer);
+        Strings.Insert ("< ", 0, Buffer);
         LogTransaction (LogID, Buffer);
 
         RETURN success;
@@ -296,7 +330,8 @@ PROCEDURE AuthenticateWith (method: AuthMethod;  SB: SBuffer;
 PROCEDURE DoLogin (SB: SBuffer;  LocalHostName: HostName;
                    UseAuth: BOOLEAN;  user: UserName;  pass: PassString;
                    VAR (*OUT*) ConnectionLost: BOOLEAN;
-                   LogIt: BOOLEAN;  LogID: TransactionLogID): BOOLEAN;
+                   VAR (*OUT*) ChunkingAvailable: BOOLEAN;
+                   LogID: TransactionLogID): BOOLEAN;
 
     (* Assumption: we already have a connection to the server via SB.   *)
     (* We now do an EHLO login if possible, or a HELO if the EHLO is    *)
@@ -305,22 +340,23 @@ PROCEDURE DoLogin (SB: SBuffer;  LocalHostName: HostName;
     (* provided that the server will accept one of the AUTH methods     *)
     (* that we support.                                                 *)
 
+    (* ChunkingAvailable is TRUE iff the remote server supports the     *)
+    (* CHUNKING option.                                                 *)
+
     VAR success, moretocome, UseHELO: BOOLEAN;
+        sent: CARDINAL;
         method: AuthMethod;
         Auth: ARRAY AuthMethod OF BOOLEAN;
         Buffer, keyword, message: ParamString;
 
     BEGIN
+        ChunkingAvailable := FALSE;
         UseHELO := FALSE;
         Buffer := "EHLO ";
         Strings.Append (LocalHostName, Buffer);
-        ConnectionLost := NOT SendLine (SB, Buffer);
-        IF LogIt THEN
-            LogTransaction (LogID, Buffer);
-        END (*IF*);
-        IF LogIt AND ConnectionLost THEN
-            LogTransactionL (LogID, "Connection lost");
-        END (*IF*);
+        ConnectionLost := NOT SendLine (SB, Buffer, sent);
+        Strings.Insert ("> ", 0, Buffer);
+        LogTransaction (LogID, Buffer);
         success := NOT ConnectionLost;
         moretocome := success;
         FOR method := MIN(AuthMethod) TO MAX(AuthMethod) DO
@@ -336,16 +372,17 @@ PROCEDURE DoLogin (SB: SBuffer;  LocalHostName: HostName;
             IF ConnectionLost THEN
                 success := FALSE;  moretocome := FALSE;
             ELSE
-                IF LogIt THEN
-                    Strings.Assign (Buffer, message);
-                    LogTransaction (LogID, message);
-                END (*IF*);
+                Strings.Assign ("< ", message);
+                Strings.Append (Buffer, message);
+                LogTransaction (LogID, message);
                 IF Buffer[0] = '2' THEN
                     moretocome := Buffer[3] = '-';
-                    IF UseAuth THEN
-                        Strings.Delete (Buffer, 0, 4);
-                        Strings.Capitalize (Buffer);
-                        GetToken (Buffer, keyword);
+                    Strings.Delete (Buffer, 0, 4);
+                    Strings.Capitalize (Buffer);
+                    GetToken (Buffer, keyword);
+                    IF Strings.Equal (keyword, 'CHUNKING') THEN
+                        ChunkingAvailable := TRUE;
+                    ELSIF UseAuth THEN
                         IF Strings.Equal (keyword, 'AUTH') THEN
                             WHILE Buffer[0] <> Nul DO
                                 GetToken (Buffer, keyword);
@@ -364,7 +401,7 @@ PROCEDURE DoLogin (SB: SBuffer;  LocalHostName: HostName;
             END (*IF*);
         END (*WHILE*);
 
-        IF UseAuth THEN
+        IF success AND UseAuth THEN
 
             (* Now we know what authentication methods the server will  *)
             (* accept.  Use the most secure one that we support.        *)
@@ -373,6 +410,9 @@ PROCEDURE DoLogin (SB: SBuffer;  LocalHostName: HostName;
             LOOP
                 IF Auth[method] THEN
                     IF AuthenticateWith(method, SB, user, pass, LogID) THEN
+                        EXIT (*LOOP*);
+                    ELSIF UseOnlyMostSecure THEN
+                        success := FALSE;
                         EXIT (*LOOP*);
                     END (*IF*);
                 END (*IF*);
@@ -391,9 +431,8 @@ PROCEDURE DoLogin (SB: SBuffer;  LocalHostName: HostName;
             Buffer := "HELO ";
             Strings.Append (LocalHostName, Buffer);
             success := SendCommand (SB, Buffer, ConnectionLost);
-            IF LogIt THEN
-                LogTransaction (LogID, Buffer);
-            END (*IF*);
+            Strings.Insert ("> ", 0, Buffer);
+            LogTransaction (LogID, Buffer);
         END (*IF*);
 
         RETURN success;
@@ -457,22 +496,22 @@ PROCEDURE ConnectToDomain (domain: HostName;  VAR (*OUT*) s: Socket;
     BEGIN
         success := FALSE;  LookupFailure := FALSE;  j := 0;
         s := NotASocket;
-        Strings.Assign ("[pc]Looking up domain name ", message);
+        Strings.Assign ("Looking up domain name ", message);
         Strings.Append (domain, message);
         LogTransaction (LogId, message);
         CASE DoMXLookup (domain, address) OF
           |  0: REPEAT
                     IPToString (address[j], TRUE, IPstr);
-                    Strings.Assign ("[pc]MX lookup result ", message);
+                    Strings.Assign ("MX lookup result ", message);
                     Strings.Append (IPstr, message);
                     LogTransaction (LogId, message);
                     s := OpenConnection (address[j]);
                     Signal (watchdog);
                     success := s <> NotASocket;
                     IF success THEN
-                        LogTransactionL (LogId, "[pc]connected");
+                        LogTransactionL (LogId, "connected");
                     ELSE
-                        LogTransactionL (LogId, "[pc]can't connect");
+                        LogTransactionL (LogId, "can't connect");
                     END (*IF*);
                     INC (j);
                 UNTIL success OR (j > Max) OR (address[j] = 0);
@@ -522,7 +561,7 @@ PROCEDURE PostmasterCheck (domain: DomainName;  OurHostName: HostName;
             success := (CAST(ADDRESS,SB) <> NIL) AND PositiveResponse (SB, ConnectionLost);
             IF LogIt THEN
                 GetLastLine (SB, Buffer);
-                Strings.Insert ("[pc]", 0, Buffer);
+                Strings.Insert ("[pc]<", 0, Buffer);
                 LogTransaction (LogID, Buffer);
             END (*IF*);
         END (*IF*);
@@ -576,6 +615,7 @@ PROCEDURE DoPOPLogin (IPAddr, port: CARDINAL;
     CONST PopPort = 110;
 
     VAR s: Socket;  SB: SBuffer;
+        sent: CARDINAL;
         success, ConnectionLost: BOOLEAN;
 
     BEGIN
@@ -589,12 +629,12 @@ PROCEDURE DoPOPLogin (IPAddr, port: CARDINAL;
 
             SB := CreateSBuffer (s, TRUE);
             success := (CAST(ADDRESS,SB) <> NIL) AND PositiveResponse (SB, ConnectionLost)
-                       AND SendString (SB, 'USER ')
-                       AND SendLine (SB, user);
+                       AND SendString (SB, 'USER ', sent)
+                       AND SendLine (SB, user, sent);
             IF success THEN
                 success := PositiveResponse (SB, ConnectionLost)
-                           AND SendString (SB, 'PASS ')
-                           AND SendLine (SB, pass)
+                           AND SendString (SB, 'PASS ', sent)
+                           AND SendLine (SB, pass, sent)
                            AND PositiveResponse (SB, ConnectionLost);
                 EVAL (SendCommand (SB, "QUIT", ConnectionLost));
             END (*IF*);
