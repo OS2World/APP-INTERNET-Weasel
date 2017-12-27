@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SUFilters;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            14 September 2003               *)
-        (*  Last edited:        22 December 2013                *)
+        (*  Last edited:        22 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -71,7 +71,7 @@ FROM MultiScreen IMPORT
 FROM Names IMPORT
     (* type *)  FilenameString, HostName;
 
-FROM Inet2Misc IMPORT
+FROM MiscFuncs IMPORT
     (* proc *)  ConvertCard;
 
 FROM SetupINI IMPORT

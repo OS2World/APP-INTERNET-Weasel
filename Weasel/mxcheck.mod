@@ -8,7 +8,7 @@ IMPLEMENTATION MODULE MXCheck;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            03 July 1998                    *)
-        (*  Last edited:        20 October 2016                 *)
+        (*  Last edited:        22 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -33,11 +33,8 @@ FROM NetDB IMPORT
 FROM Internet IMPORT
     (* proc *)  inet_addr;
 
-FROM InetUtilities IMPORT
-    (* proc *)  NameIsNumeric;
-
 FROM Inet2Misc IMPORT
-    (* proc *)  Swap4;
+    (* proc *)  Swap4, NameIsNumeric;
 
 FROM LowLevel IMPORT
     (* proc *)  IAND;

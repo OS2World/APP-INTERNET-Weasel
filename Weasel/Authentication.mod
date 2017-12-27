@@ -75,7 +75,7 @@ FROM Heap IMPORT
 (*   PLAIN      See RFC2595                                             *)
 (*   LOGIN      (not covered by a standard, it seems, but still the     *)
 (*                most popular method)                                  *)
-(*   CRAM-MD5   See RFC2195                                             *)
+(*   CRAM-MD5   See RFC2195, updated by RFC4616                         *)
 (*                                                                      *)
 (* SASL is described in RFC 2222, with applications to IMAP and with    *)
 (* definitions of some mechanisms.  Its application to SMTP is defined  *)

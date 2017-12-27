@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SMTPCommands;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 April 1998                   *)
-        (*  Last edited:        25 April 2017                   *)
+        (*  Last edited:        14 July 2017                    *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -46,9 +46,7 @@ IMPLEMENTATION MODULE SMTPCommands;
 (*                                                                              *)
 (* The optional commands that are implemented are:                              *)
 (*                                                                              *)
-(*      AUTH (RFC2554), EHLO (RFC1869), EXPN (RFC821)                           *)
-(*                                                                              *)
-(*      BDAT (RFC3030) is implemented but not yet tested.                       *)
+(*      AUTH (RFC2554), BDAT (RFC3030), EHLO (RFC1869), EXPN (RFC821)           *)
 (*                                                                              *)
 (* We also support the SIZE and BODY parameters in MAIL (RFC1870, RFC6152).     *)
 (*                                                                              *)
@@ -77,11 +75,12 @@ FROM Semaphores IMPORT
 FROM Timer IMPORT
     (* proc *)  Sleep;
 
-FROM InetUtilities IMPORT
-    (* proc *)  ConvertCard, AddEOL, CurrentTimeToString;
+FROM MiscFuncs IMPORT
+    (* proc *)  SplitArg, ToLower, StringMatch, HeadMatch, GetNum,
+                ConvertCard, AddEOL;
 
-FROM Inet2Misc IMPORT
-    (* proc *)  SplitArg, ToLower, StringMatch, HeadMatch, GetNum;
+FROM MyClock IMPORT
+    (* proc *)  CurrentTimeToString;
 
 FROM Names IMPORT
     (* type *)  UserName, HostName, DomainName;
@@ -105,7 +104,7 @@ FROM SMTPData IMPORT
                 ResetItemDescriptor, ResetReturnPath, SetClaimedSendingHost,
                 AddLocalRecipient, AddRelayRecipient, AcceptMessage, AcceptChunk,
                 RunFilter03, (*RunFinalFilter, DistributeMessage,*) FilterAndDistribute,
-                SenderNotSpecified, NoRecipients, NoChunksYet,
+                SenderNotSpecified, NoRecipients, NoChunksYet, IgnoreChunk,
                 ProcessRCPTAddress, FromAddressAcceptable;
 
 FROM Extra IMPORT
@@ -435,64 +434,81 @@ PROCEDURE BDAT (session: Session;  VAR (*IN*) params: ARRAY OF CHAR);
     (* The BDAT command (RFC 3030) is an alternative to DATA, where the data is *)
     (* sent in chunks of a size specified in the command.                       *)
 
+    CONST chunksizelimit = 5242880;      (* 5 MiB *)
+
     VAR result, pos, chunksize: CARDINAL;
-        lastchunk: BOOLEAN;
+        success, lastchunk: BOOLEAN;
         FailureReason: ARRAY [0..127] OF CHAR;
 
     BEGIN
+        success := TRUE;
         IF SenderNotSpecified (session^.desc) THEN
-            Reply (session, "503 Sender has not been specified");
+            FailureReason := "503 Sender has not been specified";
+            success := FALSE;
         ELSIF NoRecipients (session^.desc) THEN
-            Reply (session, "503 No valid recipients");
-        ELSE
-            (* First parameter should be the chunk size. *)
+            FailureReason := "503 No valid recipients";
+            success := FALSE;
+        END (*IF*);
 
-            pos := 0;
-            chunksize := GetNum (params, pos);
-            WHILE params[pos] = ' ' DO INC(pos) END(*WHILE*);
-            Strings.Delete (params, 0, pos);
+        (* An unfortunate feature of BDAT is that the sender is still going     *)
+        (* to send the chunk before reading the reply code, so we need to know  *)
+        (* the chunk size even if the command has already failed.               *)
 
-            (* Optional second parameter can only be LAST. *)
+        (* First parameter should be the chunk size. *)
 
-            lastchunk := HeadMatch (params, "LAST");
+        pos := 0;
+        chunksize := GetNum (params, pos);
+        WHILE params[pos] = ' ' DO INC(pos) END(*WHILE*);
+        Strings.Delete (params, 0, pos);
 
-            IF NoChunksYet(session^.desc) THEN
+        (* Optional second parameter can only be LAST. *)
 
-                (* Pre-reception filtering. *)
+        lastchunk := HeadMatch (params, "LAST");
 
-                result := RunFilter03(3, session^.desc, FailureReason);
-                IF result = 3 THEN
-                    ResetItemDescriptor (session^.desc, "");
-                    Reply (session, FailureReason);
-                    session^.state := MustAbort;
-                END (*IF*);
+        IF chunksize > chunksizelimit THEN
+            FailureReason := "552 Chunk size too large (limit 5 MB)";
+            success := FALSE;
 
+        ELSIF NoChunksYet(session^.desc) THEN
+
+            (* Pre-reception filtering. *)
+
+            result := RunFilter03(3, session^.desc, FailureReason);
+            IF result = 3 THEN
+                ResetItemDescriptor (session^.desc, "");
+                session^.state := MustAbort;
+                success := FALSE;
             END (*IF*);
 
-            IF session^.state <> MustAbort THEN
+        END (*IF*);
 
-                WITH session^ DO
-                    IF AcceptChunk (sbuffer, desc, watchdog, chunksize, lastchunk, FailureReason) THEN
+        IF success THEN
 
-                        IF lastchunk THEN
-                            Reply (session, "250 final chunk received");
+            WITH session^ DO
+                IF AcceptChunk (sbuffer, desc, watchdog, chunksize, lastchunk, FailureReason) THEN
 
-                            (* Post-reception filtering and delivery. *)
+                    IF lastchunk THEN
+                        Reply (session, "250 final chunk received");
 
-                            IF NOT FilterAndDistribute (desc, sbuffer) THEN
-                                 session^.state := MustAbort;
-                            END (*IF*);
-                            ResetItemDescriptor (desc, "");
-                        ELSE
-                            Reply (session, "250 chunk received");
+                        (* Post-reception filtering and delivery. *)
+
+                        IF NOT FilterAndDistribute (desc, sbuffer) THEN
+                             session^.state := MustAbort;
                         END (*IF*);
-
+                        ResetItemDescriptor (desc, "");
                     ELSE
-                        Reply (session, FailureReason);
+                        Reply (session, "250 chunk received");
                     END (*IF*);
 
-                END (*WITH*);
-            END (*IF*);
+                ELSE
+                    Reply (session, FailureReason);
+                END (*IF*);
+
+            END (*WITH*);
+
+        ELSE
+            IgnoreChunk (session^.sbuffer, chunksize);
+            Reply (session, FailureReason);
         END (*IF*);
 
     END BDAT;
@@ -955,6 +971,7 @@ PROCEDURE HandleCommand (S: Session;  VAR (*IN*) Command: ARRAY OF CHAR;
 
         (* Call the handler. *);
 
+        Signal (S^.watchdog);
         Handler (S, Command);
         ServerAbort := S^.state = MustAbort;
         IF ServerAbort THEN

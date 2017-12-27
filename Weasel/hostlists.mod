@@ -68,8 +68,11 @@ FROM TransLog IMPORT
     (* type *)  TransactionLogID,
     (* proc *)  CreateLogID, DiscardLogID, LogTransaction;
 
+FROM MiscFuncs IMPORT
+    (* proc *)  HeadMatch;
+
 FROM Inet2Misc IMPORT
-    (* proc *)  Swap4, NameIsNumeric, IPToString, HeadMatch;
+    (* proc *)  Swap4, NameIsNumeric, IPToString;
 
 FROM TaskControl IMPORT
     (* type *)  Lock,

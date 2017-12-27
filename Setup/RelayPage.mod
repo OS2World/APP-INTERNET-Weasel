@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE RelayPage;
         (*                  Relay page of the notebook                  *)
         (*                                                              *)
         (*        Started:        30 June 1999                          *)
-        (*        Last edited:    15 June 2010                          *)
+        (*        Last edited:    26 August 2017                        *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -61,8 +61,10 @@ TYPE
     <* VOLATILE+ *>
 
 VAR
+    OurLang: LangHandle;
     OurPageHandle, notebookhandle: OS2.HWND;
-    OldRelayHost, OldAuthPOPhost: NameString;
+    RelayHost, RelayRulesFileName: NameString;
+    OldAuthPOPhost: NameString;
     AuthOption, OldAuthOption: CARDINAL;
     RelayOption, OldRelayOption: CARDINAL;
     RelayEverything, OldRelayEverything: BOOLEAN;
@@ -84,6 +86,7 @@ PROCEDURE SetLanguage (lang: LangHandle);
     VAR stringval: ARRAY [0..511] OF CHAR;
 
     BEGIN
+        OurLang := lang;
         StrToBuffer (lang, "Relay.tab", stringval);
         OS2.WinSendMsg (notebookhandle, OS2.BKM_SETTABTEXT,
                         CAST(ADDRESS,OurPageID), ADR(stringval));
@@ -99,7 +102,13 @@ PROCEDURE SetLanguage (lang: LangHandle);
         OS2.WinSetDlgItemText (OurPageHandle, DID.RelayAsBackup, stringval);
         StrToBuffer (lang, "Relay.always", stringval);
         OS2.WinSetDlgItemText (OurPageHandle, DID.RelayAlways, stringval);
-        StrToBuffer (lang, "Relay.hostname", stringval);
+        StrToBuffer (lang, "Relay.userules", stringval);
+        OS2.WinSetDlgItemText (OurPageHandle, DID.RelayUseRules, stringval);
+        IF RelayOption = 3 THEN
+            StrToBuffer (lang, "Relay.filename", stringval);
+        ELSE
+            StrToBuffer (lang, "Relay.hostname", stringval);
+        END (*IF*);
         OS2.WinSetDlgItemText (OurPageHandle, DID.RelayHostLabel, stringval);
         StrToBuffer (lang, "Relay.everything", stringval);
         OS2.WinSetDlgItemText (OurPageHandle, DID.RelayEverything, stringval);
@@ -144,20 +153,29 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
         ELSIF RelayOption = 1 THEN
             OS2.WinSendDlgItemMsg (hwnd, DID.RelayAsBackup, OS2.BM_SETCHECK,
                                          OS2.MPFROMSHORT(1), NIL);
-        ELSE
-            RelayOption := 2;
+        ELSIF RelayOption = 2 THEN
             OS2.WinSendDlgItemMsg (hwnd, DID.RelayAlways, OS2.BM_SETCHECK,
+                                         OS2.MPFROMSHORT(1), NIL);
+        ELSE
+            RelayOption := 3;
+            OS2.WinSendDlgItemMsg (hwnd, DID.RelayUseRules, OS2.BM_SETCHECK,
                                          OS2.MPFROMSHORT(1), NIL);
         END (*IF*);
         OldRelayOption := RelayOption;
 
-        (* Relay host. *)
+        (* Relay host or rules file. *)
 
-        IF NOT INIGetString ('$SYS', 'ForwardRelay', stringval) THEN
-            stringval := "";
+        IF NOT INIGetString ('$SYS', 'RelayRulesFileName', RelayRulesFileName) THEN
+            RelayRulesFileName := "RELAYRULES.TXT";
         END (*IF*);
-        OS2.WinSetDlgItemText (hwnd, DID.RelayHost, stringval);
-        OldRelayHost := stringval;
+        IF NOT INIGetString ('$SYS', 'ForwardRelay', RelayHost) THEN
+            RelayHost := "";
+        END (*IF*);
+        IF RelayOption = 3 THEN
+            OS2.WinSetDlgItemText (hwnd, DID.RelayHost, RelayRulesFileName);
+        ELSE
+            OS2.WinSetDlgItemText (hwnd, DID.RelayHost, RelayHost);
+        END (*IF*);
 
         (* Relay everything. *)
 
@@ -209,7 +227,7 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
             OldAuthPOPhost := stringval;
         ELSE
             OldAuthPOPhost := "";
-            stringval := OldRelayHost;
+            stringval := RelayHost;
         END (*IF*);
         OS2.WinSetDlgItemText (hwnd, DID.AuthPOPhost, stringval);
 
@@ -219,14 +237,35 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
 
 (**************************************************************************)
 
+PROCEDURE StripSpaces (VAR (*INOUT*) str: ARRAY OF CHAR);
+
+    (* Strips leading and trailing spaces from str.  *)
+
+    CONST Nul = CHR(0);
+
+    VAR j: CARDINAL;
+
+    BEGIN
+        WHILE str[0] = ' ' DO
+            Strings.Delete (str, 0, 1);
+        END (*WHILE*);
+        j := Strings.Length (str);
+        LOOP
+            IF j = 0 THEN EXIT(*LOOP*) END(*IF*);
+            DEC (j);
+            IF str[j] <> ' ' THEN EXIT(*LOOP*) END(*IF*);
+            str[j] := Nul;
+        END (*LOOP*);
+    END StripSpaces;
+
+(**************************************************************************)
+
 PROCEDURE StoreData;
 
     (* Stores the values on this page back into the INI file. *)
 
-    CONST Nul = CHR(0);
-
     VAR hwnd: OS2.HWND;
-        stringval: NameString;  j: CARDINAL;
+        stringval: NameString;
 
     BEGIN
         hwnd := OurPageHandle;
@@ -238,21 +277,16 @@ PROCEDURE StoreData;
             INIPut ('$SYS', 'RelayOption', RelayOption);
         END (*IF*);
 
-        (* Relay host. *)
+        (* Relay host or relay rules file name. *)
 
         OS2.WinQueryDlgItemText (hwnd, DID.RelayHost, 512, stringval);
-        WHILE stringval[0] = ' ' DO
-            Strings.Delete (stringval, 0, 1);
-        END (*WHILE*);
-        j := Strings.Length (stringval);
-        LOOP
-            IF j = 0 THEN EXIT(*LOOP*) END(*IF*);
-            DEC (j);
-            IF stringval[j] <> ' ' THEN EXIT(*LOOP*) END(*IF*);
-            stringval[j] := Nul;
-        END (*LOOP*);
-        IF NOT Strings.Equal (stringval, OldRelayHost) THEN
+        StripSpaces (stringval);
+        IF RelayOption = 3 THEN
+            INIPutString ('$SYS', 'ForwardRelay', RelayHost);
+            INIPutString ('$SYS', 'RelayRulesFileName', stringval);
+        ELSE
             INIPutString ('$SYS', 'ForwardRelay', stringval);
+            INIPutString ('$SYS', 'RelayRulesFileName', RelayRulesFileName);
         END (*IF*);
 
         (* Relay everything. *)
@@ -272,16 +306,7 @@ PROCEDURE StoreData;
         (* Authentication user. *)
 
         OS2.WinQueryDlgItemText (hwnd, DID.AuthUser, 512, stringval);
-        WHILE stringval[0] = ' ' DO
-            Strings.Delete (stringval, 0, 1);
-        END (*WHILE*);
-        j := Strings.Length (stringval);
-        LOOP
-            IF j = 0 THEN EXIT(*LOOP*) END(*IF*);
-            DEC (j);
-            IF stringval[j] <> ' ' THEN EXIT(*LOOP*) END(*IF*);
-            stringval[j] := Nul;
-        END (*LOOP*);
+        StripSpaces (stringval);
         IF NOT Strings.Equal (stringval, OldAuthUser) THEN
             INIPutString ('$SYS', 'AuthUser', stringval);
         END (*IF*);
@@ -289,16 +314,7 @@ PROCEDURE StoreData;
         (* Authentication password. *)
 
         OS2.WinQueryDlgItemText (hwnd, DID.AuthPass, 512, stringval);
-        WHILE stringval[0] = ' ' DO
-            Strings.Delete (stringval, 0, 1);
-        END (*WHILE*);
-        j := Strings.Length (stringval);
-        LOOP
-            IF j = 0 THEN EXIT(*LOOP*) END(*IF*);
-            DEC (j);
-            IF stringval[j] <> ' ' THEN EXIT(*LOOP*) END(*IF*);
-            stringval[j] := Nul;
-        END (*LOOP*);
+        StripSpaces (stringval);
         IF NOT Strings.Equal (stringval, OldAuthPass) THEN
             INIPutString ('$SYS', 'AuthPass', stringval);
         END (*IF*);
@@ -306,16 +322,7 @@ PROCEDURE StoreData;
         (* Authentication POP hostname. *)
 
         OS2.WinQueryDlgItemText (hwnd, DID.AuthPOPhost, 512, stringval);
-        WHILE stringval[0] = ' ' DO
-            Strings.Delete (stringval, 0, 1);
-        END (*WHILE*);
-        j := Strings.Length (stringval);
-        LOOP
-            IF j = 0 THEN EXIT(*LOOP*) END(*IF*);
-            DEC (j);
-            IF stringval[j] <> ' ' THEN EXIT(*LOOP*) END(*IF*);
-            stringval[j] := Nul;
-        END (*LOOP*);
+        StripSpaces (stringval);
         IF NOT Strings.Equal (stringval, OldAuthPOPhost) THEN
             INIPutString ('$SYS', 'AuthPOPhost', stringval);
         END (*IF*);
@@ -331,40 +338,25 @@ PROCEDURE EnableRelayFields (hwnd: OS2.HWND;  enable: BOOLEAN);
     (* Enables or disables those fields on this page that should only   *)
     (* be enabled if we will use relaying.                              *)
 
+    VAR enable32, hostenable: OS2.BOOL32;
+
     BEGIN
-        OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.RelayHostLabel),
-                                                       CAST(OS2.BOOL32, VAL(CARDINAL,enable)));
-        IF enable THEN
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.RelayHostLabel), TRUE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.RelayHost), TRUE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.RelayEverything), TRUE);
-            OS2.WinEnableWindow
-                   (OS2.WinWindowFromID(hwnd, DID.RelayAuthenticationBox), TRUE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthNone), TRUE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthAUTH), TRUE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthPOP), TRUE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthUsernameLabel), TRUE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthPasswordLabel), TRUE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthPOPhostLabel), TRUE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthUser), TRUE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthPass), TRUE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthPOPhost), TRUE);
-        ELSE
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.RelayHostLabel), FALSE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.RelayHost), FALSE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.RelayEverything), FALSE);
-            OS2.WinEnableWindow
-                   (OS2.WinWindowFromID(hwnd, DID.RelayAuthenticationBox), FALSE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthNone), FALSE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthAUTH), FALSE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthPOP), FALSE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthUsernameLabel), FALSE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthPasswordLabel), FALSE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthPOPhostLabel), FALSE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthUser), FALSE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthPass), FALSE);
-            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthPOPhost), FALSE);
-        END (*IF*);
+        enable32 := CAST(OS2.BOOL32, VAL(CARDINAL,enable));
+        hostenable := CAST(OS2.BOOL32, VAL(CARDINAL,RelayOption > 0));
+        OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.RelayHostLabel), hostenable);
+        OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.RelayHost), hostenable);
+        OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.RelayEverything), hostenable);
+        OS2.WinEnableWindow
+               (OS2.WinWindowFromID(hwnd, DID.RelayAuthenticationBox), enable32);
+        OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthNone), enable32);
+        OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthAUTH), enable32);
+        OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthPOP), enable32);
+        OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthUsernameLabel), enable32);
+        OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthPasswordLabel), enable32);
+        OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthPOPhostLabel), enable32);
+        OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthUser), enable32);
+        OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthPass), enable32);
+        OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthPOPhost), enable32);
     END EnableRelayFields;
 
 (**************************************************************************)
@@ -374,12 +366,14 @@ PROCEDURE ["SysCall"] DialogueProc(hwnd     : OS2.HWND
                      ;mp1, mp2 : OS2.MPARAM): OS2.MRESULT;
 
     VAR ButtonID, NotificationCode: CARDINAL;
+        was3, relaying: BOOLEAN;
+        stringval: ARRAY [0..511] OF CHAR;
 
     BEGIN
         IF msg = OS2.WM_INITDLG THEN
             OS2.WinSetWindowPos (hwnd, 0, 0, 0, 0, 0, OS2.SWP_MOVE);
             LoadValues (hwnd);
-            EnableRelayFields (hwnd, RelayOption > 0);
+            EnableRelayFields (hwnd, (RelayOption = 1) OR (RelayOption = 2));
             RETURN NIL;
 
         ELSIF msg = OS2.WM_PRESPARAMCHANGED THEN
@@ -400,6 +394,7 @@ PROCEDURE ["SysCall"] DialogueProc(hwnd     : OS2.HWND
             IF (NotificationCode = OS2.BN_CLICKED) AND
                      (OS2.LONGFROMMR (OS2.WinSendDlgItemMsg (hwnd, ButtonID,
                                          OS2.BM_QUERYCHECK, NIL, NIL)) > 0) THEN
+                was3 := RelayOption = 3;
                 CASE ButtonID OF
                   | DID.RelayDummyButton:
                        (* Just ignore it. *)
@@ -409,6 +404,8 @@ PROCEDURE ["SysCall"] DialogueProc(hwnd     : OS2.HWND
                        RelayOption := 1;
                   | DID.RelayAlways:
                        RelayOption := 2;
+                  | DID.RelayUseRules:
+                       RelayOption := 3;
                   | DID.AuthNone:
                        AuthOption := 0;
                   | DID.AuthAUTH:
@@ -419,9 +416,25 @@ PROCEDURE ["SysCall"] DialogueProc(hwnd     : OS2.HWND
                        RETURN OS2.WinDefDlgProc(hwnd, msg, mp1, mp2);
                 END (*CASE*);
 
-                EnableRelayFields (hwnd, RelayOption > 0);
+                IF was3 <> (RelayOption = 3) THEN
+                    OS2.WinQueryDlgItemText (hwnd, DID.RelayHost, 512, stringval);
+                    StripSpaces (stringval);
+                    IF was3 THEN
+                        Strings.Assign (stringval, RelayRulesFileName);
+                        OS2.WinSetDlgItemText (hwnd, DID.RelayHost, RelayHost);
+                        StrToBuffer (OurLang, "Relay.hostname", stringval);
+                    ELSE
+                        Strings.Assign (stringval, RelayHost);
+                        OS2.WinSetDlgItemText (hwnd, DID.RelayHost, RelayRulesFileName);
+                        StrToBuffer (OurLang, "Relay.filename", stringval);
+                    END (*IF*);
+                    OS2.WinSetDlgItemText (hwnd, DID.RelayHostLabel, stringval);
+                END (*IF*);
 
-                IF RelayOption > 0 THEN
+                relaying := (RelayOption = 1) OR (RelayOption = 2);
+                EnableRelayFields (hwnd, relaying);
+
+                IF relaying THEN
                     IF AuthOption = 0 THEN
                         OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthUsernameLabel), FALSE);
                         OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.AuthUser), FALSE);
@@ -491,5 +504,6 @@ PROCEDURE SetFont (VAR (*IN*) name: CommonSettings.FontName);
 BEGIN
     ChangeInProgress := FALSE;
     OurPageHandle := OS2.NULLHANDLE;
+    RelayOption := 0;
 END RelayPage.
 

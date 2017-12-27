@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2015   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Domains;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 July 2002                    *)
-        (*  Last edited:        7 December 2015                 *)
+        (*  Last edited:        21 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -70,8 +70,11 @@ FROM NetIF IMPORT
 FROM ioctl IMPORT
     (* const*)  SIOCGIFCONF;
 
+FROM MiscFuncs IMPORT
+    (* proc*)   EVAL, ConvertCard;
+
 FROM Inet2Misc IMPORT
-    (* proc *)  EVAL, AddressToHostName, ConvertCard, IPToString;
+    (* proc *)  AddressToHostName, IPToString;
 
 FROM LogCtx IMPORT
     (* var  *)  WCtx;

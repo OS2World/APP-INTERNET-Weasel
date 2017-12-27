@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE UserPage;
         (*                  User page of the notebook                   *)
         (*                                                              *)
         (*        Started:        8 July 1999                           *)
-        (*        Last edited:    12 September 2010                     *)
+        (*        Last edited:    22 May 2017                           *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -54,7 +54,7 @@ FROM RINIData IMPORT
                 AppExists, INIPut, INIPutString, INIDeleteKey,
                 GetStringList, NextString, CloseStringList;
 
-FROM Inet2Misc IMPORT
+FROM MiscFuncs IMPORT
     (* type *)  CharArrayPointer,
     (* proc *)  EVAL, ConvertCard;
 

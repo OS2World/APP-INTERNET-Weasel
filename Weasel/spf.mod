@@ -6,7 +6,7 @@ IMPLEMENTATION MODULE SPF;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            03 October 2016                 *)
-        (*  Last edited:        23 December 2016                *)
+        (*  Last edited:        22 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (*       The 'exp' modifier is not yet handled.         *)
@@ -43,8 +43,11 @@ FROM NetDB IMPORT
     (* type *)  HostEntPtr, AddressPointerArrayPointer,
     (* proc *)  tcp_h_errno, gethostbyaddr, gethostbyname;
 
+FROM MiscFuncs IMPORT
+    (* proc *)  HeadMatch;
+
 FROM Inet2Misc IMPORT
-    (* proc *)  NameIsNumeric, StringToIP, IPToString, HeadMatch;
+    (* proc *)  NameIsNumeric, StringToIP, IPToString;
 
 FROM LowLevel IMPORT
     (* proc *)  IAND;

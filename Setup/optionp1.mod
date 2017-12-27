@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE OptionP1;
         (*                 Option page 1 of the notebook                *)
         (*                                                              *)
         (*        Started:        30 June 1999                          *)
-        (*        Last edited:    24 March 2017                         *)
+        (*        Last edited:    18 August 2017                        *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -347,6 +347,7 @@ PROCEDURE ["SysCall"] DialogueProc(hwnd     : OS2.HWND
                 ChangeInProgress := FALSE;
                 RETURN NIL;
             END (*IF*);
+
         ELSIF msg = OS2.WM_CONTROL THEN
             NotificationCode := OS2.ULONGFROMMP(mp1);
             ButtonID := NotificationCode MOD 65536;
@@ -382,6 +383,9 @@ PROCEDURE ["SysCall"] DialogueProc(hwnd     : OS2.HWND
                   | ELSE
                        RETURN OS2.WinDefDlgProc(hwnd, msg, mp1, mp2);
                 END (*CASE*);
+            ELSIF NotificationCode = OS2.BKN_PAGESELECTED THEN
+                OS2.WinPostMsg (notebookhandle, CommonSettings.SETFOCUS, NIL, NIL);
+                (*OS2.WinSetFocus(OS2.HWND_DESKTOP, hwnd);*)
             END (*IF*);
             RETURN OS2.WinDefDlgProc(hwnd, msg, mp1, mp2);
         ELSE

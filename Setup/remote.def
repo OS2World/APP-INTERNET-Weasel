@@ -6,7 +6,7 @@ DEFINITION MODULE Remote;
         (*                Communication with INIRemote              *)
         (*                                                          *)
         (*    Started:        2 July 1999                           *)
-        (*    Last edited:    6 July 2012                           *)
+        (*    Last edited:    22 July 2017                          *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
@@ -64,9 +64,9 @@ PROCEDURE SelectRemoteFile (filename: ARRAY OF CHAR): BOOLEAN;
 
     (* Tells the remote server which INI or TNI file to work on.  The   *)
     (* filename is either an absolute file name, or a name relative to  *)
-    (* the current working directory, on the remote server.             *)
-
-    (* NOTE: INIServe does not yet support TNI mode.  *)
+    (* the current working directory, on the remote server.  A FALSE    *)
+    (* reply means either that the file does not exist or it is not a   *)
+    (* valid INI or TNI file.                                           *)
 
 PROCEDURE SendCommand (cmd: ARRAY OF CHAR): BOOLEAN;
 

@@ -27,7 +27,7 @@ IMPLEMENTATION MODULE INIData;
         (*               Looking after our INI file data            *)
         (*                                                          *)
         (*    Started:        30 March 2000                         *)
-        (*    Last edited:    17 April 2015                         *)
+        (*    Last edited:    17 July 2017                          *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
@@ -81,6 +81,75 @@ VAR
     (* ProgramDir is the directory from which this program is running.  *)
 
     ProgramDir: FilenameString;
+
+(************************************************************************)
+(*          DECIDING WHETHER TO SET INI OR TNI AS DEFAULT CHOICE        *)
+(************************************************************************)
+
+PROCEDURE ChooseDefaultINI (appname: ARRAY OF CHAR;
+                                   VAR (*OUT*) useTNI: BOOLEAN): BOOLEAN;
+
+    (* Returns useTNI=TRUE if we should default to using appname.TNI to *)
+    (* hold this application's data, useTNI=FALSE if the default should *)
+    (* be to use appname.INI.  The decision is based on factors like    *)
+    (* which file exists.  Of course the caller might in some cases     *)
+    (* override this decision; all we are supplying is an initial       *)
+    (* default.  The function result is FALSE if we are unable to make  *)
+    (* a decision, i.e. either choice is equally good, and in that case *)
+    (* the returned useTNI value should be ignored.                     *)
+
+    VAR hini: HINI;  useINI, useTNI0, foundI, foundT: BOOLEAN;
+        app: ARRAY [0..5] OF CHAR;
+        Iname, Tname: FilenameString;
+
+    BEGIN
+        Strings.Assign (appname, Iname);
+        Strings.Assign (appname, Tname);
+        Strings.Append (".INI", Iname);
+        Strings.Append (".TNI", Tname);
+        useINI := Exists(Iname);
+        useTNI := Exists(Tname);
+
+        (* If only one of the files exists, the decision is obvious.    *)
+        (* If neither exists, default to using INI.                     *)
+
+        IF NOT (useINI AND useTNI) THEN
+            RETURN TRUE;
+        END (*IF*);
+
+        (* That leaves the case where both files exists.  In that case  *)
+        (* we look up the entry ($SYS, useTNI) in each file.            *)
+
+        useTNI := FALSE;  useTNI0 := FALSE;
+        app := "$SYS";
+        hini := OpenINIFile (Iname, FALSE);
+        foundI :=INIGet (hini, app, "UseTNI", useTNI0);
+        CloseINIFile (hini);
+
+        hini := OpenINIFile (Tname, TRUE);
+        foundT :=INIGet (hini, app, "UseTNI", useTNI);
+        CloseINIFile (hini);
+
+        (* If both entries missing, default to using INI.  *)
+
+        IF NOT (foundI OR foundT) THEN
+            RETURN TRUE;
+        END (*IF*);
+
+        (* If only one entry exists, use it. *)
+
+        IF foundI <> foundT THEN
+            IF foundI THEN
+                useTNI := useTNI0;
+            END (*IF*);
+            RETURN TRUE;
+        END (*IF*);
+
+        (* That leaves the case where both entries exist. *)
+
+        RETURN useTNI0 = useTNI;
+
+    END ChooseDefaultINI;
 
 (************************************************************************)
 (*                   READING/WRITING A LOCAL INI FILE                   *)

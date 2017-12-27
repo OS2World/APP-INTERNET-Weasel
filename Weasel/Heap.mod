@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -27,7 +27,7 @@ IMPLEMENTATION MODULE Heap;
         (*      Heap storage, with a way to log the amount used     *)
         (*                                                          *)
         (*    Started:        22 July 2012                          *)
-        (*    Last edited:    22 December 2013                      *)
+        (*    Last edited:    21 May 2017                           *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
@@ -46,7 +46,7 @@ FROM Semaphores IMPORT
 FROM Timer IMPORT
     (* proc *)  TimedWait;
 
-FROM Inet2Misc IMPORT
+FROM MiscFuncs IMPORT
     (* proc *)  ConvertCard;
 
 <* IF pm = "FALSE" THEN *>

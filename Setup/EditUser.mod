@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,18 +28,18 @@ IMPLEMENTATION MODULE EditUser;
         (*               Dialogue to edit user details              *)
         (*                                                          *)
         (*    Started:        8 July 1999                           *)
-        (*    Last edited:    14 April 2012                         *)
+        (*    Last edited:    22 May 2017                           *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
 
-IMPORT SYSTEM, OS2, DID, Strings, PMInit, WSUINI, RINIData, INIData, Inet2Misc;
+IMPORT SYSTEM, OS2, DID, Strings, PMInit, WSUINI, RINIData, INIData, MiscFuncs;
 
 FROM Languages IMPORT
     (* type *)  LangHandle,
     (* proc *)  StrToBuffer;
 
-FROM Inet2Misc IMPORT
+FROM MiscFuncs IMPORT
     (* proc *)  EVAL;
 
 (**************************************************************************)
@@ -344,7 +344,7 @@ PROCEDURE ["SysCall"] DialogueProc(hwnd     : OS2.HWND
                            Strings.Delete (NewName, 0, 1);
                        END (*WHILE*);
                        (* Convert to lower case. *)
-                       Inet2Misc.ToLower (NewName);
+                       MiscFuncs.ToLower (NewName);
                        WSUINI.OpenINIFile;
                        IF NewName[0] <> Nul THEN
                            IF Strings.Equal (NewName, OldName) THEN

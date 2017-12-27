@@ -6,7 +6,7 @@ IMPLEMENTATION MODULE GetDNStxt;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 December 2016                *)
-        (*  Last edited:        23 December 2016                *)
+        (*  Last edited:        22 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -27,7 +27,7 @@ FROM Storage IMPORT
 FROM LowLevel IMPORT
     (* proc *)  IAND;
 
-FROM Inet2Misc IMPORT
+FROM MiscFuncs IMPORT
     (* proc *)  HeadMatch;
 
 (************************************************************************)

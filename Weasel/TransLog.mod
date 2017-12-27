@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE TransLog;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            16 March 1999                   *)
-        (*  Last edited:        25 May 2014                     *)
+        (*  Last edited:        22 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (*     Now working on the concept of having different   *)
@@ -73,9 +73,11 @@ FROM NetDB IMPORT
     (* type *)  HostEntPtr, AddressPointerArrayPointer,
     (* proc *)  gethostbyname;
 
+FROM MiscFuncs IMPORT
+    (* proc *)  ConvertCard, StringMatch;
+
 FROM Inet2Misc IMPORT
-    (* proc *)  Swap2, Swap4, AddressToHostName, ConvertCard, StringMatch,
-                NameIsNumeric;
+    (* proc *)  Swap2, Swap4, AddressToHostName, NameIsNumeric;
 
 FROM SplitScreen IMPORT
     (* proc *)  LockScreen, UnlockScreen, WriteStringAt,

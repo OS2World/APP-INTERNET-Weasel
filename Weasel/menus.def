@@ -6,7 +6,7 @@ DEFINITION MODULE Menus;
         (*                      select from them.                       *)
         (*                                                              *)
         (*  Programmer:         P. Moylan                               *)
-        (*  Last edited:        19 December 2012                        *)
+        (*  Last edited:        4 August 2017                           *)
         (*  Status:             OK                                      *)
         (*                                                              *)
         (****************************************************************)
@@ -185,7 +185,7 @@ PROCEDURE SelectFromMenu (M: Menu): CARDINAL;
     (* (Item numbers start from 1).  An answer of 0 indicates that the  *)
     (* user typed the ESC key to return without selecting anything.     *)
 
-PROCEDURE DestroyMenu (M: Menu);
+PROCEDURE DestroyMenu (M: Menu;  closewindow: BOOLEAN);
 
     (* Removes a menu from the system, freeing up the space it used.    *)
 

@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE POPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 April 1998                   *)
-        (*  Last edited:        21 April 2017                   *)
+        (*  Last edited:        22 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -58,7 +58,7 @@ FROM LowLevel IMPORT
 FROM TimeConv IMPORT
     (* proc *)  time;
 
-FROM Inet2Misc IMPORT
+FROM MiscFuncs IMPORT
     (* proc *)  ToLower;
 
 FROM FileOps IMPORT

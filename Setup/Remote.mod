@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Remote;
         (*                Communication with INIRemote              *)
         (*                                                          *)
         (*    Started:        7 October 1999                        *)
-        (*    Last edited:    21 May 2013                           *)
+        (*    Last edited:    22 July 2017                          *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
@@ -58,9 +58,12 @@ FROM INIData IMPORT
     (* proc *)  OpenINIFile, CreateINIFile, CloseINIFile, INIValid,
                 INIGet, INIGetString, INIPut, INIPutString;
 
-FROM Inet2Misc IMPORT
+FROM MiscFuncs IMPORT
     (* type *)  CharArrayPointer,
-    (* proc *)  EVAL, NameIsNumeric, Swap2, Swap4, ConvertCard;
+    (* proc *)  EVAL, ConvertCard;
+
+FROM Inet2Misc IMPORT
+    (* proc *)  NameIsNumeric, Swap2, Swap4;
 
 FROM Heap IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
@@ -448,7 +451,9 @@ PROCEDURE SelectRemoteFile (filename: ARRAY OF CHAR): BOOLEAN;
 
     (* Tells the remote server which INI or TNI file to work on.  The   *)
     (* filename is either an absolute file name, or a name relative to  *)
-    (* the current working directory, on the remote server.             *)
+    (* the current working directory, on the remote server.  A FALSE    *)
+    (* reply means either that the file does not exist or it is not a   *)
+    (* valid INI or TNI file.                                           *)
 
     BEGIN
         RETURN ExecCommand2 ('F', filename);

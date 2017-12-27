@@ -28,7 +28,7 @@ MODULE Weasel;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            12 April 1998                   *)
-        (*  Last edited:        13 January 2017                 *)
+        (*  Last edited:        30 August 2017                  *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -76,14 +76,17 @@ FROM Exceptq IMPORT
     (* proc *)  InstallExceptq, UninstallExceptq;
 
 FROM SplitScreen IMPORT
-    (* proc *)  NotDetached;
+    (* proc *)  NotDetached, WriteString, WriteLn;
 
 FROM INIData IMPORT
     (* proc *)  OpenINIFile, CloseINIFile, INIGet, INIGetString,
                 SetWorkingDirectory;
 
-FROM InetUtilities IMPORT
-    (* proc *)  ConvertDecimal, Swap2, ConvertCard, IPToString;
+FROM MiscFuncs IMPORT
+    (* proc *)  ConvertDecimal, ConvertCard;
+
+FROM Inet2Misc IMPORT
+    (* proc *)  Swap2, IPToString;
 
 FROM Conversions IMPORT
     (* proc *)  CardinalToStringLJ;
@@ -401,16 +404,18 @@ PROCEDURE LoadINIData;
 (*                         COMMAND LINE ARGUMENTS                       *)
 (************************************************************************)
 
-PROCEDURE GetParameters (VAR (*OUT*) result: CARDINAL): BOOLEAN;
+PROCEDURE GetParameters (VAR (*OUT*) result: CARDINAL;
+                             VAR (*OUT*) abort: BOOLEAN): BOOLEAN;
 
     (* Picks up optional program arguments from the command line.  If a *)
     (* numeric argument is present, returns TRUE and returns its value  *)
-    (* in result.                                                       *)
+    (* in result.  This procedure also sets the value of UseTNI, or     *)
+    (* returns with abort=TRUE if no decision can be made.              *)
 
     TYPE CharSet = SET OF CHAR;
     CONST Digits = CharSet {'0'..'9'};
 
-    VAR j: CARDINAL;  ch: CHAR;
+    VAR j, TNIoption: CARDINAL;  ch: CHAR;
         args: ChanId;
         ParameterString: ARRAY [0..79] OF CHAR;
         NumberPresent: BOOLEAN;
@@ -418,6 +423,8 @@ PROCEDURE GetParameters (VAR (*OUT*) result: CARDINAL): BOOLEAN;
     BEGIN
         ExtraLogging := FALSE;
         NumberPresent := FALSE;
+        abort := FALSE;
+        TNIoption := 2;             (* 2 meaning "no decision" *)
         args := ArgChan();
         IF IsArgPresent() THEN
             TextIO.ReadString (args, ParameterString);
@@ -431,9 +438,9 @@ PROCEDURE GetParameters (VAR (*OUT*) result: CARDINAL): BOOLEAN;
                 ELSIF CAP(ch) = 'F' THEN
                     SetWorkingDirectory;
                 ELSIF CAP(ch) = 'I' THEN
-                    UseTNI := FALSE;
+                    TNIoption := 0;
                 ELSIF CAP(ch) = 'T' THEN
-                    UseTNI := TRUE;
+                    TNIoption := 1;
                 ELSIF ch IN Digits THEN
                     NumberPresent := TRUE;
                     result := 0;
@@ -446,6 +453,12 @@ PROCEDURE GetParameters (VAR (*OUT*) result: CARDINAL): BOOLEAN;
                     EXIT (*LOOP*);
                 END (*IF*);
             END (*LOOP*);
+        END (*IF*);
+
+        IF TNIoption < 2 THEN
+            UseTNI := TNIoption <> 0;
+        ELSE
+            abort := NOT INIData.ChooseDefaultINI("Weasel", UseTNI);
         END (*IF*);
 
         (*UseTNI := TRUE;*)      (* while testing TNI mode *)
@@ -615,7 +628,7 @@ PROCEDURE RunTheServer;
 
                 MainSocket[j] := NotASocket;
 
-                IF Enabled[j] THEN
+                IF Enabled[j] AND (j <> IMAP) THEN
                     MainSocket[j] := socket (AF_INET, SOCK_STREAM, AF_UNSPEC);
                     ServiceToTestMap[j] := nservice;
                     DefaultSocketsToTest[nservice] := MainSocket[j];
@@ -632,7 +645,7 @@ PROCEDURE RunTheServer;
                 Strings.Assign (ServiceName[j], message);
                 IF Enabled[j] THEN
                     IF j = IMAP THEN
-                        Strings.Append (" requires imapd.exe", message);
+                        Strings.Append (" will be handled by imapd.exe", message);
                         Enabled[j] := FALSE;
                     ELSE
                         Strings.Append (" listening on ", message);
@@ -877,7 +890,7 @@ PROCEDURE DeliberateCrash;
 
 (********************************************************************************)
 
-VAR count: CARDINAL;
+VAR count: CARDINAL;  abort: BOOLEAN;
 
 BEGIN
     ExtraLogging := FALSE;
@@ -885,24 +898,37 @@ BEGIN
     GetProgName (WeaselName);
     ScreenEnabled := NotDetached();
 
-    CalledFromInetd := GetParameters (InetdSocket);
-    LoadINIData;
-    ProVersion := TRUE;
-    GetProgramName (ProgVersion);
-    ClearMailboxLocks;
-    ShutdownInProgress := FALSE;  RapidShutdown := FALSE;
-    CreateSemaphore (TaskDone, 0);
-    CreateSemaphore (ShutdownRequest, 0);
-    EVAL(CreateTask (INIChangeDetector, 2, "update"));
-    EVAL(CreateTask (ShutdownChecker, 1, "ctrl/c hook"));
-    EVAL(CreateTask (ShutdownRequestDetector, 2, "shutdown"));
-    RunTheServer;
+    CalledFromInetd := GetParameters(InetdSocket, abort);
+    IF abort THEN
+        WriteString ("Inconsistency between Weasel.INI and Weasel.TNI");
+        WriteLn;
+        WriteString ("Run ChooseTNI.cmd to fix the problem, then try again");
+        WriteLn;
+    ELSE
+        LoadINIData;
+        ProVersion := TRUE;
+        GetProgramName (ProgVersion);
+        ClearMailboxLocks;
+        ShutdownInProgress := FALSE;  RapidShutdown := FALSE;
+        CreateSemaphore (TaskDone, 0);
+        CreateSemaphore (ShutdownRequest, 0);
+        EVAL(CreateTask (INIChangeDetector, 2, "update"));
+        EVAL(CreateTask (ShutdownChecker, 1, "ctrl/c hook"));
+        EVAL(CreateTask (ShutdownRequestDetector, 2, "shutdown"));
+        RunTheServer;
+    END (*IF*);
 FINALLY
-    OS2.DosPostEventSem (ShutdownSignal);
-    OS2.DosResetEventSem (ShutdownSignal, count);
-    Wait (TaskDone);
-    OS2.DosPostEventSem (UpdaterFlag);
-    Wait (TaskDone);  Wait (TaskDone);
-    NotifyTermination;
+    IF NOT abort THEN
+        (*
+        OS2.DosPostEventSem (ShutdownSignal);
+        OS2.DosResetEventSem (ShutdownSignal, count);
+        Wait (TaskDone);
+        *)
+        OS2.DosPostEventSem (UpdaterFlag);
+        Wait (TaskDone);
+        Signal (ShutdownRequest);
+        Wait (TaskDone);
+        NotifyTermination;
+    END (*IF*);
 END Weasel.
 

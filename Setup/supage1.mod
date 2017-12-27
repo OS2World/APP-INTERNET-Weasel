@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SUPage1;
         (*                    Page 1 of the notebook                    *)
         (*                                                              *)
         (*        Started:        30 June 1999                          *)
-        (*        Last edited:    9 September 2014                      *)
+        (*        Last edited:    30 August 2017                        *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -57,7 +57,7 @@ FROM RINIData IMPORT
 FROM Remote IMPORT
     (* proc *)  OurDirectory;
 
-FROM Inet2Misc IMPORT
+FROM MiscFuncs IMPORT
     (* type *)  CharArrayPointer,
     (* proc *)  EVAL;
 
@@ -72,12 +72,18 @@ TYPE
     ThreeCard = ARRAY [0..2] OF CARDINAL;
     FourCard = ARRAY [0..3] OF CARDINAL;
     DirectoryString = ARRAY [0..511] OF CHAR;
+    TextArray = ARRAY [0..7] OF CHAR;
+    TextPointer = POINTER TO TextArray;
 
 VAR
     ChangeInProgress: BOOLEAN;
     OldMultiDomainEnabled: BOOLEAN;
     OurPageID: CARDINAL;
     OurLang: LangHandle;
+
+    (* Whether to use TNI instead of INI. *)
+
+    ChooseTNI, OldChooseTNI: BOOLEAN;
 
     (* Handle to the window that belongs to this page.  We can save     *)
     (* this as a static value because there is never more than one      *)
@@ -103,6 +109,11 @@ VAR
     OutputThreadCount: CARDINAL;
     IMAPdata: FourCard;
     IMAPenabled: BOOLEAN;
+
+    (* Text for a spinbutton control. *)
+
+    INIchoiceText: ARRAY [0..1] OF TextArray;
+    INIchoicePtr: ARRAY [0..1] OF TextPointer;
 
 (************************************************************************)
 (*             ENSURING THAT EVERY USER HAS A MAIL DIRECTORY            *)
@@ -154,10 +165,10 @@ PROCEDURE CheckUserDirectories (VAR (*IN*) MailRoot: ARRAY OF CHAR;
 
 PROCEDURE CommitMailRoot (VAR (*OUT*) MailRootDir: ARRAY OF CHAR);
 
-    (* Stores the current MailRoot value back to the INI file, if it    *)
-    (* has changed; ensures that this directory exists; and returns the *)
-    (* directory name (including a final '\') to the caller.  We assume *)
-    (* that the caller has already opened the INI file.                 *)
+    (* Stores the current MailRoot value back to the INI file,          *)
+    (* unconditionally; ensures that this directory exists; and returns *)
+    (* the directory name (including a final '\') to the caller.  We    *)
+    (* assume that the caller has already opened the INI file.          *)
 
     VAR j: CARDINAL;  stringval: DirectoryString;
 
@@ -193,10 +204,8 @@ PROCEDURE CommitMailRoot (VAR (*OUT*) MailRootDir: ARRAY OF CHAR);
 
         (* Store the final directory name. *)
 
-        IF NOT Strings.Equal (stringval, MailRoot) THEN
-            INIPutString ('$SYS', 'MailRoot', stringval);
-            Strings.Assign (stringval, MailRoot);
-        END (*IF*);
+        INIPutString ('$SYS', 'MailRoot', stringval);
+        Strings.Assign (stringval, MailRoot);
         Strings.Assign (stringval, MailRootDir);
 
     END CommitMailRoot;
@@ -236,6 +245,8 @@ PROCEDURE SetLanguage (lang: LangHandle);
         OS2.WinSetDlgItemText (pagehandle, DID.MSABoxLabel, stringval);
         StrToBuffer (lang, "Page1.Language", stringval);
         OS2.WinSetDlgItemText (pagehandle, DID.LanguageLabel, stringval);
+        StrToBuffer (lang, "Page1.INIchoice", stringval);
+        OS2.WinSetDlgItemText (pagehandle, DID.INIchoicelabel, stringval);
         StrToBuffer (lang, "Page1.MailRoot", stringval);
         OS2.WinSetDlgItemText (pagehandle, DID.MailRootLabel, stringval);
         StrToBuffer (lang, "Rego.Multidomain", stringval);
@@ -312,6 +323,22 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
 
     BEGIN
         OpenINIFile;
+
+        (* Whether to use INI or TNI. *)
+
+        IF NOT INIFetch ('$SYS', 'UseTNI', ChooseTNI) THEN
+            ChooseTNI := FALSE;
+        END (*IF*);
+        OldChooseTNI := ChooseTNI;
+        OS2.WinSendDlgItemMsg (hwnd, DID.INIchoice, OS2.SPBM_SETCURRENTVALUE,
+                                    OS2.MPFROMSHORT(ORD(ChooseTNI)), NIL);
+        (*
+        IF ChooseTNI THEN
+            OS2.WinSetDlgItemText (hwnd, DID.ThreadCount, "ChooseTNI is TRUE");
+        ELSE
+            OS2.WinSetDlgItemText (hwnd, DID.ThreadCount, "ChooseTNI is FALSE");
+        END (*IF*);
+        *)
 
         (* Server ports. *)
 
@@ -535,7 +562,7 @@ PROCEDURE StoreData (hwnd1: OS2.HWND;  Multidomain: BOOLEAN);
 
     (* Stores the values on page 1 back into the INI file.  *)
 
-    VAR val: FourCard;  temp: INT16;  enable: BOOLEAN;
+    VAR val: FourCard;  temp: INT16;  enable, bool: BOOLEAN;
         langval: ARRAY [0..LangStringSize] OF CHAR;
         (*debugmes: ARRAY [0..127] OF CHAR;*)
 
@@ -543,6 +570,19 @@ PROCEDURE StoreData (hwnd1: OS2.HWND;  Multidomain: BOOLEAN);
         StoreUserNumbers (hwnd1);
 
         OpenINIFile;
+
+        (* Whether to use TNI. *)
+
+        temp := 0;
+        OS2.WinSendDlgItemMsg (hwnd1, DID.INIchoice, OS2.SPBM_QUERYVALUE,
+                        ADR(temp), OS2.MPFROM2SHORT(0,0));
+        bool := temp <> 0;
+        (*
+        IF bool <> OldChooseTNI THEN
+            INIPut ('$SYS', 'UseTNI', bool);
+        END (*IF*);
+        *)
+            INIPut ('$SYS', 'UseTNI', bool);
 
         (* Server ports. *)
 
@@ -621,6 +661,8 @@ PROCEDURE ["SysCall"] DialogueProc (hwnd: OS2.HWND;  msg: OS2.ULONG;
         IF msg = OS2.WM_INITDLG THEN
 
             OS2.WinSetWindowPos (hwnd, 0, 0, 0, 0, 0, OS2.SWP_MOVE);
+            OS2.WinSendDlgItemMsg (hwnd, DID.INIchoice, OS2.SPBM_SETARRAY,
+                        ADR(INIchoicePtr), OS2.MPFROMSHORT(2));
             LoadValues (hwnd);
             RETURN NIL;
 
@@ -697,6 +739,10 @@ PROCEDURE CreatePage (notebook: OS2.HWND;  VAR (*OUT*) PageID: CARDINAL): OS2.HW
                         CAST(ADDRESS,PageID), ADR(Label));
         OS2.WinSendMsg (notebook, OS2.BKM_SETPAGEWINDOWHWND,
                         CAST(ADDRESS,PageID), CAST(ADDRESS,pagehandle));
+        (*
+        OS2.WinSetFocus(OS2.HWND_DESKTOP,
+                        OS2.WinWindowFromID(PageID,DID.SMTPPortField));
+        *)
         RETURN pagehandle;
     END CreatePage;
 
@@ -714,6 +760,8 @@ PROCEDURE SetFont (VAR (*IN*) name: CommonSettings.FontName);
 
 (**************************************************************************)
 
+VAR j: CARDINAL;
+
 BEGIN
     ChangeInProgress := FALSE;
     pagehandle := OS2.NULLHANDLE;
@@ -728,5 +776,10 @@ BEGIN
     OldLanguage := "";
     MailRoot := "";
     OldMultiDomainEnabled := FALSE;
+    INIchoiceText[0] := "INI";
+    INIchoiceText[1] := "TNI";
+    FOR j := 0 TO 1 DO
+        INIchoicePtr[j] := ADR(INIchoiceText[j]);
+    END (*FOR*);
 END SUPage1.
 

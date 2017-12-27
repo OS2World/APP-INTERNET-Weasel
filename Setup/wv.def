@@ -5,13 +5,13 @@ DEFINITION MODULE WV;
         (*                    Weasel version number                     *)
         (*                                                              *)
         (*    Started:        6 March 2004                              *)
-        (*    Last edited:    11 May 2017                               *)
+        (*    Last edited:    17 August 2017                            *)
         (*    Status:         OK                                        *)
         (*                                                              *)
         (****************************************************************)
 
 
-CONST version = "2.37";
+CONST version = "2.42";
 
 END WV.
 

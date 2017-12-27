@@ -233,6 +233,7 @@ CONST
    AuthPOPhost*      = 1720;
    AuthPOPhostLabel* = 1721;
    RelayEverything*  = 1722;
+   RelayUseRules*    = 1723;
    FilterPage*       = 1800;
    FilterBox*        = 1801;
    SerialiseFilters* = 1802;
@@ -290,5 +291,7 @@ CONST
    IPAddress*        = 2108;
    MaxMessageSizeLabel* = 2109;
    MaxMessageSize*   = 2110;
+   INIchoicelabel*   = 2111;
+   INIchoice*        = 2112;
 
 END DID.

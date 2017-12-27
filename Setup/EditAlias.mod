@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE EditAlias;
         (*            Dialogue to edit an alias definition          *)
         (*                                                          *)
         (*    Started:        11 July 1999                          *)
-        (*    Last edited:    14 April 2012                         *)
+        (*    Last edited:    22 May 2017                           *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
@@ -40,7 +40,7 @@ FROM Languages IMPORT
     (* type *)  LangHandle,
     (* proc *)  StrToBuffer, StrToBufferA;
 
-FROM Inet2Misc IMPORT
+FROM MiscFuncs IMPORT
     (* type *)  CharArrayPointer,
     (* proc *)  ToLower;
 

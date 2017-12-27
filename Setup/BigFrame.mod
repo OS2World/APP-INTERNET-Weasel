@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2016   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE BigFrame;
         (*             The settings notebook and its frame          *)
         (*                                                          *)
         (*    Started:        28 June 1999                          *)
-        (*    Last edited:    2 October 2016                        *)
+        (*    Last edited:    18 August 2017                        *)
         (*    Status:         Working                               *)
         (*                                                          *)
         (************************************************************)
@@ -52,7 +52,7 @@ FROM Languages IMPORT
     (* type *)  LangHandle,
     (* proc *)  StrToBuffer, StrToBufferA;
 
-FROM Inet2Misc IMPORT
+FROM MiscFuncs IMPORT
     (* type *)  CharArrayPointer,
     (* proc *)  EVAL;
 
@@ -237,11 +237,11 @@ PROCEDURE InitialiseNotebook (hwnd: OS2.HWND);
         OS2.WinQueryWindowPos (hwnd, swp);
         scale := 2*swp.cx DIV 13;
         IF NewStyle THEN
-            OS2.WinSendMsg (hwnd, OS2.BKM_SETDIMENSIONS,
+            OS2.WinPostMsg (hwnd, OS2.BKM_SETDIMENSIONS,
                  OS2.MPFROM2SHORT(scale,5*scale DIV 12), OS2.MPFROMSHORT(OS2.BKA_MAJORTAB));
-            OS2.WinSendMsg (hwnd, OS2.BKM_SETNOTEBOOKCOLORS,
+            OS2.WinPostMsg (hwnd, OS2.BKM_SETNOTEBOOKCOLORS,
                             OS2.MPFROMLONG(00FFFFAAH(*0055DBFFH*)), OS2.MPFROMLONG(OS2.BKA_BACKGROUNDPAGECOLOR));
-            OS2.WinSendMsg (hwnd, OS2.BKM_SETNOTEBOOKCOLORS,
+            OS2.WinPostMsg (hwnd, OS2.BKM_SETNOTEBOOKCOLORS,
                             OS2.MPFROMLONG(0080DBAAH), OS2.MPFROMLONG(OS2.BKA_BACKGROUNDMAJORCOLOR));
         END (*IF*);
 
@@ -284,7 +284,7 @@ PROCEDURE InitialiseNotebook (hwnd: OS2.HWND);
         MultiDomain := FALSE;
         SetPageFonts (TRUE);
         SetLanguage;
-        OS2.WinSendMsg (hwnd, OS2.BKM_TURNTOPAGE,
+        OS2.WinPostMsg (hwnd, OS2.BKM_TURNTOPAGE,
                            OS2.MPFROMULONG(IDofPage[StartingPage]), NIL);
         OS2.WinShowWindow (hwnd, TRUE);
         CommonSettings.EnableFontChanges(TRUE);
@@ -342,7 +342,7 @@ PROCEDURE UpdateNotebook1 (hwnd: OS2.HWND;  NewMultiDomain: BOOLEAN);
                 RINIData.MakeDirectory (MailRootDir);
                 SUDomains.MoveAllUsers ("", OriginalDomainName);
                 IF (NOT InitialMultidomainSwitch) OR (StartingPage = pdomains) THEN
-                    OS2.WinSendMsg (notebook, OS2.BKM_TURNTOPAGE,
+                    OS2.WinPostMsg (notebook, OS2.BKM_TURNTOPAGE,
                          OS2.MPFROMULONG(IDofPage[pdomains]), NIL);
                 END (*IF*);
                 InitialMultidomainSwitch := FALSE;
@@ -396,7 +396,7 @@ PROCEDURE UpdateNotebook1 (hwnd: OS2.HWND;  NewMultiDomain: BOOLEAN);
                 OS2.WinSendDlgItemMsg (pagehandle[pbase],
                                      DID.MultiDomainEnabled, OS2.BM_SETCHECK,
                                      NIL, NIL);
-                OS2.WinSendMsg (notebook, OS2.BKM_TURNTOPAGE,
+                OS2.WinPostMsg (notebook, OS2.BKM_TURNTOPAGE,
                          OS2.MPFROMULONG(IDofPage[pbase]), NIL);
             END (*IF*);
             MultiDomain := NewMultiDomain;
@@ -494,12 +494,17 @@ PROCEDURE ["SysCall"] MainDialogueProc(hwnd     : OS2.HWND
 
     VAR bookwin: OS2.HWND;  lang: LangHandle;
         hini: INIData.HINI;  pageID: CARDINAL;  pg: Page;
-        stringval: ARRAY [0..255] OF CHAR;
+        stringval, filename: ARRAY [0..255] OF CHAR;
         app: ARRAY [0..12] OF CHAR;
         key: ARRAY [0..12] OF CHAR;
 
     BEGIN
         bookwin := OS2.WinWindowFromID (hwnd, DID.notebook);
+        IF UseTNI THEN
+            filename := "Weasel.TNI";
+        ELSE
+            filename := "Weasel.INI";
+        END (*IF*);
         CASE msg OF
            |  OS2.WM_INITDLG:
                    stringval := "MainNotebook";
@@ -507,11 +512,8 @@ PROCEDURE ["SysCall"] MainDialogueProc(hwnd     : OS2.HWND
                                                      stringval, UseTNI);
                    CommonSettings.CurrentLanguage (lang, stringval);
 
-                   (* Mystery: why do I query current language  *)
-                   (* and then not use the result?              *)
-
                    IF RINIData.RemoteOperation() THEN
-                       IF SelectRemoteFile("Weasel.INI") THEN
+                       IF SelectRemoteFile(filename) THEN
                            StrToBuffer (lang, "Main.remote", stringval);
                        ELSE
                            StrToBuffer (lang, "Main.cantopen", stringval);
@@ -519,6 +521,8 @@ PROCEDURE ["SysCall"] MainDialogueProc(hwnd     : OS2.HWND
                    ELSE
                        StrToBuffer (lang, "Main.local", stringval);
                    END (*IF*);
+                   Strings.Append ("      ", stringval);
+                   Strings.Append (filename, stringval);
                    OS2.WinSetWindowText (hwnd, stringval);
                    InitialiseNotebook (bookwin);
                    OS2.WinSetWindowPtr (bookwin, OS2.QWL_USER,
@@ -550,6 +554,8 @@ PROCEDURE ["SysCall"] MainDialogueProc(hwnd     : OS2.HWND
                        ELSE
                            StrToBuffer (lang, "Main.local", stringval);
                        END (*IF*);
+                       Strings.Append ("      ", stringval);
+                       Strings.Append (filename, stringval);
                        OS2.WinSetWindowText (hwnd, stringval);
                        SetLanguage;
                        ChangeInProgress := FALSE;
@@ -558,6 +564,11 @@ PROCEDURE ["SysCall"] MainDialogueProc(hwnd     : OS2.HWND
 
            |  CommonSettings.WM_MULTIDOMAIN_CHANGE:
                    UpdateNotebook1 (hwnd, OS2.LONGFROMMR(mp1) > 0);
+                   RETURN OS2.WinDefDlgProc(hwnd, msg, mp1, mp2);
+
+           |  CommonSettings.SETFOCUS:
+                   OS2.WinSetFocus(OS2.HWND_DESKTOP,
+                        OS2.WinWindowFromID(hwnd, IDofPage[StartingPage]));
                    RETURN OS2.WinDefDlgProc(hwnd, msg, mp1, mp2);
 
            |  OS2.WM_CLOSE:

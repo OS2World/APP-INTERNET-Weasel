@@ -6,7 +6,7 @@ DEFINITION MODULE SMTPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 April 1998                   *)
-        (*  Last edited:        9 March 2017                    *)
+        (*  Last edited:        9 June 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -119,6 +119,12 @@ PROCEDURE AcceptChunk (SB: SBuffer;  itemdata: ItemDescriptor;
     (* is received, stores it in a temporary file                       *)
     (* whose name is recorded in itemdata.  We periodically signal on   *)
     (* sem to confirm that the reception has not timed out.             *)
+
+PROCEDURE IgnoreChunk (SB: SBuffer;  size: CARDINAL);
+
+    (* Reads 'size' bytes from the input channel without storing them.  *)
+    (* This is for the case where there has been an error but the       *)
+    (* sender does not yet know that anything is wrong.                 *)
 
 PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
                          sem: Semaphore;

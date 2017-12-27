@@ -13,7 +13,7 @@ DEFINITION MODULE RINIData;
         (*     a handle on every call.                              *)
         (*                                                          *)
         (*      Started:        13 January 2002                     *)
-        (*      Last edited:    24 June 2009                        *)
+        (*      Last edited:    22 July 2017                        *)
         (*      Status:         OK                                  *)
         (*                                                          *)
         (************************************************************)
@@ -34,6 +34,18 @@ PROCEDURE SetRemote (option: BOOLEAN);
 PROCEDURE RemoteOperation(): BOOLEAN;
 
     (* Returns TRUE iff we are working with a remote INI file. *)
+
+PROCEDURE ChooseDefaultINI (appname: ARRAY OF CHAR;
+                                   VAR (*OUT*) useTNI: BOOLEAN): BOOLEAN;
+
+    (* Returns useTNI=TRUE if we should default to using appname.TNI to *)
+    (* hold this application's data, useTNI=FALSE if the default should *)
+    (* be to use appname.INI.  The decision is based on factors like    *)
+    (* which file exists.  Of course the caller might in some cases     *)
+    (* override this decision; all we are supplying is an initial       *)
+    (* default.  The function result is FALSE if we are unable to make  *)
+    (* a decision, i.e. either choice is equally good, and in that case *)
+    (* the returned useTNI value is arbitrary.                          *)
 
 PROCEDURE OpenINIFile (filename: ARRAY OF CHAR;  useTNI: BOOLEAN): BOOLEAN;
 

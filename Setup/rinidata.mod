@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -35,7 +35,7 @@ IMPLEMENTATION MODULE RINIData;
         (*     a handle on every call.                              *)
         (*                                                          *)
         (*      Started:        13 January 2002                     *)
-        (*      Last edited:    23 July 2012                        *)
+        (*      Last edited:    22 July 2017                        *)
         (*      Status:         OK                                  *)
         (*                                                          *)
         (************************************************************)
@@ -47,11 +47,14 @@ FROM SYSTEM IMPORT
 
 FROM Heap IMPORT ALLOCATE, DEALLOCATE;
 
+FROM FileOps IMPORT
+    (* type *)  FilenameString;
+
 FROM Remote IMPORT
     (* proc *)  SelectRemoteFile, OurIPAddress,
                 SendCommand, ExecCommand, ExecCommand2, ReceiveLine;
 
-FROM Inet2Misc IMPORT
+FROM MiscFuncs IMPORT
     (* type *)  CharArrayPointer,
     (* proc *)  EVAL, HexEncodeArray, DecodeHex, DecodeHexString;
 
@@ -99,6 +102,78 @@ PROCEDURE ServerIPAddress (): CARDINAL;
     BEGIN
         RETURN OurIPAddress (RemoteFlag);
     END ServerIPAddress;
+
+(************************************************************************)
+(*          DECIDING WHETHER TO SET INI OR TNI AS DEFAULT CHOICE        *)
+(************************************************************************)
+
+PROCEDURE ChooseDefaultINI (appname: ARRAY OF CHAR;
+                                   VAR (*OUT*) useTNI: BOOLEAN): BOOLEAN;
+
+    (* Returns useTNI=TRUE if we should default to using appname.TNI to *)
+    (* hold this application's data, useTNI=FALSE if the default should *)
+    (* be to use appname.INI.  The decision is based on factors like    *)
+    (* which file exists.  Of course the caller might in some cases     *)
+    (* override this decision; all we are supplying is an initial       *)
+    (* default.  The function result is FALSE if we are unable to make  *)
+    (* a decision, i.e. either choice is equally good, and in that case *)
+    (* the returned useTNI value is arbitrary.                          *)
+
+    VAR useINI, useTNI0, foundI, foundT: BOOLEAN;
+        app: ARRAY [0..5] OF CHAR;
+        Iname, Tname: FilenameString;
+
+    BEGIN
+        IF NOT RemoteFlag THEN
+            RETURN INIData.ChooseDefaultINI (appname, useTNI);
+        END (*IF*);
+
+        (* The following code only needs to handle the remote case. *)
+
+        Strings.Assign (appname, Iname);
+        Strings.Assign (appname, Tname);
+        Strings.Append (".INI", Iname);
+        Strings.Append (".TNI", Tname);
+        useTNI := SelectRemoteFile(Tname);
+        useINI := SelectRemoteFile(Iname);
+
+        (* If only one of the files exists, the decision is obvious.    *)
+        (* If neither exists, default to using INI.                     *)
+
+        IF NOT (useINI AND useTNI) THEN
+            RETURN TRUE;
+        END (*IF*);
+
+        (* That leaves the case where both files exists.  In that case  *)
+        (* we look up the entry ($SYS, useTNI) in each file.            *)
+
+        useTNI := FALSE;  useTNI0 := FALSE;
+        app := "$SYS";
+        foundI :=INIFetch (app, "UseTNI", useTNI0);
+
+        useTNI := SelectRemoteFile(Tname);
+        foundT :=INIFetch (app, "UseTNI", useTNI);
+
+        (* If both entries missing, default to using INI.  *)
+
+        IF NOT (foundI OR foundT) THEN
+            RETURN TRUE;
+        END (*IF*);
+
+        (* If only one entry exists, use it. *)
+
+        IF foundI <> foundT THEN
+            IF foundI THEN
+                useTNI := useTNI0;
+            END (*IF*);
+            RETURN TRUE;
+        END (*IF*);
+
+        (* That leaves the case where both entries exist. *)
+
+        RETURN useTNI0 = useTNI;
+
+    END ChooseDefaultINI;
 
 (************************************************************************)
 (*                  OPENING AND CLOSING THE INI FILE                    *)

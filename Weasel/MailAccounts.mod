@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2016   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -31,7 +31,7 @@ IMPLEMENTATION MODULE MailAccounts;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            8 March 2003                    *)
-        (*  Last edited:        24 January 2016                 *)
+        (*  Last edited:        22 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -57,7 +57,7 @@ FROM TransLog IMPORT
     (* type *)  LogContext, TransactionLogID,
     (* proc *)  CreateLogID, LogTransaction, LogTransactionL;
 
-FROM Inet2Misc IMPORT
+FROM MiscFuncs IMPORT
     (* proc *)  ToLower, ConvertCard;
 
 FROM INIData IMPORT
@@ -857,6 +857,7 @@ PROCEDURE NewMessageFilename (U: LocalUser;
 (*                         LOGGING FOR DEBUGGING                        *)
 (************************************************************************)
 
+(*
 PROCEDURE StartDebugLogging (ctx: LogContext);
 
     (* Temporary code for debugging the MailAccounts module. Starts     *)
@@ -867,6 +868,7 @@ PROCEDURE StartDebugLogging (ctx: LogContext);
         Debugging := TRUE;
         (*Domains.StartDebugLogging (ctx);*)
     END StartDebugLogging;
+*)
 
 (************************************************************************)
 

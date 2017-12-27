@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -27,7 +27,7 @@ MODULE Setup;
         (*                    PM Setup for Weasel                   *)
         (*                                                          *)
         (*    Started:        25 June 1999                          *)
-        (*    Last edited:    2 July 2012                           *)
+        (*    Last edited:    22 July 2017                          *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
@@ -40,6 +40,9 @@ FROM ProgramArgs IMPORT
 
 FROM PMInit IMPORT
     (* proc *)  OurHab;
+
+FROM RINIData IMPORT
+    (* proc *)  ChooseDefaultINI;
 
 FROM WSUINI IMPORT
     (* proc *)  SetTNIMode;
@@ -54,7 +57,7 @@ VAR hab: OS2.HAB;            (* anchor block handle *)
 (********************************************************************************)
 
 PROCEDURE GetParameters (VAR (*OUT*) LocalRemote: CARDINAL;
-                         VAR (*OUT*) UseTNI: BOOLEAN);
+                         VAR (*INOUT*) UseTNI: BOOLEAN);
 
     (* Picks up program arguments from the command line. *)
     (* The meaning of LocalRemote is:                                   *)
@@ -88,7 +91,6 @@ PROCEDURE GetParameters (VAR (*OUT*) LocalRemote: CARDINAL;
 
     BEGIN
         LocalRemote := 0;
-        UseTNI := FALSE;
         args := ArgChan();
         IF IsArgPresent() THEN
             TextIO.ReadString (args, Options);
@@ -123,8 +125,13 @@ BEGIN
 
     (* NOTE:  clean up from here is handled by the DosExitList processing *)
     (* Since signal exceptions are not handled by RTS yet, using module   *)
-    (* finalization for clean up is incorrect. This will be changed in the*)
-    (* next release.                                                      *)
+    (* finalization for clean up is incorrect.                            *)
+
+    IF NOT ChooseDefaultINI ("weasel", UseTNI) THEN
+        UseTNI := FALSE;
+    END (*IF*);
+
+    (* The value of UseTNI set above can be overriden by user parameters. *)
 
     GetParameters (LocalRemote, UseTNI);
         (*UseTNI := TRUE;*)    (* Enable this line for testing TNI mode *)

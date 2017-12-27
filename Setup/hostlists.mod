@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2016   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE HostLists;
         (*               Host list pages of the notebook                *)
         (*                                                              *)
         (*        Started:        8 July 1999                           *)
-        (*        Last edited:    19 October 2016                       *)
+        (*        Last edited:    22 May 2017                           *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -50,9 +50,12 @@ FROM RINIData IMPORT
     (* proc *)  INIFetch, INIPut, INIPutBinary,
                 GetStringList, NextString, CloseStringList;
 
-FROM Inet2Misc IMPORT
+FROM MiscFuncs IMPORT
     (* type *)  CharArrayPointer,
-    (* proc *)  EVAL, IPToString, NameIsNumeric, StringToIP;
+    (* proc *)  EVAL;
+
+FROM Inet2Misc IMPORT
+    (* proc *)  IPToString, NameIsNumeric, StringToIP;
 
 FROM Misc IMPORT
     (* type *)  HostCategory;

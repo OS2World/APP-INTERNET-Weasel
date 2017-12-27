@@ -7,7 +7,7 @@ DEFINITION MODULE SMTPLogin;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            5 February 2003                 *)
-        (*  Last edited:        12 April 2017                   *)
+        (*  Last edited:        26 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -33,7 +33,8 @@ PROCEDURE DoLogin (SB: SBuffer;  LocalHostName: HostName;
     (* that we support.                                                 *)
 
     (* ChunkingAvailable is TRUE iff the remote server supports the     *)
-    (* CHUNKING option.                                                 *)
+    (* CHUNKING option, with one exception: we do not allow chunking    *)
+    (* with Microsoft servers, because of its strange timeout rules.    *)
 
 PROCEDURE DoPOPLogin (IPAddr, port: CARDINAL;
                            user: UserName;  pass: PassString;

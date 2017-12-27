@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Inet2Misc;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            17 January 2002                 *)
-        (*  Last edited:        9 March 2017                    *)
+        (*  Last edited:        22 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -43,24 +43,24 @@ IMPORT Strings;
 FROM Conversions IMPORT
     (* proc *)  CardinalToString;
 
+FROM MiscFuncs IMPORT
+    (* proc *)  ConvertCard, GetNum;
+
 FROM Names IMPORT
     (* type *)  HostName;
-
-FROM Sockets IMPORT
-    (* const*)  AF_INET,
-    (* type *)  Socket,
-    (* proc *)  select, setsockopt, send;
 
 FROM NetDB IMPORT
     (* type *)  HostEntPtr,
     (* proc *)  gethostbyaddr;
 
+FROM Sockets IMPORT
+    (* const*)  AF_INET,
+    (* const*)  NotASocket,
+    (* type *)  Socket,
+    (* proc *)  select, setsockopt, send;
+
 FROM LowLevel IMPORT
     (* proc *)  SwapIt;
-
-FROM TaskControl IMPORT
-    (* type *)  Lock,
-    (* proc *)  CreateLock, Obtain, Release;
 
 (********************************************************************************)
 
@@ -69,10 +69,6 @@ TYPE CharSet = SET OF CHAR;
 CONST
     Nul = CHR(0);
     DecimalDigits = CharSet{'0'..'9'};
-    HexDigits = CharSet{'0'..'9', 'A'..'F', 'a'..'f'};
-
-VAR
-    ScreenLock: Lock;
 
 (********************************************************************************)
 
@@ -196,6 +192,34 @@ PROCEDURE WaitForSocketOut (S: Socket;  timeout: CARDINAL): INTEGER;
         RETURN select (SocketArray, 0, 1, 0, timeout);
     END WaitForSocketOut;
 
+(********************************************************************************)
+
+PROCEDURE WaitForDataSocket (output: BOOLEAN;
+                             DataSocket, CommandSocket: Socket): BOOLEAN;
+
+    (* Waits until DataSocket is ready or out-of-band data arrives on           *)
+    (* CommandSocket.  The first parameter should be TRUE if DataSocket is      *)
+    (* being used as an output socket, and FALSE if it is being used as an      *)
+    (* input socket.  The function result is TRUE iff DataSocket is ready AND   *)
+    (* no out-of-band data has arrived on CommandSocket.                        *)
+
+    VAR SocketArray: ARRAY [0..1] OF Socket;  count: INTEGER;
+
+    BEGIN
+        SocketArray[0] := DataSocket;
+        SocketArray[1] := CommandSocket;
+        IF output THEN
+            count := select (SocketArray, 0, 1, 1, MAX(CARDINAL));
+        ELSE
+            count := select (SocketArray, 1, 0, 1, MAX(CARDINAL));
+        END (*IF*);
+        IF count > 0 THEN
+            RETURN SocketArray[1] = NotASocket;
+        ELSE
+            RETURN FALSE;
+        END (*IF*);
+    END WaitForDataSocket;
+
 (************************************************************************)
 
 PROCEDURE Synch (S: Socket);
@@ -215,16 +239,6 @@ PROCEDURE Synch (S: Socket);
     END Synch;
 
 (************************************************************************)
-
-PROCEDURE EVAL (f: ARRAY OF LOC);
-
-    (* A do-nothing procedure - we use it for evaluating a function and *)
-    (* ignoring the result.                                             *)
-
-    BEGIN
-    END EVAL;
-
-(********************************************************************************)
 
 PROCEDURE NameIsNumeric (VAR (*INOUT*) name: ARRAY OF CHAR): BOOLEAN;
 
@@ -289,23 +303,6 @@ PROCEDURE NameIsNumeric (VAR (*INOUT*) name: ARRAY OF CHAR): BOOLEAN;
 
 (********************************************************************************)
 
-PROCEDURE GetNum (str: ARRAY OF CHAR;  VAR (*INOUT*) pos: CARDINAL): CARDINAL;
-
-    (* Picks up a number at str[pos], increments pos. *)
-
-    VAR ans: CARDINAL;
-
-    BEGIN
-        ans := 0;
-        WHILE str[pos] IN DecimalDigits DO
-            ans := 10*ans + (ORD(str[pos]) - ORD('0'));
-            INC (pos);
-        END (*WHILE*);
-        RETURN ans;
-    END GetNum;
-
-(********************************************************************************)
-
 PROCEDURE StringToIP (name: ARRAY OF CHAR): CARDINAL;
 
     (* Converts an N.N.N.N string to an address in network byte order.  We      *)
@@ -333,292 +330,5 @@ PROCEDURE StringToIP (name: ARRAY OF CHAR): CARDINAL;
 
 (************************************************************************)
 
-PROCEDURE StringMatch (str1, str2: ARRAY OF CHAR): BOOLEAN;
-
-    (* Checks if str1 and str2 are equal, modulo character case. *)
-
-    BEGIN
-        Strings.Capitalize (str1);
-        Strings.Capitalize (str2);
-        RETURN Strings.Equal (str1, str2);
-    END StringMatch;
-
-(********************************************************************************)
-
-PROCEDURE HeadMatch (VAR (*IN*) str: ARRAY OF CHAR;
-                                template: ARRAY OF CHAR): BOOLEAN;
-
-    (* String equality, with case differences ignored.  We check that   *)
-    (* template is a leading substring of str.                          *)
-
-    VAR j: CARDINAL;
-
-    BEGIN
-        j := 0;
-        LOOP
-            IF template[j] = CHR(0) THEN RETURN TRUE
-            ELSIF CAP(str[j]) <> CAP(template[j]) THEN RETURN FALSE
-            ELSE INC(j)
-            END (*IF*);
-        END (*LOOP*);
-    END HeadMatch;
-
-(************************************************************************)
-
-PROCEDURE ToLower (VAR (*INOUT*) string: ARRAY OF CHAR);
-
-    (* Converts all letters in string to lower case. *)
-
-    CONST shift = ORD('a') - ORD('A');
-
-    VAR j: CARDINAL;
-
-    BEGIN
-        j := 0;
-        WHILE (j <= HIGH(string)) AND (string[j] <> Nul) DO
-            IF string[j] IN CharSet {'A'..'Z'} THEN
-                INC (string[j], shift);
-            END (*IF*);
-            INC (j);
-        END (*WHILE*);
-    END ToLower;
-
-(********************************************************************************)
-
-PROCEDURE StripSpaces (VAR (*INOUT*) arg: ARRAY OF CHAR);
-
-    (* Removes leading and trailing spaces from arg.  *)
-
-    VAR k: CARDINAL;
-
-    BEGIN
-        (* Leading spaces. *)
-
-        k := 0;
-        WHILE (k <= HIGH(arg)) AND (arg[k] = ' ') DO
-            INC (k);
-        END (*WHILE*);
-        IF k > 0 THEN
-            Strings.Delete (arg, 0, k);
-        END (*IF*);
-
-        (* Trailing spaces. *)
-
-        k := LENGTH(arg);
-        WHILE (k > 0) AND (arg[k-1] = ' ') DO
-            DEC (k);
-        END (*WHILE*);
-        IF k <= HIGH(arg) THEN
-            arg[k] := Nul;
-        END (*IF*);
-
-    END StripSpaces;
-
-(********************************************************************************)
-
-PROCEDURE SplitArg (VAR (*OUT*) first: ARRAY OF CHAR;
-                    VAR (*INOUT*) arg: ARRAY OF CHAR);
-
-    (* Finds the first space character in arg, and assigns everything   *)
-    (* before it to first, and everything after it to arg.  Leading and *)
-    (* trailing spaces are stripped.  If there is no internal space,    *)
-    (* arg is copied to first and arg then becomes the empty string.    *)
-
-    VAR k: CARDINAL;  found: BOOLEAN;
-
-    BEGIN
-        StripSpaces (arg);
-        Strings.Assign (arg, first);
-        Strings.FindNext (' ', first, 0, found, k);
-        IF found THEN
-            first[k] := Nul;
-            WHILE (k <= HIGH(arg)) AND (arg[k] = ' ') DO
-                INC (k);
-            END (*WHILE*);
-            Strings.Delete (arg, 0, k);
-        ELSE
-            arg[0] := Nul;
-        END (*IF*);
-    END SplitArg;
-
-(********************************************************************************)
-
-PROCEDURE ConvertCard (number: CARDINAL;  VAR (*OUT*) result: ARRAY OF CHAR;
-                                          VAR (*INOUT*) pos: CARDINAL);
-
-    (* Converts number to decimal, left justified starting at result[pos].      *)
-    (* On return pos is updated to the next unused array index.                 *)
-
-    VAR j: CARDINAL;  buffer: ARRAY [0..15] OF CHAR;
-
-    BEGIN
-        CardinalToString (number, buffer, SIZE(buffer));
-        j := 0;
-        WHILE buffer[j] = ' ' DO INC(j);  END(*WHILE*);
-        WHILE (pos <= HIGH(result)) AND (j < SIZE(buffer)) DO
-            result[pos] := buffer[j];  INC(pos);  INC(j);
-        END (*WHILE*);
-    END ConvertCard;
-
-(********************************************************************************)
-
-PROCEDURE HexEncodeDigit (val: CARDINAL): CHAR;
-
-    (* Converts val to one-digit hexadecimal. *)
-
-    BEGIN
-        IF val < 10 THEN
-            RETURN CHR(ORD('0') + val);
-        ELSE
-            RETURN CHR(ORD('A') + val - 10);
-        END (*IF*);
-    END HexEncodeDigit;
-
-(********************************************************************************)
-
-PROCEDURE HexEncodeByte (V: LOC;  VAR (*OUT*) result: ARRAY OF CHAR;
-                                                                  pos: CARDINAL);
-
-    (* Converts val to two-digit hexadecimal, stores the result at      *)
-    (* result[pos] and result[pos+1].                                   *)
-
-    VAR val: CARD8;
-
-    BEGIN
-        val := CAST(CARD8, V);
-        result[pos]   := HexEncodeDigit(val DIV 16);
-        result[pos+1] := HexEncodeDigit(val MOD 16);
-    END HexEncodeByte;
-
-(********************************************************************************)
-
-PROCEDURE HexEncodeArray (VAR (*IN*) input: ARRAY OF LOC;  N: CARDINAL;
-                          VAR (*OUT*) result: ARRAY OF CHAR);
-
-    (* Each byte of input becomes two hexadecimal digits. *)
-
-    VAR j: CARDINAL;
-
-    BEGIN
-        IF N > HIGH(input) THEN
-            N := HIGH(input) + 1;
-        END (*IF*);
-        IF 2*N > HIGH(result) THEN
-            N := ((HIGH(result) + 1)) DIV 2;
-        END (*IF*);
-        IF N > 0 THEN
-            FOR j := 0 TO N-1 DO
-                HexEncodeByte (input[j], result, 2*j);
-            END (*FOR*);
-        END (*FOR*);
-        N := 2*N;
-        IF N <= HIGH(result) THEN
-            result[N] := Nul;
-        END (*IF*);
-    END HexEncodeArray;
-
-(********************************************************************************)
-
-PROCEDURE DecodeHexDigit (ch: CHAR): CARDINAL;
-
-    (* Converts a one-digit hexadecimal number to cardinal. *)
-
-    BEGIN
-        IF ch IN DecimalDigits THEN
-            RETURN ORD(ch) - ORD('0');
-        ELSE
-            RETURN ORD(CAP(ch)) - ORD('A') + 10;
-        END (*IF*)
-    END DecodeHexDigit;
-
-(********************************************************************************)
-
-PROCEDURE DecodeHex (input: ARRAY OF CHAR): CARDINAL;
-
-    (* Converts a hexadecimal number to cardinal. *)
-
-    VAR j, result: CARDINAL;
-
-    BEGIN
-        j := 0;  result := 0;
-        WHILE (j <= HIGH(input)) AND (input[j] IN HexDigits) DO
-            result := 16*result + DecodeHexDigit(input[j]);
-            INC(j);
-        END (*WHILE*);
-        RETURN result;
-    END DecodeHex;
-
-(********************************************************************************)
-
-PROCEDURE DecodeHexString (VAR (*IN*) input: ARRAY OF CHAR;
-                           VAR (*OUT*) result: ARRAY OF LOC);
-
-    (* Each two characters of input is interpreted as a pair of two hexadecimal digits. *)
-
-    VAR j, k: CARDINAL;  ans: CARD8;
-
-    BEGIN
-        j := 0;  k := 0;
-        LOOP
-            IF (j > HIGH(input)) OR NOT(input[j] IN HexDigits) OR (k > HIGH(result)) THEN
-                EXIT (*LOOP*);
-            END (*IF*);
-            ans := DecodeHexDigit(input[j]);  INC(j);
-            IF input[j] IN HexDigits THEN
-                ans := 16*ans + DecodeHexDigit(input[j]);
-                INC(j);
-            END (*IF*);
-            result[k] := CAST(LOC,ans);
-            INC(k);
-        END (*LOOP*);
-    END DecodeHexString;
-
-(********************************************************************************)
-
-PROCEDURE AddEOL (VAR (*INOUT*) buffer: ARRAY OF CHAR): CARDINAL;
-
-    (* Appends a CRLF to the buffer contents, returns the total string length. *)
-
-    CONST CR = CHR(13);  LF = CHR(10);
-
-    VAR length: CARDINAL;
-
-    BEGIN
-        length := Strings.Length (buffer);
-        IF length >= HIGH(buffer) THEN
-            length := HIGH(buffer)-1;
-        END (*IF*);
-        buffer[length] := CR;  INC(length);
-        buffer[length] := LF;  INC(length);
-        IF length <= HIGH(buffer) THEN
-            buffer[length] := Nul;
-        END (*IF*);
-        RETURN length;
-    END AddEOL;
-
-(************************************************************************)
-
-PROCEDURE LockScreen;
-
-    (* Critical section protection for writing to the screen. *)
-
-    BEGIN
-        Obtain (ScreenLock);
-    END LockScreen;
-
-(************************************************************************)
-
-PROCEDURE UnlockScreen;
-
-    (* Critical section protection for writing to the screen. *)
-
-    BEGIN
-        Release (ScreenLock);
-    END UnlockScreen;
-
-(********************************************************************************)
-
-BEGIN
-    CreateLock (ScreenLock);
 END Inet2Misc.
 

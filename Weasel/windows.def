@@ -5,7 +5,7 @@ DEFINITION MODULE Windows;
         (*                  Text-mode screen windows.                   *)
         (*                                                              *)
         (*  Programmer:         P. Moylan                               *)
-        (*  Last edited:        17 December 1998                        *)
+        (*  Last edited:        11 August 2017                          *)
         (*  Status:             Working                                 *)
         (*                                                              *)
         (****************************************************************)
@@ -428,6 +428,10 @@ PROCEDURE EraseLine (w: Window; option: CARDINAL);
 PROCEDURE ClearWindow (w: Window);
 
     (* Removes all text from the default scrolling region.   *)
+
+PROCEDURE StackCorrupted (page: DisplayPage): BOOLEAN;
+
+    (* Returns TRUE if the next/previous pointers are inconsistent. *)
 
 END Windows.
 

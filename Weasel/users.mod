@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Users;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            24 April 1998                   *)
-        (*  Last edited:        24 July 2012                    *)
+        (*  Last edited:        22 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -52,7 +52,7 @@ FROM INIData IMPORT
     (* type *)  HINI,
     (* proc *)  INIValid, ItemSize, INIGetString, INIPut, INIPutBinary;
 
-FROM InetUtilities IMPORT
+FROM MiscFuncs IMPORT
     (* proc *)  ToLower;
 
 FROM ScreenEditor IMPORT

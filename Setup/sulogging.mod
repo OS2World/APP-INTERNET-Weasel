@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SULogging;
         (*                 Logging page of the notebook                 *)
         (*                                                              *)
         (*        Started:        2 November 2003                       *)
-        (*        Last edited:    12 December 2016                      *)
+        (*        Last edited:    22 May 2017                           *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -55,7 +55,7 @@ FROM RINIData IMPORT
 FROM Remote IMPORT
     (* proc *)  OurDirectory;
 
-FROM Inet2Misc IMPORT
+FROM MiscFuncs IMPORT
     (* type *)  CharArrayPointer,
     (* proc *)  EVAL;
 

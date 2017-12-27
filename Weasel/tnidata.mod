@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -27,7 +27,7 @@ IMPLEMENTATION MODULE TNIData;
         (*            Looking after text-based INI data             *)
         (*                                                          *)
         (*    Started:        26 June 2005                          *)
-        (*    Last edited:    29 August 2014                        *)
+        (*    Last edited:    22 May 2017                           *)
         (*    Status:         Now working, I believe                *)
         (*                                                          *)
         (************************************************************)
@@ -67,7 +67,7 @@ FROM Timer IMPORT
 FROM TaskControl IMPORT
     (* proc *)  CreateTask;
 
-FROM Inet2Misc IMPORT
+FROM MiscFuncs IMPORT
     (* proc *)  ConvertCard;
 
 (************************************************************************)

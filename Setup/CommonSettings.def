@@ -6,7 +6,7 @@ DEFINITION MODULE CommonSettings;
         (*            Data common to the main Setup notebook            *)
         (*                                                              *)
         (*    Started:        26 March 2004                             *)
-        (*    Last edited:    8 September 2014                          *)
+        (*    Last edited:    18 August 2017                            *)
         (*    Status:         OK                                        *)
         (*                                                              *)
         (****************************************************************)
@@ -19,6 +19,7 @@ CONST
     FONTCHANGED = WM_USER + 1;
     LANGCHANGED = WM_USER + 2;
     WM_MULTIDOMAIN_CHANGE = WM_USER + 3;
+    SETFOCUS = WM_USER + 4;
     FontNameSize = 256;
 
 TYPE

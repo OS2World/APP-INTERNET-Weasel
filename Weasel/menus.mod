@@ -516,13 +516,13 @@ PROCEDURE PositionMenu (M: Menu;  startline, endline: RowRange;
 (*                          CLOSING A MENU                              *)
 (************************************************************************)
 
-PROCEDURE DestroyMenu (M: Menu);
+PROCEDURE DestroyMenu (M: Menu;  closewindow: BOOLEAN);
 
     (* Removes a menu from the system, freeing up the space it used.    *)
 
     BEGIN
         WITH M^ DO
-            IF (win <> NilWindow) AND CloseAfterSelection THEN
+            IF (win <> NilWindow) AND (closewindow OR CloseAfterSelection) THEN
                 CloseWindow (win);
             END (*IF*);
             DEALLOCATE (TextPtr, NoOfItems*SIZE(ItemBuffer));

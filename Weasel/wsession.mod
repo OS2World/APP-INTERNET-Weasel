@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE WSession;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            28 April 1998                   *)
-        (*  Last edited:        11 May 2017                     *)
+        (*  Last edited:        26 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -57,11 +57,11 @@ FROM Sockets IMPORT
     (* type *)  Socket, SockAddr,
     (* proc *)  send, getsockname, soclose, so_cancel;
 
-FROM InetUtilities IMPORT
-    (* proc *)  LockScreen, UnlockScreen, IPToString, AddEOL;
-
 FROM Inet2Misc IMPORT
-    (* proc *)  ConvertCard, Synch;
+    (* proc *)  IPToString, Synch;
+
+FROM MiscFuncs IMPORT
+    (* proc *)  ConvertCard, LockScreen, UnlockScreen, AddEOL;
 
 FROM Semaphores IMPORT
     (* type *)  Semaphore,
@@ -535,7 +535,6 @@ PROCEDURE SessionHandler (arg: ADDRESS);
             AbandonSession;
         END (*IF*);
 
-
         (* Check whether the client is on one of our special lists. *)
 
         HavePOPbeforeSMTPAuthorisation := FALSE;
@@ -561,8 +560,10 @@ PROCEDURE SessionHandler (arg: ADDRESS);
 
         (* Check the realtime blacklists, if this check is enabled. *)
 
+        CreateSemaphore (KeepAliveSemaphore, 0);
         IF (NOT whitelisted) AND (NOT MayRelay) AND (sess.service = SMTP)
-                   AND OnBlacklist(sess.ClientIPAddress, pCmdBuffer^) THEN
+                   AND OnBlacklist(sess.ClientIPAddress, sess.LogID,
+                                      KeepAliveSemaphore, pCmdBuffer^) THEN
             Reply (S, sess.LogID, pCmdBuffer^);
             AbandonSession;
         END (*IF*);
@@ -579,7 +580,6 @@ PROCEDURE SessionHandler (arg: ADDRESS);
         (* Create the session information structure.  Note that  *)
         (* OpenSession has not been called up to this point.     *)
 
-        CreateSemaphore (KeepAliveSemaphore, 0);
         SB := CreateSBuffer (S, TRUE);
         IF SB = NilSBuffer THEN
             Strings.Assign ("Out of memory, closing session", pCmdBuffer^);

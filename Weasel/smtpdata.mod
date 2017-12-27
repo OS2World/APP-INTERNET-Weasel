@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SMTPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 April 1998                   *)
-        (*  Last edited:        11 May 2017                     *)
+        (*  Last edited:        9 June 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -92,12 +92,12 @@ FROM INIData IMPORT
     (* proc *)  OpenINIFile, INIGet, INIGetString, INIPut, INIPutString,
                 CloseINIFile;
 
-FROM InetUtilities IMPORT
-    (* proc *)  WriteCard;
+FROM MiscFuncs IMPORT
+    (* type *)  LocArrayPointer, CharArrayPointer,
+    (* proc *)  StringMatch;
 
 FROM Inet2Misc IMPORT
-    (* type *)  LocArrayPointer, CharArrayPointer,
-    (* proc *)  IPToString, AddressToHostName, StringMatch;
+    (* proc *)  IPToString, AddressToHostName;
 
 FROM SMTPLogin IMPORT
     (* proc *)  PostmasterCheck;
@@ -574,7 +574,6 @@ PROCEDURE FromAddressAcceptable (desc: ItemDescriptor;  S: Socket;
     VAR user: UserName;
         SenderDomain: Domain;
         E1, E2, OK, IsBanned, whitelisted, MayRelay: BOOLEAN;
-        j: CARDINAL;
         address: ARRAY [0..max] OF CARDINAL;
         message: ARRAY [0..127] OF CHAR;
         domain, OurDomainName: DomainName;
@@ -608,22 +607,28 @@ PROCEDURE FromAddressAcceptable (desc: ItemDescriptor;  S: Socket;
 
         IF NOT StringMatch(domain, desc^.HELOname) THEN
 
+            Signal (watchdog);
+
             (* Do the "banned hosts" checks if the  *)
             (* MAILFROMcheck option has been set.   *)
 
             IF OK AND MAILFROMcheck THEN
                 OK := NOT BannedHost(domain);
+
+                (* To avoid excessive time delays, we should only look  *)
+                (* at the primary MX host for this domain.              *)
+
                 IF OK AND (DoMXLookup (domain, address) = 0) THEN
-                    j := 0;
-                    WHILE OK AND (j <= max) AND (address[j] <> 0) DO
-                        CheckHost (address[j], IsBanned, whitelisted, MayRelay);
+                    IF address[0] <> 0 THEN
+                        Signal (watchdog);
+                        CheckHost (address[0], IsBanned, whitelisted, MayRelay);
                         IF IsBanned THEN
                             OK := FALSE;
                         ELSIF NOT MayRelay THEN
-                            OK := NOT OnBlacklist (address[j], message);
+                            Signal (watchdog);
+                            OK := NOT OnBlacklist (address[0], desc^.LogID, watchdog, message);
                         END (*IF*);
-                        INC(j);
-                    END (*WHILE*);
+                    END (*IF*);
                 END (*IF*);
             END (*IF*);
 
@@ -631,6 +636,7 @@ PROCEDURE FromAddressAcceptable (desc: ItemDescriptor;  S: Socket;
 
             IF SPFenabled THEN
                 IF OK THEN
+                    Signal (watchdog);
                     desc^.SPFans2 := SPFcheck (desc, user, domain);
                     OK := desc^.SPFans2 <> SPF_fail;
                 ELSE
@@ -653,6 +659,7 @@ PROCEDURE FromAddressAcceptable (desc: ItemDescriptor;  S: Socket;
             IF OurDomainName[0] = Nul THEN
                 Strings.Assign (desc^.OurHostname, OurDomainName);
             END (*IF*);
+            Signal (watchdog);
             desc^.postmasterOK := PostmasterCheck (domain, desc^.OurHostname,
                                      OurDomainName, desc^.LogID,
                                       watchdog, TempFailure);
@@ -1482,13 +1489,13 @@ PROCEDURE CopyChunksToFile (cid: ChanId;  itemdata: ItemDescriptor);
 
 (************************************************************************)
 
-PROCEDURE SkipBytes (SB: SBuffer;  size: CARDINAL);
+PROCEDURE IgnoreChunk (SB: SBuffer;  size: CARDINAL);
 
     (* Reads 'size' bytes from the input channel without storing them.  *)
     (* This is for the case where there has been an error but the       *)
     (* sender does not yet know that anything is wrong.                 *)
 
-    CONST blocksize = 256;
+    CONST blocksize = 1024;
 
     VAR dummy: ARRAY [0..blocksize-1] OF CHAR;
         amount: CARDINAL;
@@ -1503,7 +1510,7 @@ PROCEDURE SkipBytes (SB: SBuffer;  size: CARDINAL);
             EVAL (GetRaw (SB, amount, ADR(dummy)));
             DEC (size, amount);
         END (*WHILE*);
-    END SkipBytes;
+    END IgnoreChunk;
 
 (************************************************************************)
 
@@ -1540,7 +1547,7 @@ PROCEDURE AcceptChunk (SB: SBuffer;  itemdata: ItemDescriptor;
             END (*IF*);
             IF (p = NIL) OR (p^.data = NIL) THEN
                 Strings.Assign ("452 out of memory, try again later", FailureReason);
-                SkipBytes (SB, chunksize);
+                IgnoreChunk (SB, chunksize);
                 IF p <> NIL THEN
                     DISPOSE (p);
                 END (*IF*);

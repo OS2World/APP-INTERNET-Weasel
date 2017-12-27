@@ -29,7 +29,7 @@ IMPLEMENTATION MODULE Delivery;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            12 May 1998                     *)
-        (*  Last edited:        7 May 2017                      *)
+        (*  Last edited:        30 August 2017                  *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -112,13 +112,18 @@ FROM INIData IMPORT
                 GetStringList, NextString, CloseStringList, INIValid,
                 ItemSize, INIGetTrusted;
 
-FROM InetUtilities IMPORT
-    (* proc *)  Swap2, ConvertCardZ, AppendCard, ToLower,
-                NameIsNumeric;
+FROM RelayRules IMPORT
+    (* proc *)  LoadRelayRules, FindRelay;
 
 FROM Inet2Misc IMPORT
+    (* proc *)  Swap2, NameIsNumeric;
+
+FROM MiscFuncs IMPORT
     (* type *)  CharArrayPointer,
-    (* proc *)  IPToString, AddressToHostName, StringMatch, ConvertCard;
+    (* proc *)  StringMatch, ConvertCard, ConvertCardZ, AppendCard, ToLower;
+
+FROM Inet2Misc IMPORT
+    (* proc *)  IPToString, AddressToHostName;
 
 FROM WildCard IMPORT
     (* proc *)  WildMatch;
@@ -3431,7 +3436,7 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
                         IF ShutdownRequest OR WeAreOffline THEN
                             SetFailureMessage (job, "400 delivery delayed by server going offline");
                             address[j] := 0;
-                        ELSIF AddressIsLocal(address[j]) THEN
+                        ELSIF AddressIsLocal(address[j]) AND (port = OurSMTPPort) THEN
                             SetFailureMessage (job, "400 no relay path to destination");
                             address[j] := 0;
                         ELSE
@@ -3497,6 +3502,13 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
             success := DeliverDeLetter (job, LoopbackAddress, OurSMTPPort,
                                            FALSE, '', '', TryNextOption, RetryNeeded)
                               AND NOT RetryNeeded;
+
+        (* The value of ForwardRelayOption controls whether we  *)
+        (* use ForwardRelayHost for outbound mail.              *)
+        (*      0     don't use it                              *)
+        (*      1     use it if direct route fails              *)
+        (*      2     always use it                             *)
+        (*      3     consult the relay rules file              *)
 
         ELSIF ForwardRelayOption = 2 THEN
             success := SendViaRelay (ForwardRelayHost, ForwardRelayPort,
@@ -3993,6 +4005,37 @@ PROCEDURE DistributeLocal (job: OutJobPtr);
 
 (************************************************************************)
 
+PROCEDURE ExtractPort (VAR (*INOUT*) name: DomainName;
+                                   defaultport: CARDINAL): CARDINAL;
+
+    (* Input: name is a domain name followed optionally by a colon and  *)
+    (* a port number.  This procedure strips off the colon and port     *)
+    (* number from name, and returns the port number.  If there is no   *)
+    (* port number specified, then we return defaultport.               *)
+
+    VAR port, pos: CARDINAL;  found: BOOLEAN;
+
+    BEGIN
+        WHILE name[0] = ' ' DO
+            Strings.Delete (name, 0, 1);
+        END (*WHILE*);
+        Strings.FindNext (':', name, 0, found, pos);
+        IF found THEN
+            port := 0;
+            name[pos] := Nul;
+            INC (pos);
+            WHILE name[pos] IN Digits DO
+                port := 10*port + ORD(name[pos]) - ORD('0');
+                INC (pos);
+            END (*WHILE*);
+        ELSE
+            port := defaultport;
+        END (*IF*);
+        RETURN port;
+    END ExtractPort;
+
+(************************************************************************)
+
 PROCEDURE Split (p: OutJobPtr;  VAR (*OUT*) q: OutJobPtr);
 
     (* Separates the list of addressees for p so that on exit the p     *)
@@ -4049,6 +4092,84 @@ PROCEDURE Split (p: OutJobPtr;  VAR (*OUT*) q: OutJobPtr);
         END (*IF*);
 
     END Split;
+
+(************************************************************************)
+
+PROCEDURE SplitRR (p: OutJobPtr;  VAR (*OUT*) q: OutJobPtr);
+
+    (* This is a variant of Split that consults an external "relay      *)
+    (* rules" file that assigns a relay domain for each destination.    *)
+    (* Separates the list of addressees for p so that on exit the p     *)
+    (* list is all to be relayed through the same domain, and the q     *)
+    (* list is what remains.  Assumption: p <> NIL.                     *)
+
+    (* This procedure can result in changes to the message file and     *)
+    (* to the creation of new message files, but all files created      *)
+    (* are hidden files.                                                *)
+
+    VAR current, ptail, qhead, qtail: RelayListPointer;
+        relay: DomainName;
+        count, port: CARDINAL;
+
+    BEGIN
+        ptail := p^.sendto^.remote;  current := ptail^.next;
+        FindRelay (ptail^.domain, p^.domain);
+        p^.SMTPport := ExtractPort (p^.domain, 25);
+        qhead := NIL;  qtail := NIL;
+        count := 1;
+        REPEAT
+
+            (* Keep stepping current forward as long as the current     *)
+            (* entry is eligible for the same list.                     *)
+
+            LOOP
+                IF (current = NIL) OR (count >= MaxRecipientsPerLetter) THEN
+                    EXIT (*LOOP*);
+                END (*IF*);
+                FindRelay (current^.domain, relay);
+                port := ExtractPort (relay, 25);
+                IF (port <> p^.SMTPport) OR NOT Strings.Equal(relay, p^.domain) THEN
+                    EXIT (*LOOP*);
+                END (*IF*);
+                ptail := current;  current := ptail^.next;
+                INC (count);
+            END (*LOOP*);
+
+            IF current <> NIL THEN
+
+                (* Move current to qhead list. *)
+
+                IF qhead = NIL THEN qhead := current
+                ELSE qtail^.next := current
+                END (*IF*);
+                qtail := current;  current := current^.next;
+                qtail^.next := NIL;
+
+            END (*IF*);
+
+            ptail^.next := current;
+
+        UNTIL current = NIL;
+
+        (* Now the qhead list contains all of the destination addresses *)
+        (* that have been rejected from the main list.                  *)
+
+        IF qhead = NIL THEN
+            q := NIL;
+        ELSE
+            qtail^.next := NIL;
+            NEW (q);
+            q^ := p^;
+            NEW (q^.sendto);
+            q^.sendto^.local := NIL;
+            q^.sendto^.remote := qhead;
+            q^.sendto^.RemoteCount := p^.sendto^.RemoteCount - count;
+            p^.sendto^.RemoteCount := count;
+            StoreMessageFile (q);           (* hidden *)
+            RebuildMessageFile (p);         (* hidden *)
+        END (*IF*);
+
+    END SplitRR;
 
 (************************************************************************)
 
@@ -4248,6 +4369,18 @@ PROCEDURE Sorter;
                 (*      0     don't use it                              *)
                 (*      1     use it if direct route fails              *)
                 (*      2     always use it                             *)
+                (*      3     consult the relay rules file              *)
+
+                ELSIF (ForwardRelayOption = 3) AND NOT p^.Recirculate THEN
+
+                    (* Sort mail by relay domain. *)
+
+                    p^.SMTPport := 25;
+                    WHILE p <> NIL DO
+                        SplitRR (p, q);
+                        AddToOutQueue (p);
+                        p := q;
+                    END (*WHILE*);
 
                 ELSIF (ForwardRelayOption < 2) AND NOT p^.Recirculate THEN
 
@@ -4469,7 +4602,7 @@ PROCEDURE ReadNameList (cid: ChanId;  VAR (*OUT*) count: CARDINAL;
 (*            CHECKING FOR NEW FILES IN THE FORWARD DIRECTORY           *)
 (************************************************************************)
 
-PROCEDURE CheckUnsentMail (LogID: TransactionLogID);
+PROCEDURE CheckUnsentMail (LogID: TransactionLogID;  FirstTime: BOOLEAN);
 
     (* Checks all *.FWD files in the "forward" directory, and adds them *)
     (* to our list of jobs to be done if they're not already there.     *)
@@ -4489,7 +4622,7 @@ PROCEDURE CheckUnsentMail (LogID: TransactionLogID);
     BEGIN
         mask := ForwardDirName;
         Strings.Append ("*.FWD", mask);
-        found := FirstDirEntry (mask, FALSE, FALSE, D);
+        found := FirstDirEntry (mask, FALSE, FirstTime, D);
         filesize := D.size;
         WHILE found AND NOT ShutdownRequest DO
             filename := ForwardDirName;
@@ -4576,13 +4709,14 @@ PROCEDURE OnlineChecker;
     CONST InitialDelay = 4*1000;              (* four seconds  *)
           DefaultCheckInterval = 15*1000;     (* 15 seconds    *)
 
-    VAR TimedOut, WeWereOffline: BOOLEAN;
+    VAR TimedOut, WeWereOffline, FirstTime: BOOLEAN;
         CheckInterval, loopcount, pos, DisplayAddr: CARDINAL;
         txtbuf: ARRAY [0..16] OF CHAR;
         LogID: TransactionLogID;
         message: ARRAY [0..127] OF CHAR;
 
     BEGIN
+        FirstTime := TRUE;
         loopcount := 0;
         LogID := CreateLogID (WCtx, "Online ");
         CheckInterval := InitialDelay;
@@ -4636,7 +4770,8 @@ PROCEDURE OnlineChecker;
                         END (*WHILE*);
                         Release (access);
                     END (*WITH*);
-                    CheckUnsentMail (LogID);
+                    CheckUnsentMail (LogID, FirstTime);
+                    FirstTime := FALSE;
                 END (*IF*);
 
             ELSIF NOT WeAreOffline THEN
@@ -4652,7 +4787,8 @@ PROCEDURE OnlineChecker;
                         Release (access);
                     END (*WITH*);
                     IF ForceForwardDirCheck THEN
-                        CheckUnsentMail (LogID);
+                        CheckUnsentMail (LogID, FirstTime);
+                        FirstTime := FALSE;
                     END (*IF*);
                     ForceForwardDirCheck := FALSE;
                 ELSE
@@ -4771,35 +4907,9 @@ PROCEDURE ProcessForwardRelayHostNames;
 
     (********************************************************************)
 
-    PROCEDURE Split (VAR (*INOUT*) name: HostName;
-                                       defaultport: CARDINAL): CARDINAL;
-
-        VAR port, pos: CARDINAL;  found: BOOLEAN;
-
-        BEGIN
-            WHILE name[0] = ' ' DO
-                Strings.Delete (name, 0, 1);
-            END (*WHILE*);
-            Strings.FindNext (':', name, 0, found, pos);
-            IF found THEN
-                port := 0;
-                name[pos] := Nul;
-                INC (pos);
-                WHILE name[pos] IN Digits DO
-                    port := 10*port + ORD(name[pos]) - ORD('0');
-                    INC (pos);
-                END (*WHILE*);
-            ELSE
-                port := defaultport;
-            END (*IF*);
-            RETURN port;
-        END Split;
-
-    (********************************************************************)
-
     BEGIN
-        ForwardRelayPort := Split (ForwardRelayHost, 25);
-        AuthPOPport := Split (AuthPOPhost, 110);
+        ForwardRelayPort := ExtractPort (ForwardRelayHost, 25);
+        AuthPOPport := ExtractPort (AuthPOPhost, 110);
     END ProcessForwardRelayHostNames;
 
 (************************************************************************)
@@ -4952,6 +5062,7 @@ PROCEDURE ReloadDeliveryINIData (FirstTime: BOOLEAN;
         StartTransactionLogging (WCtx, TransLogName, TransLevel);
         RefreshMasterDomainList (FirstTime);
         RefreshHostLists (FirstTime, UseTNI);
+        LoadRelayRules (UseTNI);
 
         (* Now that we know how many Send_NN tasks to run, wake up      *)
         (* one that is already running, so that it can decide whether   *)

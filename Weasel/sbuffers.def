@@ -6,7 +6,7 @@ DEFINITION MODULE SBuffers;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            19 May 1998                     *)
-        (*  Last edited:        24 April 2017                   *)
+        (*  Last edited:        22 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -14,7 +14,7 @@ DEFINITION MODULE SBuffers;
 
 FROM SYSTEM    IMPORT (*type*) LOC, (*proc*) CAST;
 FROM Sockets   IMPORT (*type*) Socket;
-FROM Inet2Misc IMPORT (*type*) LocArrayPointer;
+FROM MiscFuncs IMPORT (*type*) LocArrayPointer;
 
 TYPE SBuffer;        (* is private *)
 

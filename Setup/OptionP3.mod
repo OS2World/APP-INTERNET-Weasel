@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2016   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE OptionP3;
         (*               Options, part 3, of the notebook               *)
         (*                                                              *)
         (*        Started:        16 December 2013                      *)
-        (*        Last edited:    29 May 2016                           *)
+        (*        Last edited:    22 May 2017                           *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -51,8 +51,11 @@ FROM WSUINI IMPORT
 FROM RINIData IMPORT
     (* proc *)  INIPut, INIFetch, INIGetCard, ServerIPAddress;
 
+FROM MiscFuncs IMPORT
+    (* proc *)  ConvertCard;
+
 FROM Inet2Misc IMPORT
-    (* proc *)  ConvertCard, Swap4;
+    (* proc *)  Swap4;
 
 FROM Misc IMPORT
     (* proc *)  WinQueryDlgItemCard, WinSetDlgItemCard;

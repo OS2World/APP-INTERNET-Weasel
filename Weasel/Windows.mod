@@ -2320,6 +2320,24 @@ PROCEDURE EraseLine (w: Window;  option: CARDINAL);
     END EraseLine;
 
 (************************************************************************)
+
+PROCEDURE StackCorrupted (page: DisplayPage): BOOLEAN;
+
+    (* Returns TRUE if the next/previous pointers are inconsistent. *)
+
+    VAR w, wprev: Window;
+
+    BEGIN
+        w := TopWindow[page];  wprev := NIL;
+        WHILE w <> NIL DO
+            IF w^.previous <> wprev THEN RETURN TRUE END (*IF*);
+            wprev := w;
+            w := w^.next;
+        END (*WHILE*);
+        RETURN FALSE;
+    END StackCorrupted;
+
+(************************************************************************)
 (*                           TERMINATION                                *)
 (************************************************************************)
 

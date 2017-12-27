@@ -29,7 +29,7 @@ IMPLEMENTATION MODULE SMTPLogin;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            5 February 2003                 *)
-        (*  Last edited:        24 April 2017                   *)
+        (*  Last edited:        26 April 2017                   *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -341,9 +341,10 @@ PROCEDURE DoLogin (SB: SBuffer;  LocalHostName: HostName;
     (* that we support.                                                 *)
 
     (* ChunkingAvailable is TRUE iff the remote server supports the     *)
-    (* CHUNKING option.                                                 *)
+    (* CHUNKING option, with one exception: we do not allow chunking    *)
+    (* with Microsoft servers, because of its strange timeout rules.    *)
 
-    VAR success, moretocome, UseHELO: BOOLEAN;
+    VAR success, moretocome, UseHELO, SuppressChunking: BOOLEAN;
         sent: CARDINAL;
         method: AuthMethod;
         Auth: ARRAY AuthMethod OF BOOLEAN;
@@ -351,6 +352,7 @@ PROCEDURE DoLogin (SB: SBuffer;  LocalHostName: HostName;
 
     BEGIN
         ChunkingAvailable := FALSE;
+        SuppressChunking := FALSE;
         UseHELO := FALSE;
         Buffer := "EHLO ";
         Strings.Append (LocalHostName, Buffer);
@@ -382,6 +384,8 @@ PROCEDURE DoLogin (SB: SBuffer;  LocalHostName: HostName;
                     GetToken (Buffer, keyword);
                     IF Strings.Equal (keyword, 'CHUNKING') THEN
                         ChunkingAvailable := TRUE;
+                    ELSIF Strings.Equal (keyword, 'X-EXPS') THEN
+                        SuppressChunking := TRUE;
                     ELSIF UseAuth THEN
                         IF Strings.Equal (keyword, 'AUTH') THEN
                             WHILE Buffer[0] <> Nul DO
@@ -400,6 +404,9 @@ PROCEDURE DoLogin (SB: SBuffer;  LocalHostName: HostName;
                 END (*IF*);
             END (*IF*);
         END (*WHILE*);
+        IF SuppressChunking THEN
+            ChunkingAvailable := FALSE;
+        END (*IF*);
 
         IF success AND UseAuth THEN
 

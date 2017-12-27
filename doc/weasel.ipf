@@ -16,7 +16,7 @@ IMAP can be handled by running a separate IMAP add-on in parallel
 with Weasel. Both Weasel and the IMAP add-on are distributed as freeware,
 subject to the GNU GLP licence.
 
-:p.This documentation is for version 2.36.
+:p.This documentation is for version 2.41.
 
 :p.Weasel can be configured either to handle a single mail domain,
 or to host multiple domains. This choice, together with a variety of other
@@ -199,7 +199,9 @@ which is described later in this document.
 mail. The Weasel SMTP implements all of the required commands in
 the standard RFC2821, but not the commands identified as obsolete
 in that standard. In addition it supports the ESMTP commands
-AUTH (RFC2554), EHLO (RFC1869), and EXPN (RFC821).
+AUTH (RFC2554), BDAT (RFC3030), EHLO (RFC1869), and EXPN (RFC821).
+We also support the SIZE and BODY parameters in the MAIL
+command (RFC1870, RFC6152).
 
 :p.The AUTH command is separately configurable for incoming and
 outgoing mail. That is, you can decide to enable it for incoming
@@ -478,23 +480,28 @@ all configuration details&colon. adding and deleting users,
 changing options, and so on.
 
 :p.
-The parameter settings are usually stored in a file WEASEL.INI. Weasel reads its
-INI file as it starts up, so some of the changes you make might not take effect until
+The parameter settings are usually stored in a file called either
+WEASEL.INI or WEASEL.TNI. (Which of these will be used is explained in the
+:link reftype=hd refid=INIorTNI.following section:elink..) Weasel
+reads this file as it starts up, so some of the changes you make might not take effect until
 the next time you start the server. See below, however; many of the
 changes take effect immediately, with no need to restart the server.
 
-:p.Exception: if you start the Setup program with the "t" parameter, i.e.
+:p.Normally you do not need to specify whether to use WEASEL.INI or
+WEASEL.TNI, because both Weasel and Setup will use whichever file exists,
+and they have rules for the case where both exist. Sometimes, however, you
+might want to override the default rules.
+If you start Setup or Weasel with the "t" parameter, i.e.
 :xmp.
       setup -t
 :exmp.
-then Setup will edit the file WEASEL.TNI (a human-readable file) instead
-of WEASEL.INI. If you use this option, then you should also start
-weasel.exe with the command
+or
 :xmp.
       weasel -t
 :exmp.
-so that it will read its configuration data from the TNI file rather
-than from the INI file.
+then Setup will edit the file WEASEL.TNI (a human-readable file), or Weasel
+will use that file for its configuration data, as the case may be. If instead
+you use an "i" parameter, then WEASEL.INI will be used.
 
 :p.In the present version, we are in the process of developing a precise
 specification of which Setup parameters take effect immediately, and
@@ -511,6 +518,7 @@ the server. Until that time, the previous options will remain in effect.
 :li.The server ports, the flags that say whether SMTP and/or POP
 are enabled, and the directory used to hold the mail that is waiting
 to be forwarded.
+:li.The specification of whether to use an INI or a TNI file.
 :eul.
 
 :p.:hp2.Parameter changes that take effect immediately:ehp2.
@@ -619,6 +627,64 @@ possibly caused by access violations when Setup attempted to move files
 that were still in use.
 
 .*******************************************************************************
+.*   INI or TNI files
+.***********************************
+
+:h2 id=INIorTNI.Weasel.INI or Weasel.TNI?
+
+:p.Weasel keeps its data (domains, users, etc.) in a configuration file that is
+either called Weasel.INI or Weasel.TNI. The INI format is more efficient because
+it has built-in OS/2 support, but it is known that INI files can be corrupted in some situations.
+The text-mode TNI format is more robust but less efficient. I recommend that you
+use the INI format if you have a small home server, but the TNI format if you
+are running a busy server.
+
+:note.You can convert between the two formats with the GenINI package, which
+can be downloaded from the same place where you found Weasel.
+
+:p.But which format will actually be used? On the first page of the
+:link reftype=hd refid=pmconfiguser.Setup:elink. notebook there is an option to
+choose between Weasel.INI and Weasel.TNI, but that only sets a default. The rules
+that are actually used are:
+:ul compact.
+:li.If neither file exists, then we default to the INI format, and a file
+Weasel.INI will be created when Setup is first run.
+:li.If only one of Weasel.INI and Weasel.TNI exists then that file will be
+used, even if the Setup page specifies the opposite.
+:li.If both files exist, we consult the option set on the first page of the
+notebook. If they agree, we accept that option. If they disagree, then
+Setup will default to INI operation but Weasel will refuse to start.
+:eul.
+
+:p.These rules might initially be confusing. You might find, for example, that
+you have specified the TNI format, but that your specification is being ignored
+because Weasel.TNI does not exist. In practice, you should soon converge to a
+position where your specifications are consistent.
+
+:p.The above default decisions can be overridden by explicit command-line options.
+
+:p.To resolve a disagreement, the Weasel distribution includes a program ChooseTNI.exe,
+whose only function is to set the "use TNI" flags in both Weasel.INI and Weasel.TNI,
+in case both exist, so that they agree with each other. To set INI as the default,
+use the command
+:xmp.
+      choosetni N
+:exmp.
+To set TNI as the default, use the command
+:xmp.
+      choosetni Y
+:exmp.
+The argument can be in either upper or lower case, and you may also use 0 and 1
+as arguments.
+
+:p.If you are uncertain which of the two INI files is being used, it is easy to check.
+:ul compact.
+:li.In Setup, the title bar shows either Weasel.INI or Weasel.TNI.
+:li.In Weasel, if you are logging to the screen then the top left corner
+of the screen will show either [I] or [T].
+:eul.
+
+.*******************************************************************************
 .*   VIOSETUP
 .***********************************
 
@@ -661,38 +727,35 @@ start the editing.
 
 :p.If you start Setup with the command
 :xmp.            setup -T
-
 :exmp.
 then Setup will edit the file WEASEL.TNI rather than WEASEL.INI.
 
 :p.If you start Setup with the command
 :xmp.            setup -i
-
 :exmp.
-then Setup will edit the file WEASEL.INI rather than WEASEL.TNI. This
-option is redundant, because editing WEASEL.INI is the default
-behaviour, but the option is available if some future version changes
-the default.
+then Setup will edit the file WEASEL.INI.
+Normally, however, you do not need either of these parameters, because there are
+:link reftype=hd refid=INIorTNI.default rules:elink. that govern
+which of the two configuration files will be used.
 
 :p.The 't' or 'i' option can, if desired, be combined with the 'L', 'R', and 'G' options
 documented below. Of course you should not specify 't' and 'i' together; if
-you do, the result is undefined.
+you do, the result is undefined. An example of a valid combination is
+:xmp.            setup -TR
+:exmp.
 
-:p.If you start Setup with the command
+If you start Setup with the command
 :xmp.            setup -L
-
 :exmp.
 then you will bypass the small opening screen and go directly into local editing.
 
 :p.If you start Setup with the command
 :xmp.            setup -R
-
 :exmp.
 then you will bypass the small opening screen and go directly into remote editing.
 
 :p.If you start Setup with the command
 :xmp.            setup -G
-
 :exmp.
 then you don't get the small opening screen, and the Local/Remote option
 has whatever value it had the last time you ran Setup.
@@ -841,6 +904,15 @@ and translate the messages in the obvious way.
 (Danish), Ronald van Ovost (Dutch) Fritz Schori
 (German, Spanish), and Marion Gevers (French). If you have a new
 translation, I would be happy to add it to the distribution.)
+
+:p.After the language box you are asked to specify whether WEASEL.INI or
+WEASEL.TNI should be used as the source of configuration data. This
+specification is needed for the case where both of those files exist, but
+it is ignored otherwise. Note that changing this option does :hp2.not:ehp2.
+cause an immediate switch to the other format, because that could cause a
+loss of data. It does not take effect until the next time you run Setup or
+run Weasel, and even then you might not notice any difference, because this
+setting is relevant only if both of the files exist.
 
 :p.Next, there is a checkbox to switch to and from multidomain mode.
 In multidomain mode, the Users, Aliases, and Local page disappear from
@@ -2118,12 +2190,14 @@ also do this, via the
 have a very liberal interpretation of what is meant by "dial-up". If your
 ISP is one that offers accounts to the general public, it is very
 likely that you are listed in one or more dial-up blacklists, even if
-you have an ADSL or cable connection. I myself pay my ISP for a fixed
-IP address, which should take me out of the "dial-up" category, but some
-mail servers still refuse to accept mail directly from me. Thus, I need
-to nominate my ISP's mail server as the backup relay host.
+you have an ADSL or cable connection. I myself used to pay my ISP for a fixed
+IP address, which should have taken me out of the "dial-up" category, but some
+mail servers still refused to accept mail directly from me. Thus, I needed
+to nominate my ISP's mail server as the backup relay host. At present, as
+the result of a "service upgrade", I have a dynamic IP address, which
+creates an even greater need to relay my outgoing mail.
 
-:p.If you have a permanent internet connection you do not, strictly
+:p.If you have a permanent internet connection with a fixed IP address you do not, strictly
 speaking, need a relay host, so you can specify "never" as the first
 option on this page, and then the rest of the page becomes irrelevant.
 Even then, however, it is a good idea to use a backup server, if you
@@ -2133,7 +2207,7 @@ hard-to-deliver mail.
 :p.:hp2.Note:ehp2.&colon. This option is provided for the case where, for example, you have
 to send all your mail through a gateway, or via your ISP's mail server. If you use it, make sure that you
 have permission to use the relay host this way. If you abuse a relay
-facility, you might end up discovering that you have been blacklisted and
+facility, even accidentally, you might end up discovering that you have been blacklisted and
 can no longer send mail to anyone.
 
 :p.To use a relay host, you need to specify the following options.
@@ -2146,22 +2220,26 @@ the remaining entries on this page become irrelevant. If you specify
 The "as backup" option (which is the best choice in most situations) is
 a compromise&colon. Weasel attempts to send the mail directly, but if
 this fails then the mail is sent to the relay host.
-:dt.     Hostname
-:dd.This option lets you specify
-the hostname of another computer that is running an SMTP server and
-that will accept relay mail. Outgoing mail from Weasel will be sent to
-that computer, which should accept responsibility for forwarding it on to
-its final destination.
+
+:p.The fourth option, "use rules file", is explained on the
+:link reftype=hd refid=relayrulesfile.following page:elink..
+This is for more complicated scenarios that won't be relevant for
+most people.
+
+:dt.     Hostname or rules filename
+:dd.The entry field directly below the "use relay host" radio buttons lets you specify
+the hostname of the computer to be used as a relay host, if applicable,
+or the name of the "relay rules" file if you have selected that option.
 :p.If you need to relay through a nonstandard port, put a colon (&colon.) at the
 end of the host name, followed by the port number. For example, the name
 :xmp.          smtp.example.com&colon.5001
-
 :exmp.
 specifies that relay mail should go to port 5001 on host smtp.example.com.
 :dt.     Relay everything
 :dd.This option causes Weasel to bypass the check to see whether incoming
 mail is for a local user; all incoming mail, regardless of its address,
-is relayed on to the relay host. You should normally :hp2.not:ehp2. enable
+is relayed on to the relay host, or (if applicable) to the domain specified
+in the "relay rules" file. You should normally :hp2.not:ehp2. enable
 this option, because it prevents you from having any local POP or IMAP users.
 The option is intended for the case where you are using Weasel as a
 :link reftype=hd refid=frontend.front end:elink. for another mail server.
@@ -2209,6 +2287,90 @@ topic, and this is covered on the
 page.
 
 :edl.
+
+.***********************************
+.*   THE RELAY RULES FILE
+.***********************************
+
+:h4 id=relayrulesfile.The relay rules file
+:hp2.The relay rules file:ehp2.
+
+:p.In most situations, it is sufficient to send outgoing mail either
+directly to its final destination or via one specified relay host.
+(With the possibility of trying both.) Less commonly, you might have a
+situation where the desired routing depends on the final destination. This
+can happen if, for example, you want to use one relay for mail inside your
+LAN, and a different one for external destinations. More generally, it can
+happen if your mail server acts as a gateway between two otherwise
+disconnected networks.
+
+:p.To allow for this case, we allow a "relay rules file" to be specified
+instead of a relay host. Each section of this text file starts with a "via:" line
+to specify a relay host or relay domain, and this is followed by one or more
+"to:" lines which specify the destinations that should use that relay route.
+A simple example is
+:xmp.
+via: firstrelay.com
+to: a.org
+to: b.org
+
+via: secondrelay.com
+to: *
+:exmp.
+
+:p.This specifies that all mail to a.org and b.org should be sent via
+firstrelay.com, and all other mail should be sent via secondrelay.com. For a more
+complicated example, see the file Sample_RELAYRULES.TXT. It is not necessary to
+have an "all other" rule. If the destination address does not match any rule,
+then we simply send the mail directly, without relaying.
+
+:p.The hosts/domains in the via: and to: lines may be textual hostnames or
+domain names, as shown, or IP addresses like 10.0.5.23. Wildcards are allowed
+in the to: lines (even in the numeric case, because those IP addresses are treated
+as text strings), but of course not in the via: lines. The wildcard characters are
+'?', which matches any one character, and '*', which matches any string of zero or
+more characters. It is not required to finish with a wildcard entry. If a destination
+does not match any rule, then the mail is forwarded directly, without relaying,
+to that address.
+
+:p.The "via:" entries, but not the "to:" entries, may specify a nonstandard port.
+If you need to relay through a nonstandard port, put a colon (&colon.) at the end of the
+domain name, followed by the port number. This option is probably inappropriate
+for a mail domain with multiple MX hosts, because then the nonstandard port
+would be used for all of the MX options. On the other hand, if your "domain" is
+actually the hostname of a single host, or if it is a numeric IP address, then
+it is entirely possible that you might be using a nonstandard port. In particular,
+if you are running two or more servers on the same machine, then all but one of
+them will necessarily be using nonstandard ports.
+
+:p.If this colon option is not used, then we assume port 25, the standard port
+for SMTP.
+
+:p.There is a technical difference between a hostname and a domain name. A mail
+domain name is translated, using nameserver MX records, into multiple hostnames,
+which can be tried in order of preference until the mail is accepted. (Or rejected with
+an error code that makes it clear that the message is undeliverable by any route.)
+All of the via: and to: names are treated initially as domain names, but if there
+is no MX record then they are treated as hostnames. Most of the time, in practice,
+the via: names do have to be specific hosts rather than mail domain names, but
+allowing them to be domain names gives a little more flexibility. On the other hand,
+the to: names almost always should be mail domain names, because that is how
+mail is addressed.
+
+:p.With this option there is no provision for authentication. It is assumed that
+the relay domains are under your control, or that you have an arrangement with
+them to treat your server as a trusted relay source.
+
+:p.The Weasel distribution includes a script CheckRelayRules.cmd that checks a
+relay rules file for some common errors. If your file passes that check you can
+be reasonably confident that it is syntactically correct. Whether it is also
+logically correct depends, of course, on whether your routing rules are sending
+mail in the right direction.
+
+:p.If you modify the content of the relay rules file, you need to let Weasel
+know that it should re-read the file. This will of course happen if you
+restart Weasel, but it will also happen if you open and then close Setup,
+even if you do not make any changes.
 
 .***********************************
 .*   THE WHITELIST
@@ -3194,8 +3356,10 @@ You also have the options of :link reftype=hd refid=inetd.running the server fro
 or :link reftype=hd refid=detached.running the server as a detached program:elink..
 
 :p.Note that, before running Weasel, you must set the working directory to
-the directory that contains WEASEL.INI. (Or WEASEL.TNI, if you use the 't'
-command-line option.) If you are starting Weasel from a Program Object - which is
+the directory that contains its parameter WEASEL.INI or WEASEL.TNI, as appropriate.
+(Which of these will be used is explained in an
+:link reftype=hd refid=INIorTNI.earlier section:elink..)
+If you are starting Weasel from a Program Object - which is typically
 the case when, for example, you start it from the Startup folder - then the
 working directory is specified in the Program Object. If you are starting it
 from a command file, you might need explicit "change directory" commands to
@@ -3208,21 +3372,16 @@ the command
 
            weasel -t
 :exmp.
-:p.this directs Weasel to obtain its configuration data from a text file
-called WEASEL.TNI, rather than from the traditional binary file WEASEL.INI.
-The binary format is more efficient, but only marginally, and some
-people prefer to avoid INI files because of problems that occur when the
-operating system is running low on shared memory.
-
-:p.If you start Weasel with the command
+:p.this directs Weasel to obtain its configuration data from the text file
+WEASEL.TNI, overriding the default rules.
+Similarly, starting Weasel with the command
 :xmp.
 
            weasel -i
 :exmp.
-:p.this directs Weasel to obtain its configuration data from WEASEL.INI
-rather than WEASEL.TNI. This parameter is redundant in the present
-version, because WEASEL.INI is the default anyway; but it allows for
-a possible future change in the default.
+:p.again overrides the default rules and forces the use of WEASEL.INI.
+Of course, these two options are relevant only in the case where the
+working directory contains both WEASEL.INI and WEASEL.TNI.
 
 :p.If you start Weasel with the command
 :xmp.
@@ -3232,7 +3391,7 @@ a possible future change in the default.
 :p.this will force the working directory to be the same as the directory
 that contains WEASEL.EXE.
 
-:p.The command-line arguments may be in either upper case, and they may be
+:p.The command-line arguments may be in either upper or lower case, and they may be
 combined. For example, both of the commands
 :xmp.
            weasel -f -t
@@ -3331,7 +3490,7 @@ machine.
 .br
        DETACH WEASEL.EXE
 .br
-(You will probably want to put this command into your STARTUP.CMD file.)
+(You will probably want to put this command into \TCPIP\BIN\TCPEXIT.CMD.)
 The difference between doing this and simply running WEASEL.EXE is
 that a detached program runs without a screen window being created.
 That is, the server does its job behind the scenes without having

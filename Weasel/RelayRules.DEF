@@ -1,0 +1,30 @@
+DEFINITION MODULE RelayRules;
+
+        (********************************************************)
+        (*                                                      *)
+        (*   Rules for choosing a relay host for outgoing mail  *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            14 August 2017                  *)
+        (*  Last edited:        24 August 2017                  *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM Names IMPORT DomainName;
+
+
+PROCEDURE FindRelay (VAR (*IN*) destination: DomainName;
+                            VAR (*OUT*) relay: DomainName);
+
+    (* Given the destination domain for mail, return relay as the host  *)
+    (* or domain to which the mail should be sent.  If there is no      *)
+    (* applicable rule, copies destination to relay.                    *)
+
+PROCEDURE LoadRelayRules (UseTNI: BOOLEAN);
+
+    (* Loads or reloads the relay rules from a file. *)
+
+END RelayRules.
+

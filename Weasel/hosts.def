@@ -6,7 +6,7 @@ DEFINITION MODULE Hosts;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            9 May 1998                      *)
-        (*  Last edited:        11 May 2017                     *)
+        (*  Last edited:        26 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -14,12 +14,21 @@ DEFINITION MODULE Hosts;
 FROM Names IMPORT
     (* type *)  HostName, DomainName;
 
-PROCEDURE OnBlacklist (IPAddress: CARDINAL;
+FROM Semaphores IMPORT
+    (* type *)  Semaphore;
+
+FROM TransLog IMPORT
+    (* type *)  TransactionLogID;
+
+PROCEDURE OnBlacklist (IPAddress: CARDINAL;  ID: TransactionLogID;
+                            watchdog: Semaphore;
                             VAR (*OUT*) message: ARRAY OF CHAR): BOOLEAN;
 
     (* Returns TRUE if IPAddress is on one of the realtime blacklists   *)
     (* for which we have blacklist checking enabled.  In this case      *)
-    (* message is set to a suitable error response to the client.       *)
+    (* message is set to a suitable error response to the client.  We   *)
+    (* signal on watchdog before checking each list, because the checks *)
+    (* do involve time delays.                                          *)
 
 PROCEDURE CheckHost (IPAddress: CARDINAL;
                      VAR (*OUT*) IsBanned, OnWhitelist, MayRelay: BOOLEAN);

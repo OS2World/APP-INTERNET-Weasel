@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE POPCommands;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            21 April 1998                   *)
-        (*  Last edited:        24 April 2017                   *)
+        (*  Last edited:        22 May 2017                     *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -92,11 +92,11 @@ FROM MyClock IMPORT
 FROM MD5 IMPORT
     (* type *)  MD5_DigestType;
 
-FROM InetUtilities IMPORT
-    (* proc *)  AddEOL, ConvertCard, IPToString;
+FROM MiscFuncs IMPORT
+    (* proc *)  SplitArg, AddEOL, ConvertCard;
 
 FROM Inet2Misc IMPORT
-    (* proc *)  SplitArg;
+    (* proc *)  IPToString;
 
 FROM Authentication IMPORT
     (* type *)  AuthenticationState,

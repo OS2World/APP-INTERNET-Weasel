@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2017   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE IMAPPage;
         (*            The IMAP page of the notebook             *)
         (*                                                      *)
         (*        Started:        25 March 2005                 *)
-        (*        Last edited:    10 July 2013                  *)
+        (*        Last edited:    22 May 2017                   *)
         (*        Status:         OK                            *)
         (*                                                      *)
         (********************************************************)
@@ -58,7 +58,7 @@ FROM RINIData IMPORT
 FROM Names IMPORT
     (* type *)  FilenameString;
 
-FROM Inet2Misc IMPORT
+FROM MiscFuncs IMPORT
     (* proc *)  EVAL;
 
 (************************************************************************)

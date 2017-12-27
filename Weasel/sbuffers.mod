@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SBuffers;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            24 May 1998                     *)
-        (*  Last edited:        24 April 2017                   *)
+        (*  Last edited:        22 May 2017                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -46,7 +46,7 @@ FROM Sockets IMPORT
 FROM LowLevel IMPORT
     (* proc *)  EVAL, Copy, AddOffset;
 
-IMPORT Inet2Misc, Strings;
+IMPORT Inet2Misc, MiscFuncs, Strings;
 
 FROM Heap IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
@@ -366,7 +366,7 @@ PROCEDURE Getch (SB: SBuffer): CHAR;
 (************************************************************************)
 
 PROCEDURE GetBlock (SB: SBuffer;  wanted: CARDINAL;
-                                  p: Inet2Misc.LocArrayPointer): CARDINAL;
+                                  p: MiscFuncs.LocArrayPointer): CARDINAL;
 
     (* Gets at most "wanted" bytes of raw data, returns the number of   *)
     (* bytes actually fetched.  A function return of MAX(CARDINAL)      *)
@@ -418,7 +418,7 @@ PROCEDURE GetBlock (SB: SBuffer;  wanted: CARDINAL;
 (************************************************************************)
 
 PROCEDURE GetRaw (SB: SBuffer;  size: CARDINAL;
-                                p: Inet2Misc.LocArrayPointer): BOOLEAN;
+                                p: MiscFuncs.LocArrayPointer): BOOLEAN;
 
     (* Fetches a block of exactly size uninterpreted bytes, stores the  *)
     (* result at p^.  Returns FALSE if the operation failed.            *)
