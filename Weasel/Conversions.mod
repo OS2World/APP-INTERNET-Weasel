@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  PMOS/2 software library                                               *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -27,7 +27,7 @@ IMPLEMENTATION MODULE Conversions;
         (*              Miscellaneous type conversions          *)
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
-        (*  Last edited:        26 February 2012                *)
+        (*  Last edited:        26 November 2018                *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (*    EXCEPTION HANDLERS TEMPORARILY REMOVED            *)
@@ -48,11 +48,9 @@ IMPLEMENTATION MODULE Conversions;
 FROM SYSTEM IMPORT
     (* type *)  CARD8, CARD32;
 
-FROM Types IMPORT
-    (* type *)  CARD64;
-
-FROM LONGLONG IMPORT
+FROM Arith64 IMPORT
     (* const*)  Zero64,
+    (* type *)  CARD64,
     (* proc *)  Add64, Mul64, Div10;
 
 FROM LowLevel IMPORT
@@ -179,6 +177,25 @@ PROCEDURE LongHexToString (value: CARD32;  VAR (*OUT*) buffer: EightChar);
             buffer[j] := highpart[j];
         END (*FOR*);
     END LongHexToString;
+
+(************************************************************************)
+
+PROCEDURE HexToStringLJ (value: CARDINAL;  VAR (*OUT*) buffer: ARRAY OF CHAR;
+                                            VAR (*INOUT*) pos: CARDINAL);
+
+    (* Stores value in hexadecimal, left justified, starting at *)
+    (* buffer[pos], and updates pos.                            *)
+
+    BEGIN
+        IF value > 0FH THEN
+            HexToStringLJ (value DIV 16, buffer, pos);
+        END (*IF*);
+        buffer[pos] := HexToChar (value MOD 16);
+        INC (pos);
+        IF pos <= HIGH(buffer) THEN
+            buffer[pos] := CHR(0);
+        END (*IF*);
+    END HexToStringLJ;
 
 (************************************************************************)
 

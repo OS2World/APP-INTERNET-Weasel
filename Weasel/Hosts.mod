@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Hosts;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            9 May 1998                      *)
-        (*  Last edited:        27 May 2017                     *)
+        (*  Last edited:        19 September 2018               *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -56,8 +56,9 @@ FROM TaskControl IMPORT
 FROM Timer IMPORT
     (* proc *)  Sleep;
 
-FROM Semaphores IMPORT
-    (* type *)  Semaphore;
+FROM Watchdog IMPORT
+    (* type *)  WatchdogID,
+    (* proc *)  KickWatchdog;
 
 FROM HostLists IMPORT
     (* type *)  HostList,
@@ -77,7 +78,7 @@ FROM MiscFuncs IMPORT
     (* proc *)  AppendCard;
 
 FROM Inet2Misc IMPORT
-    (* proc *)  IPToString, Swap4;
+    (* proc *)  IPToString, StringToIP, NameIsNumeric, Swap4, NonRouteable;
 
 FROM INIData IMPORT
     (* proc *)  OpenINIFile, INIGet, INIGetString;
@@ -98,24 +99,29 @@ TYPE
     Label = ARRAY HostCategory OF LabelString;
     BlacklistType = [1..NumberOfBlacklistDomains];
     BLSuffix = ARRAY BlacklistType OF ARRAY [0..31] OF CHAR;
+    DBLSuffix = ARRAY BlacklistType OF ARRAY [0..31] OF CHAR;
 
 CONST
-    LogLabel = Label {"whitelisted", "trusted", "Gatefor", "banned"};
-    INILabel = Label {"Whitelisted", "MayRelay", "RelayDest", "Banned"};
+    LogLabel = Label {"whitelisted", "trusted", "Gatefor", "banned", "nochunking"};
+    INILabel = Label {"Whitelisted", "MayRelay", "RelayDest", "Banned", "NoChunking"};
     DefaultCheckSuffix = BLSuffix {"blackholes.mail-abuse.org",
                                    "dialups.mail-abuse.org",
                                    "relays.mail-abuse.org",
                                    "", "", "", "", ""};
+    DefaultDBLCheckSuffix = BLSuffix {"dbl.spamhaus.org",
+                                   "", "", "", "", "", "", ""};
 
 VAR
     MasterList: ARRAY HostCategory OF HostList;
 
-    (* The HostCategory means one of                        *)
-    (*      (whitelisted, mayrelay, relaydest, banned)      *)
-    (* MasterList keeps track of hosts in each category.    *)
+    (* The HostCategory means one of                                *)
+    (*      (whitelisted, mayrelay, relaydest, banned, nochunking)  *)
+    (* MasterList keeps track of hosts in each category.            *)
 
     BLCheckSuffix: ARRAY BlacklistType OF DomainName;
+    DBLCheckSuffix: ARRAY BlacklistType OF DomainName;
     BlacklistChecking, BlacklistDisable: ARRAY BlacklistType OF BOOLEAN;
+    DomainBLChecking, DBLDisable: ARRAY BlacklistType OF BOOLEAN;
 
     (* BlacklistChecking is obtained from the INI file: the manager's   *)
     (* specification of which blacklists to use.  BlacklistDisable is   *)
@@ -179,6 +185,8 @@ TYPE
     (* list element.  Only at the head of the queue does it mean        *)
     (* "minutes from now".                                              *)
 
+    (* Special case: listnum >= 8 means DBL number (listnum-8).         *)
+
 VAR
     Qhead: Qptr;
     Qguard: Lock;
@@ -192,7 +200,7 @@ PROCEDURE BlacklistCheckerTask;
 
     CONST OneMinute = 60*1000;
 
-    VAR next: Qptr;
+    VAR next: Qptr;  j: CARDINAL;
 
     BEGIN
         IF shutdown THEN
@@ -203,7 +211,12 @@ PROCEDURE BlacklistCheckerTask;
                 IF Qhead^.delay > 0 THEN
                     DEC (Qhead^.delay);
                     IF Qhead^.delay = 0 THEN
-                        BlacklistDisable[Qhead^.listnum] := FALSE;
+                        j := Qhead^.listnum;
+                        IF j < 8 THEN
+                            BlacklistDisable[j] := FALSE;
+                        ELSE
+                            DBLDisable[j-8] := FALSE;
+                        END (*IF*);
                         next := Qhead^.next;
                         DISPOSE (Qhead);
                         Qhead := next;
@@ -220,7 +233,8 @@ PROCEDURE BlacklistCheckerTask;
 PROCEDURE ScheduleWakeup (j, minutes: CARDINAL);
 
     (* Schedules the "disable" on blacklist checker j to be cancelled   *)
-    (* after the specified number of minutes.                           *)
+    (* after the specified number of minutes.  If j >= 8 THEN we mean   *)
+    (* DBL j-8.                                                         *)
 
     VAR previous, current, p: Qptr;
 
@@ -265,6 +279,19 @@ PROCEDURE TurnOffBlacklist (j: CARDINAL);
 
 (************************************************************************)
 
+PROCEDURE TurnOffDBL (j: CARDINAL);
+
+    (* Temporarily disables domain blacklist checker j.  It will be     *)
+    (* re-enabled one hour later.                                       *)
+
+    BEGIN
+        DBLDisable[j] := TRUE;
+        shutdown := FALSE;
+        ScheduleWakeup(j+8, 60);
+    END TurnOffDBL;
+
+(************************************************************************)
+
 PROCEDURE InitBlacklistDisabling;
 
     (* Starts the monitor that looks after disabling blacklist checkers. *)
@@ -301,7 +328,7 @@ PROCEDURE CleanupBlacklistDisabling;
 (************************************************************************)
 
 PROCEDURE OnBlacklist (IPAddress: CARDINAL;  ID: TransactionLogID;
-                            watchdog: Semaphore;
+                            watchID: WatchdogID;
                             VAR (*OUT*) message: ARRAY OF CHAR): BOOLEAN;
 
     (* Returns TRUE if IPAddress is on one of the realtime blacklists   *)
@@ -317,10 +344,16 @@ PROCEDURE OnBlacklist (IPAddress: CARDINAL;  ID: TransactionLogID;
         j: BlacklistType;  rejected: BOOLEAN;
 
     BEGIN
+        IF NonRouteable (IPAddress) THEN
+            (* Skip the test for nonrouteable addresses. *)
+            RETURN FALSE;
+        END (*IF*);
+
         IPToString (Swap4(IPAddress), FALSE, IPBuffer);
         rejected := FALSE;  j := MIN(BlacklistType);
         LOOP
             IF BlacklistChecking[j] AND NOT BlacklistDisable[j] THEN
+                KickWatchdog (watchID);
                 Strings.Assign (IPBuffer, name);
                 Strings.Append ('.', name);
                 Strings.Append (BLCheckSuffix[j], name);
@@ -356,6 +389,58 @@ PROCEDURE OnBlacklist (IPAddress: CARDINAL;  ID: TransactionLogID;
 
 (************************************************************************)
 
+PROCEDURE OnDomainBlacklist (name: DomainName;  ID: TransactionLogID;
+                            watchID: WatchdogID;
+                            VAR (*OUT*) message: ARRAY OF CHAR): BOOLEAN;
+
+    (* Similar to OnBlacklist, except that we are checking a domain     *)
+    (* name rather than a numeric IP address.                           *)
+
+    CONST patience = 60;        (* seconds *)
+
+    VAR query: HostName;
+        start, seconds: CARDINAL;
+        j: BlacklistType;  rejected: BOOLEAN;
+
+    BEGIN
+        rejected := FALSE;  j := MIN(BlacklistType);
+        LOOP
+            IF DomainBLChecking[j] AND NOT DBLDisable[j] THEN
+                KickWatchdog (watchID);
+                Strings.Assign (name, query);
+                Strings.Append ('.', query);
+                Strings.Append (DBLCheckSuffix[j], query);
+                start := time();
+                rejected := gethostbyname(query) <> NIL;
+                seconds := time() - start;
+                Strings.Assign (DBLCheckSuffix[j], message);
+                Strings.Append (" check took ", message);
+                AppendCard (seconds, message);
+                Strings.Append (" seconds", message);
+                LogTransaction (ID, message);
+                IF seconds > patience THEN
+                    TurnOffDBL(j);
+                END (*IF*);
+            END (*IF*);
+            IF rejected OR (j=MAX(BlacklistType)) THEN EXIT(*LOOP*) END(*IF*);
+            INC (j);
+        END (*LOOP*);
+
+        IF rejected THEN
+            Strings.Assign ("571 Connection refused, ", message);
+            Strings.Append (name, message);
+            Strings.Append (" is on blacklist at ", message);
+            Strings.Append (DBLCheckSuffix[j], message);
+        ELSE
+            message[0] := Nul;
+        END (*IF*);
+
+        RETURN rejected;
+
+    END OnDomainBlacklist;
+
+(************************************************************************)
+
 PROCEDURE CheckHost (IPAddress: CARDINAL;
                      VAR (*OUT*) IsBanned, OnWhitelist, MayRelay: BOOLEAN);
 
@@ -376,17 +461,25 @@ PROCEDURE CheckHost (IPAddress: CARDINAL;
 
 (************************************************************************)
 
-PROCEDURE BannedHost (VAR (*IN*) name: HostName): BOOLEAN;
+PROCEDURE BannedHost (VAR (*IN*) name: HostName;  LogID: TransactionLogID;
+                                    watchID: WatchdogID): BOOLEAN;
 
     (* Returns TRUE if name matches a name in the "banned" list.  This  *)
     (* is different from the CheckHost check because we are now         *)
     (* checking the name rather than the address.                       *)
 
-    VAR LogID: TransactionLogID;
+    VAR addr: CARDINAL;
+        message: ARRAY [0..255] OF CHAR;
 
     BEGIN
-        LogID := DummyLogID();
-        RETURN MatchHostName (MasterList[banned], name, FALSE, LogID);
+        IF NameIsNumeric (name) THEN
+            addr := StringToIP (name);
+            RETURN MatchAnAddress (MasterList[banned], addr)
+                OR OnBlacklist (addr, LogID, watchID, message);
+        ELSE
+            RETURN MatchHostName (MasterList[banned], name, FALSE, LogID)
+                OR OnDomainBlacklist (name, LogID, watchID, message);
+        END (*IF*);
     END BannedHost;
 
 (************************************************************************)
@@ -404,12 +497,27 @@ PROCEDURE AcceptableRelayDestination (VAR (*IN*) name: HostName): BOOLEAN;
     END AcceptableRelayDestination;
 
 (************************************************************************)
+
+PROCEDURE NoChunkingHost (VAR (*IN*) name: HostName): BOOLEAN;
+
+    (* Returns TRUE if name matches a name in the "nochunking" list.    *)
+
+    VAR LogID: TransactionLogID;
+
+    BEGIN
+        LogID := DummyLogID();
+        RETURN MatchHostName (MasterList[nochunking], name, FALSE, LogID);
+    END NoChunkingHost;
+
+(************************************************************************)
 (*                            INITIALISATION                            *)
 (************************************************************************)
 
 PROCEDURE CheckRBLOption (UseTNI: BOOLEAN);
 
-    VAR hini: INIData.HINI;  RBLchecking: CARD8;  j: BlacklistType;
+    (* Initialises the RBL and DBL options. *)
+
+    VAR hini: INIData.HINI;  RBLchecking, DBLchecking: CARD8;  j: BlacklistType;
         number: ARRAY [0..0] OF CHAR;
         app: ARRAY [0..4] OF CHAR;  key: ARRAY [0..15] OF CHAR;
         domain: DomainName;
@@ -420,12 +528,19 @@ PROCEDURE CheckRBLOption (UseTNI: BOOLEAN);
         hini := OpenINIFile (key, UseTNI);
         IF NOT INIData.INIValid (hini) THEN
             RBLchecking := 0;
+            DBLchecking := 0;
         ELSE
             key := "RBLcheck";
             IF NOT INIGet (hini, app, key, RBLchecking) THEN
                 RBLchecking := 0;
             END (*IF*);
+            key := "DBLcheck";
+            IF NOT INIGet (hini, app, key, DBLchecking) THEN
+                DBLchecking := 0;
+            END (*IF*);
         END (*IF*);
+
+        (* Relay blacklist checkers. *)
 
         FOR j := MIN(BlacklistType) TO MAX(BlacklistType) DO
             BlacklistChecking[j] := ODD(RBLchecking);
@@ -439,6 +554,30 @@ PROCEDURE CheckRBLOption (UseTNI: BOOLEAN);
                     Strings.Assign (domain, BLCheckSuffix[j]);
                 ELSE
                     Strings.Assign (DefaultCheckSuffix[j], BLCheckSuffix[j]);
+                END (*IF*);
+                IF BLCheckSuffix[j][0] = Nul THEN
+                    BlacklistChecking[j] := FALSE;
+                END (*IF*);
+            END (*IF*);
+        END (*FOR*);
+
+        (* Domain blacklist checkers. *)
+
+        FOR j := MIN(BlacklistType) TO MAX(BlacklistType) DO
+            DomainBLChecking[j] := ODD(DBLchecking);
+            DBLDisable[j] := FALSE;
+            DBLchecking := DBLchecking DIV 2;
+            IF DomainBLChecking[j] THEN
+                Strings.Assign ("DBLDomain", key);
+                number[0] := CHR(ORD('0') + ORD(j));
+                Strings.Append (number, key);
+                IF INIGetString (hini, app, key, domain) THEN
+                    Strings.Assign (domain, DBLCheckSuffix[j]);
+                ELSE
+                    Strings.Assign (DefaultDBLCheckSuffix[j], DBLCheckSuffix[j]);
+                END (*IF*);
+                IF DBLCheckSuffix[j][0] = Nul THEN
+                    DomainBLChecking[j] := FALSE;
                 END (*IF*);
             END (*IF*);
         END (*FOR*);
@@ -479,6 +618,9 @@ PROCEDURE RefreshHostLists (LogIt, UseTNI: BOOLEAN);
         key := "Banned";
         RefreshHostList (INIname, app, key, UseTNI,
                              MasterList[banned], FALSE, LogIt);
+        key := "NoChunking";
+        RefreshHostList (INIname, app, key, UseTNI,
+                             MasterList[nochunking], FALSE, LogIt);
         CheckRBLOption (UseTNI);
     END RefreshHostLists;
 

@@ -7,13 +7,13 @@ DEFINITION MODULE SMTPLogin;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            5 February 2003                 *)
-        (*  Last edited:        26 May 2017                     *)
+        (*  Last edited:        5 January 2018                  *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
 
 
-FROM Semaphores IMPORT (*type*) Semaphore;
+FROM Watchdog IMPORT  (*type*) WatchdogID;
 FROM SBuffers IMPORT  (*type*) SBuffer;
 FROM Names    IMPORT  (*type*) UserName, PassString, HostName, DomainName;
 FROM TransLog IMPORT  (*type*) TransactionLogID;
@@ -47,7 +47,7 @@ PROCEDURE DoPOPLogin (IPAddr, port: CARDINAL;
 PROCEDURE PostmasterCheck (domain: DomainName;  OurHostName: HostName;
                                 OurDomain: DomainName;
                                 LogID: TransactionLogID;
-                                watchdog: Semaphore;
+                                watchID: WatchdogID;
                                 VAR (*OUT*) TempFailure: BOOLEAN): BOOLEAN;
 
     (* SMTP connection for a dummy "send to postmaster" whose purpose   *)

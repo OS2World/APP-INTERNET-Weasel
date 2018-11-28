@@ -33,12 +33,8 @@ IMPLEMENTATION MODULE MD5;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            14 September 1998               *)
-        (*  Last edited:        14 April 2012                   *)
+        (*  Last edited:        29 September 2017               *)
         (*  Status:             Working                         *)
-        (*                                                      *)
-        (*    Last change: in digest-to-string conversion,      *)
-        (*    now use 'a'..'f' instead of 'A'..'F' as hex       *)
-        (*    digits.                                           *)
         (*                                                      *)
         (********************************************************)
 

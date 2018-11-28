@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  PMOS/2 software library                                               *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -27,7 +27,7 @@ IMPLEMENTATION MODULE Keyboard;
         (*                      Keyboard Input                          *)
         (*                                                              *)
         (*  Programmer:         P. Moylan                               *)
-        (*  Last edited:        22 December 2013                        *)
+        (*  Last edited:        7 January 2018                          *)
         (*  Status:             Working                                 *)
         (*                                                              *)
         (****************************************************************)
@@ -65,7 +65,7 @@ FROM Semaphores IMPORT
     (* proc *)  Signal;
 
 FROM TaskControl IMPORT
-    (* proc *)  CreateTask;
+    (* proc *)  CreateTask, NotDetached;
 
 FROM CircularBuffers IMPORT
     (* type *)  CircularBuffer,
@@ -93,14 +93,6 @@ VAR
     (* CharBuffer is a circular buffer holding characters.      *)
 
     CharBuffer: CircularBuffer;
-
-    (* Flag that indicates that this process is running full-screen. *)
-
-    FullScreen: BOOLEAN;
-
-    (* A variable that is set unless the process is detached. *)
-
-    ProcessIsNotDetached: BOOLEAN;
 
 (************************************************************************)
 (*         PUTTING KEYBOARD CHARACTERS INTO THE CIRCULAR BUFFER         *)
@@ -314,43 +306,6 @@ PROCEDURE HotKey (FunctionKey: BOOLEAN;  code: CHAR;  S: Semaphore);
     END HotKey;
 
 (************************************************************************)
-(*                      CHECK FOR PROCESS MODE                          *)
-(************************************************************************)
-
-PROCEDURE IsFullScreen(): BOOLEAN;
-
-    (* Returns TRUE if this is a full-screen OS/2 session. *)
-
-    BEGIN
-        RETURN FullScreen;
-    END IsFullScreen;
-
-(************************************************************************)
-
-PROCEDURE NotDetached(): BOOLEAN;
-
-    (* Returns TRUE unless called by a process running detached.        *)
-    (* (A detached process may not do keyboard, screen, or mouse I/O.)  *)
-
-    BEGIN
-        RETURN ProcessIsNotDetached;
-    END NotDetached;
-
-(************************************************************************)
-
-PROCEDURE DetachCheck;
-
-    (* Sets the variable ProcessIsNotDetached. *)
-
-    VAR pPib: OS2.PPIB;  pTib: OS2.PTIB;
-
-    BEGIN
-        OS2.DosGetInfoBlocks (pTib, pPib);
-        FullScreen := pPib^.pib_ultype = 0;
-        ProcessIsNotDetached := pPib^.pib_ultype <> 4;
-    END DetachCheck;
-
-(************************************************************************)
 (*                          INITIALISATION                              *)
 (************************************************************************)
 
@@ -358,8 +313,7 @@ BEGIN
     HotKeys := CharSet{};
     HotFunctionKeys := CharSet{};
     CreateBuffer (CharBuffer, CharBufferSize);
-    DetachCheck;
-    IF ProcessIsNotDetached THEN
+    IF NotDetached() THEN
         (*SetLocks (0);*)
         EVAL(CreateTask (InputTask, 4, "Keyboard main"));
     END (*IF*);

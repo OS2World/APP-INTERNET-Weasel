@@ -14,9 +14,9 @@ Weasel is a combined POP3 and SMTP daemon (Post Office server) for OS/2.
 The POP3 and SMTP sections can be enabled or disabled separately.
 IMAP can be handled by running a separate IMAP add-on in parallel
 with Weasel. Both Weasel and the IMAP add-on are distributed as freeware,
-subject to the GNU GLP licence.
+subject to the GNU GPL licence.
 
-:p.This documentation is for version 2.41.
+:p.This documentation is for version 2.5.
 
 :p.Weasel can be configured either to handle a single mail domain,
 or to host multiple domains. This choice, together with a variety of other
@@ -219,7 +219,7 @@ scan when the POP client logs in, and build a table of messages for
 that user. Any messages that arrive after that table has been built
 will not be seen until the next login, at which time a new table is
 built. This is rarely a problem, because typically the mail client
-will log in about once every three minutes to see whether new mail
+will log in about once every five minutes to see whether new mail
 has arrived. Any message missed on the current scan will be seen on
 the next login.
 
@@ -423,7 +423,7 @@ For some other options, see
 
 :note.If you are upgrading from an earlier version, it is a good
 idea to run Setup before restarting the server. This will upgrade
-your WEASEL.INI to the latest version, in the case where some
+your WEASEL.INI or WEASEL.TNI to the latest version, in the case where some
 options have changed.
 
 :p.If you wish to use IMAP, then you must run imapd.exe as well as
@@ -477,36 +477,16 @@ these changes.
 :p.The Weasel configuration is controlled by a program called
 :link reftype=hd refid=pmconfiguser.Setup:elink.. This controls
 all configuration details&colon. adding and deleting users,
-changing options, and so on.
+changing options, and so on. You can safely run Setup while
+Weasel is still running.
 
 :p.
-The parameter settings are usually stored in a file called either
-WEASEL.INI or WEASEL.TNI. (Which of these will be used is explained in the
-:link reftype=hd refid=INIorTNI.following section:elink..) Weasel
+The parameter settings are stored in a file called either
+WEASEL.INI or WEASEL.TNI. (Which of these will be used is explained on the
+:link reftype=hd refid=INIorTNI.next page:elink..) Weasel
 reads this file as it starts up, so some of the changes you make might not take effect until
-the next time you start the server. See below, however; many of the
-changes take effect immediately, with no need to restart the server.
-
-:p.Normally you do not need to specify whether to use WEASEL.INI or
-WEASEL.TNI, because both Weasel and Setup will use whichever file exists,
-and they have rules for the case where both exist. Sometimes, however, you
-might want to override the default rules.
-If you start Setup or Weasel with the "t" parameter, i.e.
-:xmp.
-      setup -t
-:exmp.
-or
-:xmp.
-      weasel -t
-:exmp.
-then Setup will edit the file WEASEL.TNI (a human-readable file), or Weasel
-will use that file for its configuration data, as the case may be. If instead
-you use an "i" parameter, then WEASEL.INI will be used.
-
-:p.In the present version, we are in the process of developing a precise
-specification of which Setup parameters take effect immediately, and
-which ones have no effect until you next restart Weasel.
-The rules for this version are described below.
+the next time you start the server. See below, however; most of the
+changes take effect as soon as you close Setup, with no need to restart the server.
 
 :p.:hp2.Parameters read only on startup:ehp2.
 
@@ -548,7 +528,7 @@ all parameters associated with that decision (hostname, authentication
 method, etc.).
 :li.All user information, including in particular usernames and passwords.
 :li.Alias expansions.
-:li.The lists of whitelisted, trusted, "GateFor", and banned hosts.
+:li.The lists of whitelisted, trusted, "GateFor", banned, and no-chunking hosts.
 :li.The domains used for blacklist checking.
 :li.The domain information: whether multidomain mode is enabled, and the
 hostnames and addresses in the "Local" page of the Setup notebook.
@@ -633,49 +613,44 @@ that were still in use.
 :h2 id=INIorTNI.Weasel.INI or Weasel.TNI?
 
 :p.Weasel keeps its data (domains, users, etc.) in a configuration file that is
-either called Weasel.INI or Weasel.TNI. The INI format is more efficient because
+called either Weasel.INI or Weasel.TNI. The INI format is more efficient because
 it has built-in OS/2 support, but it is known that INI files can be corrupted in some situations.
 The text-mode TNI format is more robust but less efficient. I recommend that you
 use the INI format if you have a small home server, but the TNI format if you
 are running a busy server.
 
+:p.(There is also a configuration file called Setup.INI or Setup.TNI. That is used
+to store Setup-specific details like the notebook fonts.)
+
 :note.You can convert between the two formats with the GenINI package, which
 can be downloaded from the same place where you found Weasel.
 
-:p.But which format will actually be used? On the first page of the
-:link reftype=hd refid=pmconfiguser.Setup:elink. notebook there is an option to
-choose between Weasel.INI and Weasel.TNI, but that only sets a default. The rules
-that are actually used are:
-:ul compact.
-:li.If neither file exists, then we default to the INI format, and a file
-Weasel.INI will be created when Setup is first run.
-:li.If only one of Weasel.INI and Weasel.TNI exists then that file will be
-used, even if the Setup page specifies the opposite.
-:li.If both files exist, we consult the option set on the first page of the
-notebook. If they agree, we accept that option. If they disagree, then
-Setup will default to INI operation but Weasel will refuse to start.
+:p.Both Setup and Weasel can be started with a parameter -t (for TNI format) or
+-i (for INI format). That is, you can use commands like
+:xmp.       setup -T:exmp.
+.br
+or
+.br
+:xmp.       weasel -i
+:exmp.
+(It does not matter whether you use upper or lower case.) Most of the time,
+however, you don't need to specify this parameter. The rules are
+:ul.
+:li.If an "i" or "t" parameter is specified, that controls whether the
+INI or TNI file is used.
+:li.Otherwise, if only one of the files Weasel.INI and Weasel.TNI exists, then that
+is the one that will be used.
+:li.If both of these files exist, then the one that is chosen is the
+one that was specified the last time Setup was run with an explicit
+"i" or "t" parameter.
+:li.If none of these rules apply, an arbitrary default decision is made.
+The default might change from one version of Weasel to another.
 :eul.
 
-:p.These rules might initially be confusing. You might find, for example, that
-you have specified the TNI format, but that your specification is being ignored
-because Weasel.TNI does not exist. In practice, you should soon converge to a
-position where your specifications are consistent.
-
-:p.The above default decisions can be overridden by explicit command-line options.
-
-:p.To resolve a disagreement, the Weasel distribution includes a program ChooseTNI.exe,
-whose only function is to set the "use TNI" flags in both Weasel.INI and Weasel.TNI,
-in case both exist, so that they agree with each other. To set INI as the default,
-use the command
-:xmp.
-      choosetni N
-:exmp.
-To set TNI as the default, use the command
-:xmp.
-      choosetni Y
-:exmp.
-The argument can be in either upper or lower case, and you may also use 0 and 1
-as arguments.
+:p.What this means is that you should initially run Setup with an "i"
+or "t" parameter to specify your preference, and that will be remembered.
+After that, you don't need to specify the parameter unless you change
+your mind about which format to use.
 
 :p.If you are uncertain which of the two INI files is being used, it is easy to check.
 :ul compact.
@@ -708,7 +683,7 @@ many of the options that have been added to later versions of Setup.
 .*   THE SETUP UTILITY
 .***********************************
 
-:h2 id=PMconfiguser.The Setup utility
+:h1 id=PMconfiguser.The Setup utility
 
 :p.The program SETUP.EXE has two functions:
 :ul compact.
@@ -788,6 +763,7 @@ The page tabs are
 :li.:link reftype=hd refid=pmconfigoptions2.Options 2:elink.
 :li.:link reftype=hd refid=pmconfigoptions3.Options 3:elink.
 :li.:link reftype=hd refid=pmrelay.Relay:elink.
+:li.:link reftype=hd refid=pmconfiguser5a.Chunking:elink.
 :li.:link reftype=hd refid=pmconfigwhitelist.Whitelist:elink.
 :li.:link reftype=hd refid=pmconfiguser4.Trusted:elink.
 :li.:link reftype=hd refid=pmconfiguser4a.GateFor:elink.
@@ -817,7 +793,7 @@ notebook.
 .*   THE BASIC PAGE
 .***********************************
 
-:h3 id=pmconfiguser1.Setting the basic server parameters
+:h2 id=pmconfiguser1.Setting the basic server parameters
 :hp2.Setting the basic server parameters:ehp2.
 :p.
 The first page in the Setup notebook starts with an SMTP section, a POP
@@ -905,15 +881,6 @@ and translate the messages in the obvious way.
 (German, Spanish), and Marion Gevers (French). If you have a new
 translation, I would be happy to add it to the distribution.)
 
-:p.After the language box you are asked to specify whether WEASEL.INI or
-WEASEL.TNI should be used as the source of configuration data. This
-specification is needed for the case where both of those files exist, but
-it is ignored otherwise. Note that changing this option does :hp2.not:ehp2.
-cause an immediate switch to the other format, because that could cause a
-loss of data. It does not take effect until the next time you run Setup or
-run Weasel, and even then you might not notice any difference, because this
-setting is relevant only if both of the files exist.
-
 :p.Next, there is a checkbox to switch to and from multidomain mode.
 In multidomain mode, the Users, Aliases, and Local page disappear from
 the Setup notebook, and a "Domains" page is added. For further information,
@@ -942,7 +909,7 @@ if they are not already there, to hold the mail for each user.
 .*        IMAP
 .***********************************
 
-:h3 id=pmconfigimap.IMAP
+:h2 id=pmconfigimap.IMAP
 :hp2.IMAP:ehp2.
 
 :p.This page is irrelevant unless you are running the program imapd.exe
@@ -990,7 +957,7 @@ the "Allow IMAP" option each time you create a new user in this domain.
 .*   THE DOMAINS PAGE
 .***********************************
 
-:h3 id=pmconfigdomains.Domains
+:h2 id=pmconfigdomains.Domains
 :hp2.Domains:ehp2.
 
 :p.This page exists only in
@@ -1069,7 +1036,7 @@ the remainder of the deletion must be done manually.
 .*   EDITING THE PROPERTIES OF A DOMAIN
 .***********************************
 
-:h4 id=editdomain.Editing the properties of a domain
+:h3 id=editdomain.Editing the properties of a domain
 
 :hp2.Editing the properties of a domain:ehp2.
 
@@ -1099,7 +1066,7 @@ different domains.
 .*        USERS
 .***********************************
 
-:h3 res=1002 id=1002 global toc=1234.Users
+:h2 res=1002 id=1002 global toc=1234.Users
 
 :p.:hp2.Users:ehp2.
 
@@ -1146,7 +1113,7 @@ Click on the username to be deleted, and then click on the "Delete" button.
 .*        USER PAGE CHECKBOXES
 .***********************************
 
-:h4 res=1005 id=pmconfigupoptions.Options on the Users page
+:h3 res=1005 id=pmconfigupoptions.Options on the Users page
 :hp2.Options on the Users page:ehp2.
 
 :p.At the bottom of the Users page there is one or more checkboxes, which control the
@@ -1311,7 +1278,7 @@ the "Cancel" button, or type the Esc key, and your changes will be ignored.
 .*           ALIASES
 .***********************************
 
-:h3 res=1004 id=pmaliases toc=1234 global.Aliases
+:h2 res=1004 id=pmaliases toc=1234 global.Aliases
 :hp2.Aliases:ehp2.
 
 :p.In single-domain mode, this page will be found in the main Setup notebook.
@@ -1373,7 +1340,7 @@ those senders with "relay mail" privilege.
 .*        ALIAS EDITOR
 .***********************************
 
-:h4.Adding and changing aliases
+:h3.Adding and changing aliases
 :hp2.Adding and changing aliases:ehp2.
 :p.
 In the "Aliases" page of the Setup notebook, you have the following options&colon.
@@ -1480,7 +1447,7 @@ wildcard entries come at the end of the list.
 .*   NAMES FOR THE LOCAL HOST
 .***********************************
 
-:h3 id=pmconfiguser3.Local
+:h2 id=pmconfiguser3.Local
 :hp2.Local:ehp2.
 
 :p.In single-domain mode, this page will be found in the main Setup notebook.
@@ -1651,7 +1618,7 @@ as the list of banned hosts.
 .*   THE LOGGING PAGE
 .***********************************
 
-:h3 id=pmlogging.Logging
+:h2 id=pmlogging.Logging
 :hp2.Logging:ehp2.
 
 :p.Weasel permits you to have several different log files. This page is
@@ -1681,12 +1648,6 @@ the syslog host name set at 127.0.0.1 (the local host). You may, however,
 log to a different machine by specifying a hostname or a numeric IP
 address in the "Syslog host" field.
 
-:p.The "more detailed logging" checkbox under the log file name puts
-extra detail into the transaction log. This option is mainly for testing
-and debugging, so exactly what extra details you get varies from one
-version to another. It is a good idea to have this option turned on if
-you are logging for the purpose of reporting a problem.
-
 :p.Sending the log to a pipe is not a useful thing to do unless you
 have a separate program reading the data from the other end of the pipe.
 The pipe option is designed for cases where you want to do your own
@@ -1710,8 +1671,25 @@ The rest of the time, the main thing you want to check are the SMTP sessions,
 since this is the main place you will get information about spammers. Thus, you
 might as well leave the POP information out of the transaction log.
 
+:p.With this option selected, the transaction log still records the beginning
+and end of POP sessions, but the detail is omitted.
+
 :p.Note that this option affects only the transaction log. You can still have
 a separate POP log file, as noted earlier in the "Transfer logging" section of this page.
+
+:p.Next, we have an option to log some of the initialisation details.
+At startup Weasel loads a number of lists (local addresses, banned hosts, etc.), and
+augments these with the aid of nameserver lookups. If you log this detail
+it can produce a surprising number of log lines. If everything is going
+smoothly you probably don't need to log such details. You should, however,
+enable this option if you need to track down problems like misconfigured
+nameserver entries.
+
+:p.The "more detailed logging" checkbox might (or might not) put
+extra detail into the transaction log. This option is mainly for testing
+and debugging, so exactly what extra details you get varies from one
+version to another. It is a good idea to have this option turned on if
+you are logging for the purpose of reporting a problem.
 
 :p.Note 1. The default location for all log files is in the working directory;
 that is, the directory you were in when you started Weasel.exe.
@@ -1747,7 +1725,7 @@ detached programs never write to the screen anyway.
 .*   THE FILTER SETUP OPTION PAGE
 .***********************************
 
-:h3 id=pmconfigfilters toc=1234.Filters
+:h2 id=pmconfigfilters toc=1234.Filters
 :hp2.Filters:ehp2.
 :p.
 A filter is an external program (or Rexx script, Perl script, etc.) that
@@ -1794,7 +1772,7 @@ thousands of items in rapid succession.
 .*   SETUP OPTIONAL SETTINGS
 .***********************************
 
-:h3 id=pmconfigoptions1 toc=1234.Options 1
+:h2 id=pmconfigoptions1 toc=1234.Options 1
 :hp2.Options 1:ehp2.
 :p.
 This page covers several miscellaneous options. Make sure that you understand
@@ -1817,6 +1795,23 @@ supplies a correct password after a failure due to an aborted login attempt.
 If this is a problem, and you are willing to tolerate the reduced security,
 then you can increase the limit (note that Thunderbird is less confusing if
 you specify an even number) or even disable the test.
+:note.This option applies only to password errors within a single session.
+Weasel also counts password errors across sessions, including both POP and
+SMTP sessions, and that feature cannot be disabled. A user who makes any
+password error is briefly locked out (for about 5 seconds) from initiating
+another login attempt. A user who tries anyway to log in during that lockout
+period will be locked out for a longer time, and the penalty increases with
+repeated attempts. This will be only a minor
+inconvenience to genuine users, who will presumably fix the password error
+between attempts, but it will block attackers who keep trying to guess
+passwords.
+:dt.     :hp2.Reject sender on rDNS failure:ehp2.
+:dd.rDNS means "reverse DNS". A normal domain name request translates a
+domain name to a numeric IP address. An rDNS operation does the opposite,
+translating a numeric IP address to a domain name. Sometimes, especially
+in the case of scammers, an rDNS operation will fail to produce an answer.
+If you enable this option, you will ban all mail from addresses that do
+not have a corresponding hostname.
 :dt.     :hp2.Check MAIL FROM address for banned host/domain:ehp2.
 :dd.When receiving a message, Weasel checks whether the sender is banned on
 initial connection (when we know the IP address of the sender), and again
@@ -1895,7 +1890,7 @@ address rather than the externally visible address.
 .*   SECOND PAGE OF OPTIONS
 .***********************************
 
-:h3 id=pmconfigoptions2 toc=1234.Options 2
+:h2 id=pmconfigoptions2 toc=1234.Options 2
 
 :hp2.When to go online:ehp2.
 
@@ -1968,7 +1963,9 @@ standards. If you are getting mail from one or two domains with that
 problem, a simple solution is to
 :link reftype=hd refid=pmconfigwhitelist.whitelist:elink.
 those domains. If the problem is more extensive, you might have to
-disable the postmaster check.
+disable the postmaster check. Because this is a growing problem, it is
+possible that the postmaster check will be removed from Weasel in some
+future version.
 
 :p.:hp2.Maximum recipients per mail item:ehp2.
 
@@ -2101,7 +2098,7 @@ is complete.
 .*   THIRD PAGE OF OPTIONS
 .***********************************
 
-:h3 id=pmconfigoptions3 toc=1234.Options 3
+:h2 id=pmconfigoptions3 toc=1234.Options 3
 
 :hp2.Options page 3:ehp2.
 
@@ -2173,7 +2170,7 @@ error message to the client.
 .*   RELAY PAGE
 .***********************************
 
-:h3 id=pmrelay.Relay host for outgoing mail
+:h2 id=pmrelay.Relay host for outgoing mail
 
 :hp2.Relay host for outgoing mail:ehp2.
 
@@ -2292,7 +2289,7 @@ page.
 .*   THE RELAY RULES FILE
 .***********************************
 
-:h4 id=relayrulesfile.The relay rules file
+:h3 id=relayrulesfile.The relay rules file
 :hp2.The relay rules file:ehp2.
 
 :p.In most situations, it is sufficient to send outgoing mail either
@@ -2373,10 +2370,81 @@ restart Weasel, but it will also happen if you open and then close Setup,
 even if you do not make any changes.
 
 .***********************************
+.*   CHUNKING
+.***********************************
+
+:h2 id=pmconfiguser5a.Chunking
+
+:p.An SMTP extension called CHUNKING is described in RFC 3030. Servers
+that support it have a new command BDAT that transfers messages in
+large binary chunks, instead of the usual line-at-a-time method. This has
+definite speed advantages, especially for large messages.
+
+:p.Unfortunately RFC 3030 seems to have been put together in a hurry, since
+it is missing some important features that a good design would have had. In
+particular
+:ul.
+:li.There is no provision for parameter negotiation. The chunk size is
+entirely under the control of the sender. If a chunk is too large for
+the receiver to handle, the entire transaction will fail.
+:li.The standard way to send a message is for the sender to send a DATA
+command, then wait for a "go ahead" reply from the recipient before
+sending the data. The BDAT command lacks that intermediate check. If
+the recipient wants to reply with "too busy, try again later" or "chunk size
+too large", or some similar error condition, it must receive and discard the
+entire chunk before replying. I have seen examples where this interferes
+with other network operations, by overloading the network, for an hour or
+more. This is an unacceptable gap between a command and its error response.
+:li.Every other mail transaction uses a technique called dot-stuffing to
+avoid false end-of-message markers, and for efficiency that means that a
+message should remain dot-stuffed as long as it is in transit through the
+network. The BDAT command requires the message
+without the dot-stuffing, meaning that the sender and receiver have the
+overhead of removing and then reinserting the dot-stuffing. The precise
+stages at which the dots are inserted and removed depends, of course, on
+the design of the mail server, and will be different for different servers.
+:li.Most methods of transferring data as a sequence of chunks include a
+provision for the receiver to make requests like "please re-transmit
+chunk number 17". BDAT lacks this feature. If there is a transmission error in
+any chunk, the entire message has to be re-sent.
+:eul.
+
+:p.Despite these problems, chunking is still worth supporting. The problems
+are serious only when there are large chunks. If the chunk size is kept
+suitably small, the problems are minor.
+
+:p.:hp2.Maximum outgoing chunk size:ehp2.
+
+:p.This is where you specify the chunk size for outgoing mail. That size is used for every
+chunk except for the last, because the total message size is usually not
+an exact multiple of the chunk size.
+
+:p.The default chunk size for Weasel is 8 kiB (8192 bytes), which gives reasonably high
+speed along with a low probability of a one-bit transmission error in a chunk.
+If you have a high-speed network then it would be reasonable to increase the
+chunk size. Note, however, that it would be a mistake to make the chunk size
+greater than 1 MiB (1024 kiB).
+
+:note.For technical reasons related to efficient memory allocation, the
+chunk size that Weasel uses is one byte less than specified in this field.
+
+:p.If you set this limit to zero, you will disable chunking for outgoing mail.
+Normally you should not do this. If the server at the other end of the
+connection supports chunking, then it makes sense to use it. If the server
+does not support chunking, Weasel will detect this and fall back to the
+more traditional line-oriented approach to sending the message.
+
+:p.An earlier version of Weasel allowed you to specify mail sources for
+which Weasel would refuse to accept chunking. That option is obsolete and
+no longer allowed for in Setup. As a result of a re-design, Weasel will now
+accept chunked mail from any source, even those that use obscenely large
+chunk size.
+
+.***********************************
 .*   THE WHITELIST
 .***********************************
 
-:h3 id=pmconfigwhitelist.Whitelist
+:h2 id=pmconfigwhitelist.Whitelist
 :hp2.Whitelist:ehp2.
 
 :p.
@@ -2388,17 +2456,17 @@ they are "safe" sources of mail.
 commands and the MAIL FROM command, so we can't use those for
 whitelisting.
 
-:p.The one thing that they cannot fake is the IP address
+:p.The one thing that they cannot easily fake is the IP address
 that the connection is coming from. Thus, all of our whitelisting
 decisions are based on the numeric addresses derived from the whitelist
 on this page. You may certainly use textual hostnames in this
 list; but, for the purposes of checking, Weasel converts those names
 into IP addresses by consulting a nameserver.
 
-:p.This does mean, unfortunately, that you cannot use wildcards in
-the textual names, because there is no efficient way to convert those
-into IP addresses via a nameserver. You may, of course, use the
-mechanisms that Setup provides for specifying a range of addresses.
+:p.If a list entry is a textual wildcard entry (i.e. it is a non-numeric
+string containing '?' or '*' characters), the test for legitimacy will
+require an extra reverse DNS lookup, but if you really need this feature
+then the extra lookup will presumably be justified.
 
 :note.Putting a host into this list means that you are confident that
 spam is not likely to come from that address. It does not, however,
@@ -2407,11 +2475,9 @@ permission you must use the
 :link reftype=hd refid=pmconfiguser4.Trusted:elink.
 page.
 
-:p.In the present version, the whitelist is used only to skip the
-tests that are made when processing the MAIL FROM command for
-incoming mail. Specifically,
+:p.If a client is on the whitelist, then,
 :ul.
-:li.We skip checking whether the FROM address is banned or blacklisted;
+:li.We skip checking whether the address is banned or blacklisted;
 :li.We skip checking whether the domain in that address has a postmaster account.
 :eul.
 :p.Whitelisting also causes the "banned" and "blacklisted" checks to be
@@ -2429,7 +2495,7 @@ the manual page called :link reftype=hd refid=pmhostlist.Editing a list of host 
 .*   SOURCES FOR RELAY MAIL
 .***********************************
 
-:h3 id=pmconfiguser4.Trusted
+:h2 id=pmconfiguser4.Trusted
 :hp2.Trusted:ehp2.
 
 :p.
@@ -2480,7 +2546,7 @@ the manual page called :link reftype=hd refid=pmhostlist.Editing a list of host 
 .*   ACCEPTABLE RELAY DESTINATIONS
 .***********************************
 
-:h3 id=pmconfiguser4a.GateFor
+:h2 id=pmconfiguser4a.GateFor
 :hp2.GateFor:ehp2.
 
 :p.
@@ -2506,9 +2572,9 @@ this list.
 :ul.
 :li.Where your computer is acting as a gateway to a network that
 would otherwise be unable to receive mail from the outside world.
-Typically this happens when you have a firewall to protect a
-private network, and you are running Weasel to pass mail across the
-firewall. If this is your situation, then you can list the
+Typically this happens when you have a
+private LAN, and you are running Weasel to pass mail across the
+boundary. If this is your situation, then you can list the
 names and/or IP addresses of the other mail servers in the private network
 in the "GateFor" list.
 :li.Where your server is acting as a backup server for another
@@ -2527,7 +2593,7 @@ the manual page called :link reftype=hd refid=pmhostlist.Editing a list of host 
 .*   BANNED HOSTS
 .***********************************
 
-:h3 id=pmconfiguser5.Banned
+:h2 id=pmconfiguser5.Banned
 :hp2.Banned:ehp2.
 
 :p.This page contains your personal blacklist of hosts that are not
@@ -2538,10 +2604,195 @@ from hosts on this list.
 the manual page called :link reftype=hd refid=pmhostlist.Editing a list of host names:elink..
 
 .***********************************
+.*   BLACKLISTS
+.***********************************
+
+:h2 id=pmconfiguser6.Blacklists
+:hp2.Blacklists:ehp2.
+:p.
+The "banned hosts" facility of Weasel should be a good way of
+controlling junk mail, but it has a serious shortcoming&colon.
+because the junk mailers know that everyone is trying to block their
+mail, they keep changing their addresses.
+
+:p.In response to this, some organisations now maintain "blacklist"
+databases that attempt to track the sources of junk mail, and/or the
+open relays that are allowing the junk mail to propagate. These
+are further explained on the page about
+:link reftype=hd refid=realtimeblacklist.realtime blacklist databases:elink..
+
+:p.Earlier versions of Weasel included hard-coded links to the
+blacklist sites, but those addresses have now become obsolete.
+The MAPS site changed its addresses when it changed from being a free
+site to being a subscription site, and the ORBS database of open relays
+was shut down as the result of legal action. We will probably see
+further changes as the war between the spammers and their victims evolves.
+To allow for the current and possible future changes, you now have
+to specify the domain names of the blacklist checkers.
+
+:p.You are allowed to use two groups of up to eight such sites.
+(But to enable 16 different checks would be massive overkill, and
+would slow down your server. In practice, one choice from each
+group will normally be sufficient.)
+To activate the
+checking, enter the domain name of the blacklist checker, and select
+the checkbox next to that name. If a name is specified but the
+checkbox is not checked, that site is not used, but its name is left
+there in case you want to activate it at some later stage. The names
+that initially appear are simply suggestions; you can of course change them.
+
+:p.Note that many of the blacklist sites are subscription sites,
+which means that they won't work for you unless you are a subscriber.
+
+:p.:hp2.Checking by IP address or checking by domain name:ehp2.
+
+:p.Most blacklist checkers check IP addresses only. Those are the ones
+in the left column on the Blacklists page.
+
+:p.The right column is for another kind of blacklist checker, to which
+Weasel submits domain names rather than IP addresses. To the best of my
+knowledge, there are not (yet) any public blacklist checkers that do
+both. Submitting an IP address to the second kind of checker is useless, and
+submitting a domain name where an IP address is expected is equally useless; in
+both cases, a "not on blacklist" response will be returned. It is therefore
+important to put your chosen blacklist checker(s) in the correct column
+on this page. The web sites for a blacklist checker will tell you
+what sort of checker it is.
+
+:p.The two kinds of check overlap a bit, but not completely, especially
+when you consider that so much information in spam is faked. If you only
+want to do one check, the check by IP address is probably the most suitable,
+but mail that reaches you via a relay can bypass this check. One check
+of each kind is possibly a better idea.
+
+.*************************************************************************
+.*   REALTIME BLACKLIST DATABASES
+.***********************************
+
+:h3 id=realtimeblacklist.Realtime Blacklist databases
+
+:hp2.Realtime blacklist databases:ehp2.
+
+:p.A blacklist database is a list of hosts that are known to be 'undesirable'
+in some way. Usually this means that they are sources or potential
+sources of junk mail. Because junk mailers move quickly from one site
+to another, these databases have to be updated frequently to be of
+any use.
+
+:p.These databases are set up to accept queries from mail servers such
+as Weasel. The time overhead is similar to the overhead of looking up
+a hostname on a nameserver; that is, from seconds to a couple of minutes,
+depending on whether the entry you want has recently been cached.
+Note, however, that some of the databases will work for you only if you
+have a subscription to them.
+
+:p.There are three common kinds of realtime blacklists.
+
+:ul.
+:li.Lists of IP addresses for internet nodes that are known to be
+sources of spam, or places that are allowing spam to pass through.
+This is the most direct form of blacklist, because all of the hosts
+on the list are known to have been used in recent cases of
+spamming.
+
+:li.Lists of IP addresses that have been identified as addresses
+allocated to dial-up lines. The reason for doing this test is that
+junk mailers often operate from dial-up connections so that they are
+harder to identify. (Meanwhile, the legitimate dial-up users are
+probably not sending mail directly; they are more likely to be sending
+it via their ISP.) If you block dial-up users
+you might need to give an exemption to your own dial-up users; the way
+to do this is to include your own dial-up addresses in the
+:link reftype=hd refid=pmconfiguser4.Trusted:elink. list.
+
+:li.Lists of open relays. An open relay is a mail server that allows
+mail to be relayed through
+it from arbitrary sources. Some SMTP relays are open because they are
+spammer-friendly, and are helping the junk mailers to distribute their
+junk. Others are open because their operators have not taken enough
+precautions. Many are open because the system manager has not
+realised that they are open.
+
+:p.There is probably no direct threat to you from open relays. The
+theory behind banning them is not that they are directly harmful, but
+that they are indirectly harmful in that they can become (perhaps
+unknowingly) accomplices in network abuse. If you ban mail from them,
+this is likely to cause enough complaints that their operators will
+eventually plug the security hole. This sort of incentive has
+already caused a great many owners of SMTP servers to upgrade their
+security. If we can cut down the number of open relays there are in
+the world, we'll make life more difficult for those who rely on
+theft-of-service attacks.
+
+:p.Note that you yourself could end up in the "open relay" databases if
+you fail to configure Weasel properly. You should be careful to
+restrict the relaying options, because spammers manage to find new
+open relays surprisingly quickly. :hp3.Note in particular that the great
+majority of Weasel installations should have an empty 'GateFor' list.
+There are very few cases where you legitimately need to have entries
+in that list:ehp3..
+:eul.
+
+:p.:hp2.Where to find the blacklists:ehp2.
+
+:p.Each time I update this page the information turns out to be
+obsolete, so there appears to be no point in making specific recommendations.
+I suggest you use a web search to find blacklist checkers that will
+suit your needs. (And budget, in the case of subscription sites.)
+
+:p.On my own server, I am at present using sbl-xbl.spamhaus.org for IP
+address checking, and dbl.spamhaus.org for domain name checking.
+The spamhaus.org checker is free for non-commercial users, provided
+that the traffic level is not too high. For commercial use or high
+traffic servers, a subscription is required.
+
+:p.:hp2.Should I enable these checks?:ehp2.
+
+:p.It is up to you to decide whether you want to use these services. If you
+do, you can tell Weasel to use it by enabling one or more of the realtime
+databases in the Setup program.
+There is a limit on how many of these you may specify, because an excessive
+number of checks will slow down the
+incoming mail too much. If you enable any of these, Weasel will do the
+checks on each incoming SMTP connection attempt. If the SMTP client is
+found on the blacklist, the connection will be refused.
+
+:p.Before making this decision, you should consult the web pages
+of the various blacklist providers, to see what they offer
+and also to see whether a subscription is required.
+
+:p.Disadvantages of using the blacklists include the following points.
+:ul.
+:li.Enabling the checks means extra nameserver lookups for each
+mail item, which slows down the reception slightly. If you are getting
+rapid nameserver responses then this doesn't matter much. If you have
+an unreliable nameserver, or very slow network connections, it could
+be a problem for you.
+:li.If you are doing these checks then you are doing them on behalf of all
+your users. You should inform your users that you have implemented
+anti-spam measures, that this will cause some incoming mail to be
+rejected, and that acceptance of this condition is part of the conditions
+of use of your mail system.
+:li.Inevitably some genuine senders will be locked out as well as the
+spammers. This happens, for example, when a spammer-friendly ISP also
+has some legitimate customers. The rejection message from Weasel tells
+senders why they have been locked out, and the blacklist maintainers
+have mechanisms for
+removing sites from the blacklists when the senders can show that they are
+not a spamming site. Nevertheless, some false alarms will always be
+a feature of any anti-spam measure.
+:eul.
+
+:p.The advantages of using the blacklists are obvious: you cut down on the
+amount of spam you receive, and you are helping to rid the world of
+theft-of-service attacks. For most people the advantages outweigh the
+disadvantages, and this is why Weasel allows you to use these features.
+
+.***********************************
 .*   REGISTRATION PAGE
 .***********************************
 
-:h3 id=pmregister.Register
+:h2 id=pmregister.Register
 
 :hp2.Register:ehp2.
 
@@ -2552,7 +2803,7 @@ If you see this page, you are running an obsolete version of Setup.
 .*   EDITING A HOST LIST
 .***********************************
 
-:h3 id=pmhostlist.Editing a list of host names
+:h2 id=pmhostlist.Editing a list of host names
 :hp2.Editing a list of host names:ehp2.
 
 :p.Several of the Setup notebook pages have a list of host names. On
@@ -2637,43 +2888,6 @@ not have any special status; they are treated like any other character.
 :li.There are restrictions on how you may use wildcards when you specify
 a numeric IP address, as explained above.
 :eul.
-
-.***********************************
-.*   BLACKLISTS
-.***********************************
-
-:h3 id=pmconfiguser6.Blacklists
-:hp2.Blacklists:ehp2.
-:p.
-The "banned hosts" facility of Weasel should be a good way of
-controlling junk mail, but it has a serious shortcoming&colon.
-because the junk mailers know that everyone is trying to block their
-mail, they keep changing their addresses.
-
-:p.In response to this, some organisations now maintain "blacklist"
-databases that attempt to track the sources of junk mail, and/or the
-open relays that are allowing the junk mail to propagate. These
-are further explained on the page about
-:link reftype=hd refid=realtimeblacklist.realtime blacklist databases:elink..
-
-:p.Earlier versions of Weasel included hard-coded links to the
-blacklist sites, but those addresses have now become obsolete.
-The MAPS site changed its addresses when it changed from being a free
-site to being a subscription site, and the ORBS database of open relays
-was shut down as the result of legal action. We will probably see
-further changes as the war between the spammers and their victims evolves.
-To allow for the current and possible future changes, you now have
-to specify the domain names of the blacklist checkers.
-
-:p.You are allowed to use up to eight such sites. To activate the
-checking, enter the domain name of the blacklist checker, and select
-the checkbox next to that name. If a name is specified but the
-checkbox is not checked, that site is not used, but its name is left
-there in case you want to activate it at some later stage. The names
-that initially appear are simply suggestions; you can of course change them.
-
-:p.Note that many of the blacklist sites are subscription sites,
-which means that they won't work for you unless you are a subscriber.
 
 .*************************************************************************
 .*   MULTIDOMAIN MODE
@@ -3045,137 +3259,6 @@ port number.
 
 :p.Once the connection is made, the operation is the same as for the
 case of local configuration.
-
-.*************************************************************************
-.*   REALTIME BLACKLIST DATABASES
-.***********************************
-
-:h1 id=realtimeblacklist.Realtime Blacklist databases
-
-:hp2.Realtime blacklist databases:ehp2.
-
-:p.A blacklist database is a list of hosts that are known to be 'undesirable'
-in some way. Usually this means that they are sources or potential
-sources of junk mail. Because junk mailers move quickly from one site
-to another, these databases have to be updated frequently to be of
-any use.
-
-:p.These databases are set up to accept queries from mail servers such
-as Weasel. The time overhead is similar to the overhead of looking up
-a hostname on a nameserver; that is, from seconds to a couple of minutes,
-depending on whether the entry you want has recently been cached.
-Note, however, that some of the databases will work for you only if you
-have a subscription to them.
-
-:p.There are three common kinds of realtime blacklists.
-
-:ul.
-:li.Lists of IP addresses for internet nodes that are known to be
-sources of spam, or places that are allowing spam to pass through.
-This is the most direct form of blacklist, because all of the hosts
-on the list are known to have been used in recent cases of
-spamming.
-
-:li.Lists of IP addresses that have been identified as addresses
-allocated to dial-up lines. The reason for doing this test is that
-junk mailers often operate from dial-up connections so that they are
-harder to identify. (Meanwhile, the legitimate dial-up users are
-probably not sending mail directly; they are more likely to be sending
-it via their ISP.) If you block dial-up users
-you might need to give an exemption to your own dial-up users; the way
-to do this is to include your own dial-up addresses in the
-:link reftype=hd refid=pmconfiguser4.Trusted:elink. list.
-
-:li.Lists of open relays. An open relay is a mail server that allows
-mail to be relayed through
-it from arbitrary sources. Some SMTP relays are open because they are
-spammer-friendly, and are helping the junk mailers to distribute their
-junk. Others are open because their operators have not taken enough
-precautions. Many are open because the system manager has not
-realised that they are open.
-
-:p.There is probably no direct threat to you from open relays. The
-theory behind banning them is not that they are directly harmful, but
-that they are indirectly harmful in that they can become (perhaps
-unknowingly) accomplices in network abuse. If you ban mail from them,
-this is likely to cause enough complaints that their operators will
-eventually plug the security hole. This sort of incentive has
-already caused a great many owners of SMTP servers to upgrade their
-security. If we can cut down the number of open relays there are in
-the world, we'll make life more difficult for those who rely on
-theft-of-service attacks.
-
-:p.Note that you yourself could end up in the "open relay" databases if
-you fail to configure Weasel properly. You should be careful to
-restrict the relaying options, because spammers manage to find new
-open relays surprisingly quickly. :hp3.Note in particular that the great
-majority of Weasel installations should have an empty 'GateFor' list.
-There are very few cases where you legitimately need to have entries
-in that list:ehp3..
-:eul.
-
-:p.:hp2.Where to find the blacklists:ehp2.
-
-:p.At the time of writing this, I was aware of the following realtime blacklist
-sites.
-
-:ul.
-:li.The MAPS site at http&colon.//mail-abuse.org/
-:li.The ORBZ list of open relays at http&colon.//orbz.gst-group.co.uk/
-:li.The Open Relay Database at http&colon.//www.ordb.org/
-:li.There appears to be a useful database of spammers maintained by
-http&colon.//www.spews.org/, but I haven't yet figured out whether this
-is available to us as a realtime blacklist.
-:eul.
-
-:p.You can find a longer list at http&colon.//www.sdsc.edu/~jeff/spam/Blacklists_Compared.html.
-I have no official opinion about the quality of any of these blacklists,
-because I haven't put in the time to do evaluations. You'll have to
-look at the available evidence and make your own decision. A web search
-on topics like 'blacklists' will probably turn up a lot more information
-than I have given here.
-
-:p.:hp2.Should I enable these checks?:ehp2.
-
-:p.It is up to you to decide whether you want to use these services. If you
-do, you can tell Weasel to use it by enabling one or more of the realtime
-databases in the Setup program.
-There is a limit on how many of these you may specify, because an excessive
-number of checks will slow down the
-incoming mail too much. If you enable any of these, Weasel will do the
-checks on each incoming SMTP connection attempt. If the SMTP client is
-found on the blacklist, the connection will be refused.
-
-:p.Before making this decision, you should consult the web pages
-(see above) of the various blacklist providers, to see what they offer
-and also to see whether a subscription is required.
-
-:p.Disadvantages of using the blacklists include the following points.
-:ul.
-:li.Enabling the checks means extra nameserver lookups for each
-mail item, which slows down the reception slightly. If you are getting
-rapid nameserver responses then this doesn't matter much. If you have
-an unreliable nameserver, or very slow network connections, it could
-be a problem for you.
-:li.If you are doing these checks then you are doing them on behalf of all
-your users. You should inform your users that you have implemented
-anti-spam measures, that this will cause some incoming mail to be
-rejected, and that acceptance of this condition is part of the conditions
-of use of your mail system.
-:li.Inevitably some genuine senders will be locked out as well as the
-spammers. This happens, for example, when a spammer-friendly ISP also
-has some legitimate customers. The rejection message from Weasel tells
-senders why they have been locked out, and the blacklist maintainers
-have mechanisms for
-removing sites from the blacklists when the senders can show that they are
-not a spamming site. Nevertheless, some false alarms will always be
-a feature of any anti-spam measure.
-:eul.
-
-:p.The advantages of using the blacklists are obvious: you cut down on the
-amount of spam you receive, and you are helping to rid the world of
-theft-of-service attacks. For most people the advantages outweigh the
-disadvantages, and this is why Weasel allows you to use these features.
 
 .***********************************
 .*        SMTP AUTHENTICATION
@@ -3664,6 +3747,42 @@ setting the time zone information. The way to check this is to look at
 the first "Received:" header line of any message received by Weasel,
 to see whether a time zone is specified.
 
+:h2.Dealing with locked mailboxes
+:hp2.Dealing with locked mailboxes:ehp2.
+
+:p.The POP3 protocol requires that a logged-in user have exclusive access to
+the mailbox for that user's account, because letting two mail clients fetch
+and delete messages in the same mailbox can produce conflicts that the POP3
+protocol was not designed to deal with. To enforce this, Weasel puts a "lock"
+on the mailbox once the user has been authenticated by supplying a valid
+username/password combination. The lock is removed when that user issues a
+QUIT command, or exits in some other way (e.g. by being timed out).
+Normally the time between the login and the QUIT will only be about one
+second, so the mailbox does not stayed locked for very long.
+
+:p.If two or more mail clients try to access the same account, there is some
+probability that they will conflict by trying to log in at approximately
+the same time. The probability of this happening depends on the interval
+between mailbox checks (typically 5 minutes, but some users are impatient),
+and on the number of items in the mailbox. Most of the time there will be
+no conflict, but now and then one of the clients will receive a "mailbox is
+locked" error message. Weasel tries to reduce the probability of this
+happening by retrying for a few seconds, on the grounds that the other user
+will probably have logged out by then, but sometimes the error will
+happen anyway.
+
+:p.The only reasonable response for the user is to be patient, and to try
+again. (But to adjust the retry interval, if the problem is caused by the
+user trying too often.) If this continues to be an unacceptable condition,
+then that user should switch to using an IMAP account. The IMAP rules
+allow simultaneous access by more than one client. They also allow keeping
+mail on the server, something that POP3 does not handle well if there is
+a lot of stored mail.
+
+:p.If the "mailbox is locked" error appears :hp1.consistently:ehp1., that
+indicates a more serious problem. For that, you need to look at the
+:link reftype=hd refid=troubleshooting.Troubleshooting:elink. section.
+
 .***********************************
 .*   USING FILTERS
 .***********************************
@@ -4097,7 +4216,7 @@ some particular program turns out to be widely used.)
 .*   TROUBLESHOOTING
 .***********************************
 
-:h1.Troubleshooting
+:h1 id=troubleshooting.Troubleshooting
 
 :p.:hp2.If Weasel crashes:ehp2.
 
@@ -4448,8 +4567,8 @@ install the user's package; the developer's version is needed only by programmer
 .*   POP GOES THE WEASEL
 .***********************************
 
-:h1.Why did the weasel go pop?
-:hp2.Why did the weasel go pop?:ehp2.
+:h1.Why did the weasel go POP?
+:hp2.Why did the weasel go POP?:ehp2.
 
 :p.Many children learn a traditional song from England called
 "Pop goes the weasel". There are many versions; this is the one

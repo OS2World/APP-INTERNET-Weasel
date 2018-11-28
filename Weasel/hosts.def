@@ -6,7 +6,7 @@ DEFINITION MODULE Hosts;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            9 May 1998                      *)
-        (*  Last edited:        26 May 2017                     *)
+        (*  Last edited:        16 August 2018                  *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -14,14 +14,14 @@ DEFINITION MODULE Hosts;
 FROM Names IMPORT
     (* type *)  HostName, DomainName;
 
-FROM Semaphores IMPORT
-    (* type *)  Semaphore;
+FROM Watchdog IMPORT
+    (* type *)  WatchdogID;
 
 FROM TransLog IMPORT
     (* type *)  TransactionLogID;
 
 PROCEDURE OnBlacklist (IPAddress: CARDINAL;  ID: TransactionLogID;
-                            watchdog: Semaphore;
+                            watchID: WatchdogID;
                             VAR (*OUT*) message: ARRAY OF CHAR): BOOLEAN;
 
     (* Returns TRUE if IPAddress is on one of the realtime blacklists   *)
@@ -40,7 +40,8 @@ PROCEDURE CheckHost (IPAddress: CARDINAL;
     (*     MayRelay:   this host is one from whom we will        *)
     (*                 accept mail to be relayed.                *)
 
-PROCEDURE BannedHost (VAR (*IN*) name: HostName): BOOLEAN;
+PROCEDURE BannedHost (VAR (*IN*) name: HostName;  LogID: TransactionLogID;
+                                    watchID: WatchdogID): BOOLEAN;
 
     (* Returns TRUE if name matches a name in the "banned" list.  This  *)
     (* is different from the CheckHost check because we are now         *)
@@ -50,6 +51,10 @@ PROCEDURE AcceptableRelayDestination (VAR (*IN*) name: HostName): BOOLEAN;
 
     (* Returns TRUE if name matches a name in the "acceptable relay     *)
     (* destinations" list.                                              *)
+
+PROCEDURE NoChunkingHost (VAR (*IN*) name: HostName): BOOLEAN;
+
+    (* Returns TRUE if name matches a name in the "nochunking" list.    *)
 
 PROCEDURE RefreshHostLists (LogIt, UseTNI: BOOLEAN);
 

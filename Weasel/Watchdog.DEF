@@ -1,0 +1,40 @@
+DEFINITION MODULE Watchdog;
+
+        (********************************************************)
+        (*                                                      *)
+        (*             Times out inactive sessions              *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            27 December 2017                *)
+        (*  Last edited:        11 January 2018                 *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+
+FROM SYSTEM IMPORT ADDRESS;
+
+TYPE
+    WatchdogID;                     (* is private*)
+    PROC1 = PROCEDURE (ADDRESS);
+
+
+
+PROCEDURE AddToWatches (timeout: CARDINAL;
+                        handler: PROC1;  arg: ADDRESS): WatchdogID;
+
+    (* Adds a new thread to be watched.  If the thread times out,   *)
+    (* handler(arg) is called.                                      *)
+
+PROCEDURE RemoveFromWatches (VAR (*INOUT*) ID: WatchdogID;  destroy: BOOLEAN);
+
+    (* Removes this entry from the watchdog list if it is still on  *)
+    (* the list. If destroy is TRUE, we also dispose of the record. *)
+
+PROCEDURE KickWatchdog (ID: WatchdogID);
+
+    (* Tells the watchdog that this entry is still active. *)
+
+END Watchdog.
+

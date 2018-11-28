@@ -3,12 +3,17 @@ IMPLEMENTATION MODULE MXCheck;
         (********************************************************)
         (*                                                      *)
         (*      Extracting MX information from nameserver.      *)
-        (*           This version discards everything           *)
-        (*     except the MX responses and the IP addresses.    *)
+        (*                                                      *)
+        (*  This version discards everything except the MX      *)
+        (*  responses and the IP addresses, but CNAME responses *)
+        (*  also permit one level of indirection.               *)
+        (*                                                      *)
+        (*  The format of a nameserver response is specified    *)
+        (*  in RFC 1035.                                        *)
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            03 July 1998                    *)
-        (*  Last edited:        22 May 2017                     *)
+        (*  Last edited:        24 July 2018                    *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -20,10 +25,10 @@ FROM SYSTEM IMPORT
     (* proc *)  ADR, MOVE;
 
 FROM Names IMPORT
-    (* type *)  HostName, HostNameIndex;
+    (* type *)  DomainName, HostName, HostNameIndex;
 
 FROM NameServer IMPORT
-    (* const*)  C_IN, T_MX,
+    (* const*)  C_IN, T_CNAME, T_MX,
     (* proc *)  res_query;
 
 FROM NetDB IMPORT
@@ -43,6 +48,8 @@ FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 (************************************************************************)
+
+CONST Nul = CHR(0);
 
 TYPE
     (* A HostList is a list of host names, each with an associated      *)
@@ -188,7 +195,7 @@ PROCEDURE SkipQuestion (VAR (*IN*) buffer: ARRAY OF CARD8;
 
 (************************************************************************)
 
-PROCEDURE NameMatch (Name1, Name2: HostName): BOOLEAN;
+PROCEDURE NameMatch (VAR (*IN*) Name1, Name2: HostName): BOOLEAN;
 
     (* String equality, with case differences ignored. *)
 
@@ -208,7 +215,7 @@ PROCEDURE NameMatch (Name1, Name2: HostName): BOOLEAN;
 
 (************************************************************************)
 
-PROCEDURE StoreAddress (Name: HostName;  IPAddr: CARDINAL;  list: HostList);
+PROCEDURE StoreAddress (VAR (*IN*) Name: HostName;  IPAddr: CARDINAL;  list: HostList);
 
     (* If Name is already on the list, stores the IPAddr value in the   *)
     (* corresponding record.  Otherwise does nothing.                   *)
@@ -230,6 +237,30 @@ PROCEDURE StoreAddress (Name: HostName;  IPAddr: CARDINAL;  list: HostList);
 
 (************************************************************************)
 
+PROCEDURE InsertEntry (this: HostList;  VAR (*INOUT*) result: HostList);
+
+    (* Inserts this^ into result. *)
+
+    VAR previous, current: HostList;
+
+    BEGIN
+        previous := NIL;  current := result;
+        LOOP
+            IF current = NIL THEN EXIT(*LOOP*) END (*IF*);
+            IF current^.pref > this^.pref THEN EXIT(*LOOP*) END(*IF*);
+            previous := current;  current := current^.next;
+        END (*LOOP*);
+        IF previous = NIL THEN
+            this^.next := current;
+            result := this;
+        ELSE
+            this^.next := previous^.next;
+            previous^.next := this;
+        END (*IF*);
+    END InsertEntry;
+
+(************************************************************************)
+
 PROCEDURE InterpretResourceRecords (VAR (*IN*) buffer: ARRAY OF CARD8;
                                         VAR (*INOUT*) j: CARDINAL;
                                         count: CARDINAL;
@@ -239,7 +270,7 @@ PROCEDURE InterpretResourceRecords (VAR (*IN*) buffer: ARRAY OF CARD8;
     (* extracted all information for this section or when j >= length.  *)
     (* On exit buffer[j] is the first byte we haven't used.             *)
 
-    VAR previous, current, this: HostList;
+    VAR this: HostList;
         k, QTYPE, length, IPAddr: CARDINAL;
         Name: HostName;  valid: BOOLEAN;
 
@@ -249,20 +280,34 @@ PROCEDURE InterpretResourceRecords (VAR (*IN*) buffer: ARRAY OF CARD8;
             valid := valid AND GetName (buffer, j, Name);
             IF valid THEN
                 QTYPE := Get16 (buffer, j);
-                INC (j, 6);
+                INC (j, 6);       (* skip class and TTL *)
+                length := Get16 (buffer, j);
 
                 IF QTYPE = 1 THEN
-
-                    INC (j, 2);
 
                     (* Type 1 records map a name to an IP address. *)
 
                     GetRaw (buffer, j, IPAddr);
                     StoreAddress (Name, IPAddr, result);
 
-                ELSIF QTYPE = 15 THEN
+                ELSIF QTYPE = T_CNAME THEN
 
-                    INC (j, 2);
+                    (* Canonical name record, contains just one name. *)
+
+                    NEW (this);
+                    WITH this^ DO
+                        pref := 0;
+                        valid := GetName (buffer, j, name);
+                        address := 0;
+                    END (*WITH*);
+
+                    IF valid THEN
+                        InsertEntry (this, result);
+                    ELSE
+                        DISPOSE (this);
+                    END (*IF*);
+
+                ELSIF QTYPE = 15 THEN
 
                     (* Type 15 records (MX) are the only other  *)
                     (* records that interest us.                *)
@@ -275,28 +320,12 @@ PROCEDURE InterpretResourceRecords (VAR (*IN*) buffer: ARRAY OF CARD8;
                     END (*WITH*);
 
                     IF valid THEN
-
-                        (* Insert the new result into the list. *)
-
-                        previous := NIL;  current := result;
-                        LOOP
-                            IF current = NIL THEN EXIT(*LOOP*) END (*IF*);
-                            IF current^.pref > this^.pref THEN EXIT(*LOOP*) END(*IF*);
-                            previous := current;  current := current^.next;
-                        END (*LOOP*);
-                        IF previous = NIL THEN
-                            this^.next := current;
-                            result := this;
-                        ELSE
-                            this^.next := previous^.next;
-                            previous^.next := this;
-                        END (*IF*);
+                        InsertEntry (this, result);
                     ELSE
                         DISPOSE (this);
                     END (*IF*);
 
                 ELSE
-                    length := Get16 (buffer, j);
                     INC (j, length);
                 END (*IF*);
 
@@ -343,39 +372,75 @@ PROCEDURE InterpretResponse (VAR (*IN*) buffer: ARRAY OF CARD8): HostList;
 
 (************************************************************************)
 
-PROCEDURE Lookup (VAR (*IN*) host: ARRAY OF CHAR;
-                  VAR (*OUT*) NoNameserver: BOOLEAN): HostList;
+PROCEDURE Lookup (VAR (*IN*) host: ARRAY OF CHAR;  type: CARDINAL;
+                    VAR (*OUT*) NoNameserver: BOOLEAN): HostList;
 
-    (* Does an MX query for the given host, returns a list of results.  *)
+    (* Does a query for the given host, returns a list of results.      *)
     (* The list is empty if the resolver couldn't give us an answer.    *)
     (* In case of no answer, NoNameserver is TRUE if the nameserver     *)
     (* couldn't be reached, and FALSE if it could be reached but it     *)
     (* couldn't supply an answer.                                       *)
+    (* errorcode is normally zero, but if there was an error then it    *)
+    (* is the value returned by tcp_h_errno().                          *)
 
     CONST BufferSize = 4096;
 
     TYPE BufferSubscript = [0..BufferSize-1];
 
     VAR length: CARDINAL;
-        buffer: ARRAY BufferSubscript OF CARD8;
+        result: HostList;
+        bufptr: POINTER TO ARRAY BufferSubscript OF CARD8;
 
     BEGIN
-        length := res_query (host, C_IN, T_MX, buffer, BufferSize);
+        ALLOCATE (bufptr, BufferSize);
+        length := res_query (host, C_IN, type, bufptr^, BufferSize);
         IF length = MAX(CARDINAL) THEN
             NoNameserver := tcp_h_errno() = 2;
-            RETURN NIL;
+            result := NIL;
         ELSIF length >= BufferSize THEN
             NoNameserver := FALSE;
-            RETURN NIL;
+            result := NIL;
         ELSE
             NoNameserver := FALSE;
-            RETURN InterpretResponse (buffer);
+            result := InterpretResponse (bufptr^);
         END (*IF*);
+        DEALLOCATE (bufptr, BufferSize);
+        RETURN result;
     END Lookup;
 
 (************************************************************************)
 
-PROCEDURE DoMXLookup (VAR (*IN*) domain: HostName;
+PROCEDURE LookupCNAME (VAR (*INOUT*) domain: ARRAY OF CHAR);
+
+    (* If host has a valid CNAME record, replaces the value of domain.  *)
+
+    VAR list, next: HostList;
+        NoNameserver: BOOLEAN;
+
+    BEGIN
+        list := Lookup (domain, T_CNAME, NoNameserver);
+
+        (* Requirements: result should be a list of exactly one entry,  *)
+        (* and that entry should have a non-blank name.  No need to     *)
+        (* check NoNameserver, because if there was an error            *)
+        (* the list would be empty.                                     *)
+
+        IF list <> NIL THEN
+            IF (list^.next = NIL) AND (list^.name[0] <> Nul) THEN
+                Strings.Assign (list^.name, domain);
+            END (*IF*);
+            REPEAT
+                next := list^.next;
+                DISPOSE (list);
+                list := next;
+            UNTIL list = NIL;
+        END (*IF*);
+
+    END LookupCNAME;
+
+(************************************************************************)
+
+PROCEDURE DoMXLookup (domain: DomainName;
                       VAR (*OUT*) address: ARRAY OF CARDINAL): CARDINAL;
 
     (* Checks the MX records on the nameserver for the given domain,    *)
@@ -395,6 +460,7 @@ PROCEDURE DoMXLookup (VAR (*IN*) domain: HostName;
         p: AddressPointerArrayPointer;
 
     BEGIN
+        LookupCNAME (domain);
 
         (* Check first for the special case of a numeric address. *)
 
@@ -407,7 +473,7 @@ PROCEDURE DoMXLookup (VAR (*IN*) domain: HostName;
         (* Normal case, do a nameserver lookup. *)
 
         result := 1;
-        list := Lookup (domain, NoNameserver);
+        list := Lookup (domain, T_MX, NoNameserver);
         IF list = NIL THEN
             NEW (list);
             WITH list^ DO
@@ -440,8 +506,10 @@ PROCEDURE DoMXLookup (VAR (*IN*) domain: HostName;
                     ELSE p := HostInfo^.h_addr_list
                     END (*IF*);
                     IF p = NIL THEN
-                        IF (result = 1) AND (tcp_h_errno() = 2) THEN
-                            result := 2;
+                        IF result = 1 THEN
+                            IF tcp_h_errno() = 2 THEN
+                                result := 2;
+                            END (*IF*);
                         END (*IF*);
                     ELSE
                         result := 0;  k := 0;
@@ -487,7 +555,7 @@ PROCEDURE MakeMask (nbits: CARDINAL): CARDINAL;
 
 (************************************************************************)
 
-PROCEDURE MXMatch (VAR (*IN*) domain: HostName;  addr, Nbits: CARDINAL;
+PROCEDURE MXMatch (domain: DomainName;  addr, Nbits: CARDINAL;
                    skipMX: BOOLEAN;  VAR (*OUT*) error: BOOLEAN): BOOLEAN;
 
     (* Returns TRUE iff the top Nbits bits of the 32-bit IP address     *)
@@ -504,6 +572,7 @@ PROCEDURE MXMatch (VAR (*IN*) domain: HostName;  addr, Nbits: CARDINAL;
         p: AddressPointerArrayPointer;
 
     BEGIN
+        LookupCNAME (domain);
         ChecksLeft := 10;
         error := FALSE;  match := FALSE;
         IF Nbits = 0 THEN RETURN TRUE END(*IF*);
@@ -526,7 +595,7 @@ PROCEDURE MXMatch (VAR (*IN*) domain: HostName;  addr, Nbits: CARDINAL;
 
             (* Do the MX nameserver lookup. *)
 
-            list := Lookup (domain, NoNameserver);
+            list := Lookup (domain, T_MX, NoNameserver);
 
         END (*IF*);
 

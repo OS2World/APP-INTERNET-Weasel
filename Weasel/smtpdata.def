@@ -6,7 +6,7 @@ DEFINITION MODULE SMTPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 April 1998                   *)
-        (*  Last edited:        9 June 2017                     *)
+        (*  Last edited:        25 November 2018                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -15,8 +15,8 @@ DEFINITION MODULE SMTPData;
 FROM SBuffers IMPORT
     (* type *)  SBuffer;
 
-FROM Semaphores IMPORT
-    (* type *)  Semaphore;
+FROM Watchdog IMPORT
+    (* type *)  WatchdogID;
 
 FROM TransLog IMPORT
     (* type *)  TransactionLogID;
@@ -46,11 +46,11 @@ PROCEDURE UpdateINIData;
     (* while Weasel is still running.                                   *)
 
 PROCEDURE CreateItemDescriptor (SB: SBuffer;  ClientIPAddress: CARDINAL;
-                                 ID: TransactionLogID;
+                                 ID: TransactionLogID;  watchID: WatchdogID;
                                   MayRelay, OnWhitelist: BOOLEAN): ItemDescriptor;
 
-    (* Creates a descriptor for a new mail item.  ID is for *)
-    (* transaction logging.                                 *)
+    (* Creates a descriptor for a new mail item.  Returns NIL if we     *)
+    (* want to reject the client because of an rDNS failure.            *)
 
 PROCEDURE ResetItemDescriptor (desc: ItemDescriptor;
                                ReturnPath: ARRAY OF CHAR);
@@ -78,7 +78,6 @@ PROCEDURE ProcessRCPTAddress (desc: ItemDescriptor;
     (* command, also decomposes it into user and domain components.     *)
 
 PROCEDURE FromAddressAcceptable (desc: ItemDescriptor;  S: Socket;
-                               watchdog: Semaphore;
                                VAR (*OUT*) TempFailure: BOOLEAN): BOOLEAN;
 
     (* Returns TRUE if we're satisfied with the sender's address as     *)
@@ -111,14 +110,14 @@ PROCEDURE NoChunksYet (desc: ItemDescriptor): BOOLEAN;
     (* Returns TRUE if there is not yet any chunked data. *)
 
 PROCEDURE AcceptChunk (SB: SBuffer;  itemdata: ItemDescriptor;
-                         sem: Semaphore;  chunksize: CARDINAL;
+                         chunksize: CARDINAL;
                          lastchunk: BOOLEAN;
                          VAR (*OUT*) FailureReason: ARRAY OF CHAR): BOOLEAN;
 
-    (* Receives one chunk of an incoming message.  When the last chunk  *)
-    (* is received, stores it in a temporary file                       *)
-    (* whose name is recorded in itemdata.  We periodically signal on   *)
-    (* sem to confirm that the reception has not timed out.             *)
+    (* Receives one chunk of an incoming message.  The message is       *)
+    (* stored in a temporary file whose name is recorded in itemdata.   *)
+    (* We periodically kick the watchdog to confirm that the reception  *)
+    (* has not timed out.                                               *)
 
 PROCEDURE IgnoreChunk (SB: SBuffer;  size: CARDINAL);
 
@@ -127,7 +126,6 @@ PROCEDURE IgnoreChunk (SB: SBuffer;  size: CARDINAL);
     (* sender does not yet know that anything is wrong.                 *)
 
 PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
-                         sem: Semaphore;
                          VAR (*OUT*) FailureReason: ARRAY OF CHAR): BOOLEAN;
 
     (* Receives an incoming message, stores it in a temporary file      *)

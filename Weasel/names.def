@@ -6,7 +6,7 @@ DEFINITION MODULE Names;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            9 May 1998                      *)
-        (*  Last edited:        15 October 2016                 *)
+        (*  Last edited:        31 January 2018                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -23,10 +23,10 @@ TYPE
     FilenameIndex = [0..511];
     FilenameString = ARRAY FilenameIndex OF CHAR;
     PathString = ARRAY [0..511] OF CHAR;
-    HostCategory = (whitelisted, mayrelay, relaydest, banned);
-    ServiceType = (SMTP, POP, IMAP, MSA);
-    CardArray2 = ARRAY ServiceType[SMTP..POP] OF CARDINAL;
-    CardArray3 = ARRAY ServiceType[SMTP..IMAP] OF CARDINAL;
+    HostCategory = (whitelisted, mayrelay, relaydest, banned, nochunking);
+    ServiceType = (POP, SMTP, MSA, IMAP);
+    CardArray2 = ARRAY ServiceType[POP..SMTP] OF CARDINAL;
+    CardArray3 = ARRAY ServiceType[POP..MSA] OF CARDINAL;
     CardArray = ARRAY ServiceType OF CARDINAL;
 
     (* For IMAP4 we need very long command lines. *)

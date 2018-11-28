@@ -10,7 +10,7 @@ DEFINITION MODULE FileOps;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            17 October 2001                 *)
-        (*  Last edited:        17 April 2015                   *)
+        (*  Last edited:        26 January 2018                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (*    The original version of this module used          *)
@@ -28,8 +28,8 @@ IMPORT OS2;
 FROM SYSTEM IMPORT
     (* type *)  LOC, CARD16, CARD32;
 
-FROM Types IMPORT
-    (* type *)  CARD64;
+FROM Arith64 IMPORT
+    (* type *)  CARD64, CARD64API;
 
 (************************************************************************)
 
@@ -64,7 +64,10 @@ TYPE
            END (*RECORD*);
 
     ChanId = OS2.HFILE;
-    FilePos = CARD64;
+    FilePos = CARD64API;
+
+    (* NOTE: Throughout this module, file positions are kept in         *)
+    (* CARD64API format.  File sizes are, however, in CARD64 format.    *)
 
 (************************************************************************)
 (*                         VOLUME INFORMATION                           *)

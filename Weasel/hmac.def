@@ -6,13 +6,14 @@ DEFINITION MODULE HMAC;
         (*                                                      *)
         (*     Implementation of HMAC as defined in RFC2104     *)
         (*                                                      *)
-        (*     This module implements the variants HMAC-MD5     *)
-        (*     and HMAC-SHA1.  It could be extended to other    *)
-        (*                 variants if desired.                 *)
+        (*     This module implements the variants HMAC-MD5,    *)
+        (*     HMAC-SHA1, HMAC-SHA256, HMAC-SHA384, and         *)
+        (*     HMAC-SHA512.  It could easily be extended to     *)
+        (*     other variants if desired.                       *)
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            18 February 2005                *)
-        (*  Last edited:        19 February 2005                *)
+        (*  Last edited:        6 October 2017                  *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -21,18 +22,38 @@ DEFINITION MODULE HMAC;
 FROM SYSTEM IMPORT LOC;
 FROM MD5    IMPORT MD5_DigestType;
 FROM SHA1   IMPORT SHA1_DigestType;
+FROM SHA2   IMPORT SHA2_DigestType;
+FROM SHA512 IMPORT SHA512_DigestType;
 
-PROCEDURE HMAC_MD5 (text: ARRAY OF LOC;  textlength: CARDINAL;
-                     key: ARRAY OF LOC;  keylength: CARDINAL;
+PROCEDURE HMAC_MD5 (key: ARRAY OF LOC;  keylength: CARDINAL;
+                     text: ARRAY OF LOC;  textlength: CARDINAL;
                      VAR (*OUT*) Digest: MD5_DigestType);
 
     (* Performs the HMAC-MD5 hashing method, with Digest as the result. *)
 
-PROCEDURE HMAC_SHA1 (text: ARRAY OF LOC;  textlength: CARDINAL;
-                     key: ARRAY OF LOC;  keylength: CARDINAL;
+PROCEDURE HMAC_SHA1 (key: ARRAY OF LOC;  keylength: CARDINAL;
+                     text: ARRAY OF LOC;  textlength: CARDINAL;
                      VAR (*OUT*) Digest: SHA1_DigestType);
 
     (* Performs the HMAC-SHA1 hashing method, with Digest as the result. *)
+
+PROCEDURE HMAC_SHA256 (key: ARRAY OF LOC;  keylength: CARDINAL;
+                     text: ARRAY OF LOC;  textlength: CARDINAL;
+                     VAR (*OUT*) Digest: SHA2_DigestType);
+
+    (* Performs the HMAC-SHA256 hashing method, with Digest as the result. *)
+
+PROCEDURE HMAC_SHA384 (key: ARRAY OF LOC;  keylength: CARDINAL;
+                     text: ARRAY OF LOC;  textlength: CARDINAL;
+                     VAR (*OUT*) Digest: SHA512_DigestType);
+
+    (* Performs the HMAC-SHA384 hashing method, with Digest as the result. *)
+
+PROCEDURE HMAC_SHA512 (key: ARRAY OF LOC;  keylength: CARDINAL;
+                     text: ARRAY OF LOC;  textlength: CARDINAL;
+                     VAR (*OUT*) Digest: SHA512_DigestType);
+
+    (* Performs the HMAC-SHA512 hashing method, with Digest as the result. *)
 
 END HMAC.
 

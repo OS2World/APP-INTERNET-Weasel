@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE BlackLists;
         (*            The 'BlackLists' page of the notebook             *)
         (*                                                              *)
         (*        Started:        29 July 2001                          *)
-        (*        Last edited:    23 July 2007                          *)
+        (*        Last edited:    16 August 2018                        *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -63,23 +63,35 @@ CONST
     Checkboxid = idArray {DID.blenable1, DID.blenable2, DID.blenable3,
                           DID.blenable4, DID.blenable5, DID.blenable6,
                           DID.blenable7, DID.blenable8};
+    DBLCheckboxid = idArray {DID.dblenable1, DID.dblenable2, DID.dblenable3,
+                          DID.dblenable4, DID.dblenable5, DID.dblenable6,
+                          DID.dblenable7, DID.dblenable8};
     Domainid = idArray {DID.blackdomain1, DID.blackdomain2,
                         DID.blackdomain3, DID.blackdomain4,
                          DID.blackdomain5, DID.blackdomain6,
                           DID.blackdomain7, DID.blackdomain8};
+    DBLDomainid = idArray {DID.DBLdomain1, DID.DBLdomain2,
+                        DID.DBLdomain3, DID.DBLdomain4,
+                         DID.DBLdomain5, DID.DBLdomain6,
+                          DID.DBLdomain7, DID.DBLdomain8};
     DomainName = StringArray {'RBLDomain1', 'RBLDomain2', 'RBLDomain3',
                               'RBLDomain4', 'RBLDomain5', 'RBLDomain6',
                               'RBLDomain7', 'RBLDomain8'};
+    DBLDomainName = StringArray {'DBLDomain1', 'DBLDomain2', 'DBLDomain3',
+                              'DBLDomain4', 'DBLDomain5', 'DBLDomain6',
+                              'DBLDomain7', 'DBLDomain8'};
     DefaultDomain = StringArray {"blackholes.mail-abuse.org",
                                  "dialups.mail-abuse.org",
                                  "relays.mail-abuse.org",
                                  "", "", "", "", ""};
+    DefaultDBLDomain = StringArray {"dbl.spamhaus.org",
+                                 "", "", "", "", "", "", ""};
 
 VAR
     ChangeInProgress: BOOLEAN;
     OurPageHandle, notebookhandle: OS2.HWND;
-    OldBLcheck: CARD8;
-    OldDomain: StringArray;
+    OldBLcheck, OldDBLcheck: CARD8;
+    OldDomain, OldDBLDomain: StringArray;
     PageID: CARDINAL;
 
 (************************************************************************)
@@ -100,6 +112,10 @@ PROCEDURE SetLanguage (lang: LangHandle);
         OS2.WinSetDlgItemText (OurPageHandle, DID.BLHead, stringval);
         StrToBuffer (lang, "Blacklists.Note1", stringval);
         OS2.WinSetDlgItemText (OurPageHandle, DID.BLNote1, stringval);
+        StrToBuffer (lang, "Blacklists.Head1", stringval);
+        OS2.WinSetDlgItemText (OurPageHandle, DID.BLHead1, stringval);
+        StrToBuffer (lang, "Blacklists.Head2", stringval);
+        OS2.WinSetDlgItemText (OurPageHandle, DID.BLHead2, stringval);
         StrToBuffer (lang, "Blacklists.Note2", stringval);
         OS2.WinSetDlgItemText (OurPageHandle, DID.BLNote2, stringval);
     END SetLanguage;
@@ -140,6 +156,28 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
             OS2.WinSetDlgItemText (hwnd, Domainid[j], stringval);
         END (*FOR*);
 
+        (* Domain blacklist checkers. *)
+
+        IF NOT INIFetch ('$SYS', 'DBLcheck', OldDBLcheck) THEN
+            OldDBLcheck := 0;
+        END (*IF*);
+        val := OldDBLcheck;
+        FOR j := MIN(BlacklistType) TO MAX(BlacklistType) DO
+            IF ODD (val) THEN
+                OS2.WinSendDlgItemMsg (hwnd, DBLCheckboxid[j], OS2.BM_SETCHECK,
+                                                 OS2.MPFROMSHORT(1), NIL);
+            END (*IF*);
+            val := val DIV 2;
+            IF NOT INIGetString ('$SYS', DBLDomainName[j], stringval) THEN
+                stringval := "";
+            END (*IF*);
+            OldDBLDomain[j] := stringval;
+            IF stringval = "" THEN
+                stringval := DefaultDBLDomain[j];
+            END (*IF*);
+            OS2.WinSetDlgItemText (hwnd, DBLDomainid[j], stringval);
+        END (*FOR*);
+
         CloseINIFile;
 
     END LoadValues;
@@ -153,7 +191,7 @@ PROCEDURE StoreData (hwnd: OS2.HWND);
     CONST Nul = CHR(0);
 
     VAR stringval: NameString;
-        BLcheck: CARD8;  k: BlacklistType;
+        BLcheck, DBLcheck: CARD8;  k: BlacklistType;
 
     BEGIN
         OpenINIFile;
@@ -163,17 +201,37 @@ PROCEDURE StoreData (hwnd: OS2.HWND);
         BLcheck := 0;
         FOR k := MAX(BlacklistType) TO MIN(BlacklistType) BY -1 DO
             BLcheck := 2*BLcheck;
-            IF OS2.LONGFROMMR (OS2.WinSendDlgItemMsg (hwnd, Checkboxid[k],
-                                   OS2.BM_QUERYCHECK, NIL, NIL)) > 0 THEN
+            OS2.WinQueryDlgItemText (hwnd, Domainid[k], 512, stringval);
+            IF (OS2.LONGFROMMR (OS2.WinSendDlgItemMsg (hwnd, Checkboxid[k],
+                                   OS2.BM_QUERYCHECK, NIL, NIL)) > 0)
+                               AND (stringval[0] <> Nul) THEN
                 INC (BLcheck);
             END (*IF*);
-            OS2.WinQueryDlgItemText (hwnd, Domainid[k], 512, stringval);
             IF NOT Strings.Equal (stringval, OldDomain[k]) THEN
                 INIPutString ('$SYS', DomainName[k], stringval);
             END (*IF*);
         END (*FOR*);
         IF BLcheck <> OldBLcheck THEN
             INIPut ('$SYS', 'RBLcheck', BLcheck);
+        END (*IF*);
+
+        (* Domain name blacklist checking. *)
+
+        DBLcheck := 0;
+        FOR k := MAX(BlacklistType) TO MIN(BlacklistType) BY -1 DO
+            DBLcheck := 2*DBLcheck;
+            OS2.WinQueryDlgItemText (hwnd, DBLDomainid[k], 512, stringval);
+            IF (OS2.LONGFROMMR (OS2.WinSendDlgItemMsg (hwnd, DBLCheckboxid[k],
+                                   OS2.BM_QUERYCHECK, NIL, NIL)) > 0)
+                               AND (stringval[0] <> Nul) THEN
+                INC (DBLcheck);
+            END (*IF*);
+            IF NOT Strings.Equal (stringval, OldDBLDomain[k]) THEN
+                INIPutString ('$SYS', DBLDomainName[k], stringval);
+            END (*IF*);
+        END (*FOR*);
+        IF DBLcheck <> OldDBLcheck THEN
+            INIPut ('$SYS', 'DBLcheck', DBLcheck);
         END (*IF*);
 
         CloseINIFile;

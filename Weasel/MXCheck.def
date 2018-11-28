@@ -8,15 +8,15 @@ DEFINITION MODULE MXCheck;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            03 July 1998                    *)
-        (*  Last edited:        12 October 2016                 *)
+        (*  Last edited:        20 July 2018                    *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
 
 
-FROM Names IMPORT (*type*) HostName;
+FROM Names IMPORT (*type*) DomainName;
 
-PROCEDURE DoMXLookup (VAR (*IN*) domain: HostName;
+PROCEDURE DoMXLookup (domain: DomainName;
                       VAR (*OUT*) address: ARRAY OF CARDINAL): CARDINAL;
 
     (* Checks the MX records on the nameserver for the given domain,    *)
@@ -33,7 +33,7 @@ PROCEDURE DoMXLookup (VAR (*IN*) domain: HostName;
     (* exist, we default back to interpreting the domain as a host      *)
     (* name.                                                            *)
 
-PROCEDURE MXMatch (VAR (*IN*) domain: HostName;  addr, Nbits: CARDINAL;
+PROCEDURE MXMatch (domain: DomainName;  addr, Nbits: CARDINAL;
                    skipMX: BOOLEAN;  VAR (*OUT*) error: BOOLEAN): BOOLEAN;
 
     (* Returns TRUE iff the top Nbits bits of the 32-bit IP address     *)

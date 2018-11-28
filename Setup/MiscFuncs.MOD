@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support module for a variety of applications                          *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -29,7 +29,7 @@ IMPLEMENTATION MODULE MiscFuncs;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            21 May 2017                     *)
-        (*  Last edited:        16 June 2017                    *)
+        (*  Last edited:        26 January 2018                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -39,11 +39,9 @@ FROM SYSTEM IMPORT
     (* type *)  LOC, CARD8,
     (* proc *)  CAST;
 
-FROM Types IMPORT
-    (* type *)  CARD64;
-
-FROM LONGLONG IMPORT
+FROM Arith64 IMPORT
     (* const*)  Zero64,
+    (* type *)  CARD64,
     (* proc *)  Add64, Mul64;
 
 IMPORT Strings;
@@ -70,7 +68,8 @@ FROM Storage IMPORT
 TYPE CharSet = SET OF CHAR;
 
 CONST
-    Nul = CHR(0);
+    Nul = CHR(0);  space = ' ';  tab = CHR(9);
+    CR = CHR(13);  LF = CHR(10);
     DecimalDigits = CharSet{'0'..'9'};
     HexDigits = CharSet{'0'..'9', 'A'..'F', 'a'..'f'};
 
@@ -188,6 +187,40 @@ PROCEDURE StripSpaces (VAR (*INOUT*) arg: ARRAY OF CHAR);
         END (*IF*);
 
     END StripSpaces;
+
+(********************************************************************************)
+
+PROCEDURE StripWhitespace (VAR (*INOUT*) arg: ARRAY OF CHAR);
+
+    (* Removes leading and trailing whitespace from arg.  The whitespace        *)
+    (* characters are space, tab, carriage return, and line feed.               *)
+
+    CONST whitespace = CharSet {space, tab, CR, LF};
+
+    VAR k: CARDINAL;
+
+    BEGIN
+        (* Leading spaces. *)
+
+        k := 0;
+        WHILE (k <= HIGH(arg)) AND (arg[k] IN whitespace) DO
+            INC (k);
+        END (*WHILE*);
+        IF k > 0 THEN
+            Strings.Delete (arg, 0, k);
+        END (*IF*);
+
+        (* Trailing spaces. *)
+
+        k := LENGTH(arg);
+        WHILE (k > 0) AND (arg[k-1] IN whitespace) DO
+            DEC (k);
+        END (*WHILE*);
+        IF k <= HIGH(arg) THEN
+            arg[k] := Nul;
+        END (*IF*);
+
+    END StripWhitespace;
 
 (********************************************************************************)
 

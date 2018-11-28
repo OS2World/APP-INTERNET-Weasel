@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
-(*  PMOS/2 software library                                               *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Encryption library                                                    *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -33,7 +33,7 @@ IMPLEMENTATION MODULE SHA1;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            14 February 2005                *)
-        (*  Last edited:        16 February 2005                *)
+        (*  Last edited:        28 January 2018                 *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -55,8 +55,16 @@ FROM SYSTEM IMPORT
     (* type *)  CARD8, CARD32, ADDRESS, LOC,
     (* proc *)  ADR, MOVE, FILL;
 
+FROM Arith64 IMPORT
+    (* const*)  Zero64,
+    (* type *)  CARD64,
+    (* proc *)  Add64;
+
+FROM BEDigests IMPORT
+    (* proc *)  BEDigestToString;
+
 FROM LowLevel IMPORT
-    (* proc *)  IAND, IOR, INOT, IXOR, ROL, ROR;
+    (* proc *)  IAND, IOR, INOT, IXOR, LS, RS, ROL, ROR;
 
 FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
@@ -74,7 +82,7 @@ TYPE
 
     SHA1_CTX_RECORD = RECORD
                           H: SHA1_DigestType;
-                          bytecount: CARDINAL;
+                          bytecount: CARD64;
                           buffer: Byte64;
                       END (*RECORD*);
 
@@ -87,8 +95,23 @@ CONST
                                           010325476H, 0C3D2E1F0H};
     K0 = 05A827999H;  K20 = 06ED9EBA1H;  K40 = 08F1BBCDCH;  K60 = 0CA62C1D6H;
 
-(********************************************************************************)
-(*                    PROCESSING ONE 64-BYTE BLOCK OF DATA                      *)
+(************************************************************************)
+(*                        MISCELLANEOUS UTILITIES                       *)
+(************************************************************************)
+
+PROCEDURE Mul8 (VAR (*INOUT*) A: CARD64): CARD64;
+
+    (* Multiplies its argument by 8. *)
+
+    VAR toshift: CARDINAL;  result: CARD64;
+
+    BEGIN
+        toshift := IAND(A.low, 0E0000000H);
+        result.low := LS(A.low - toshift, 3);
+        result.high := LS(A.high,3) + RS(toshift, 32-3);
+        RETURN result;
+    END Mul8;
+
 (********************************************************************************)
 
 PROCEDURE SwapIt (VAR (*INOUT*) arg: ARRAY OF LOC);
@@ -103,6 +126,8 @@ PROCEDURE SwapIt (VAR (*INOUT*) arg: ARRAY OF LOC);
         temp := arg[1];  arg[1] := arg[2];  arg[2] := temp;
     END SwapIt;
 
+(********************************************************************************)
+(*                    PROCESSING ONE 64-BYTE BLOCK OF DATA                      *)
 (********************************************************************************)
 
 PROCEDURE SHA1ProcessBlock (VAR (*INOUT*) state: SHA1_DigestType;  blockaddr: ADDRESS);
@@ -171,7 +196,7 @@ PROCEDURE SHA1Init(): SHA1_CTX;
     BEGIN
         NEW (context);
         WITH context^ DO
-            bytecount := 0;
+            bytecount := Zero64;
 
             (* Load magic initialization constants. *)
 
@@ -194,11 +219,11 @@ PROCEDURE SHA1Update (context: SHA1_CTX;  data: ARRAY OF LOC;  length: CARDINAL)
         IF length > 0 THEN
             (* Work out where we're up to in the buffer. *)
 
-            index := context^.bytecount MOD 64;
+            index := context^.bytecount.low MOD 64;
 
             (* Update total number of bytes we've processed so far. *)
 
-            INC (context^.bytecount, length);
+            Add64 (context^.bytecount, length);
 
             (* Transform as many times as possible. *)
 
@@ -244,20 +269,17 @@ PROCEDURE SHA1Final (VAR (*INOUT*) context: SHA1_CTX;
 
     CONST TooBig = MAX(CARD32) DIV 8 + 1;
 
-    VAR LengthInBits: ARRAY [0..1] OF CARD32;
+    VAR LengthInBits: CARD64;
         index, padLen: CARDINAL;
 
     BEGIN
         (* Calculate total number of data bits we've worked on. *)
 
-        index := context^.bytecount;
-        LengthInBits[0] := index DIV TooBig;
-        DEC (index, TooBig*LengthInBits[0]);
-        LengthInBits[1] := 8*index;
+        LengthInBits := Mul8 (context^.bytecount);
 
         (* Pad out to 56 mod 64. *)
 
-        index := context^.bytecount MOD 64;
+        index := context^.bytecount.low MOD 64;
         IF index < 56 THEN
             padLen := 56 - index;
         ELSE
@@ -267,9 +289,10 @@ PROCEDURE SHA1Final (VAR (*INOUT*) context: SHA1_CTX;
 
         (* Append length (before padding). *)
 
-        SwapIt (LengthInBits[0]);
-        SwapIt (LengthInBits[1]);
-        SHA1Update (context, LengthInBits, 8);
+        SwapIt (LengthInBits.high);
+        SHA1Update (context, LengthInBits.high, 4);
+        SwapIt (LengthInBits.low);
+        SHA1Update (context, LengthInBits.low, 4);
 
         (* Final result to be given to caller. *)
 
@@ -286,74 +309,14 @@ PROCEDURE SHA1Final (VAR (*INOUT*) context: SHA1_CTX;
 (*                         CONVERTING DIGEST TO STRING                          *)
 (********************************************************************************)
 
-PROCEDURE ConvertHex1 (value: CARD8;  VAR (*INOUT*) string: ARRAY OF CHAR;
-                                         VAR (*INOUT*) pos: CARDINAL);
-
-    (* Writes a one-digit hex number to string[pos], then increments pos.  If   *)
-    (* there is not enough space, no result is produced.                        *)
-
-    VAR ch: CHAR;
-
-    BEGIN
-        IF value < 10 THEN
-            ch := CHR(ORD('0') + value);
-        ELSE
-            ch := CHR(ORD('A') + value - 10);
-        END (*IF*);
-        IF pos <= HIGH(string) THEN
-            string[pos] := ch;  INC(pos);
-        END (*IF*);
-    END ConvertHex1;
-
-(********************************************************************************)
-
-PROCEDURE ConvertHex2 (value: CARDINAL;  VAR (*INOUT*) string: ARRAY OF CHAR;
-                                         VAR (*INOUT*) pos: CARDINAL);
-
-    (* Writes a two-digit hex number to string, starting at string[pos]. *)
-
-    BEGIN
-        ConvertHex1 (value DIV 16, string, pos);
-        ConvertHex1 (value MOD 16, string, pos);
-    END ConvertHex2;
-
-(********************************************************************************)
-
-PROCEDURE ConvertHex8 (value: CARDINAL;  VAR (*INOUT*) string: ARRAY OF CHAR;
-                                         VAR (*INOUT*) pos: CARDINAL);
-
-    (* Writes an eight-digit hex number to string, starting at string[pos]. *)
-
-    VAR j: [0..3];   byte: ARRAY [0..3] OF CARD8;
-
-    BEGIN
-        FOR j := 3 TO 0 BY -1 DO
-            byte[j] := value MOD 256;
-            value := value DIV 256;
-        END (*FOR*);
-        FOR j := 0 TO 3 DO
-            ConvertHex2 (byte[j], string, pos);
-        END (*FOR*);
-    END ConvertHex8;
-
-(********************************************************************************)
-
 PROCEDURE SHA1DigestToString (VAR (*IN*) digest: SHA1_DigestType;
                              VAR (*OUT*) result: ARRAY OF CHAR);
 
     (* Converts the digest to a 40-character string.  If there is not enough    *)
     (* space for 40 characters, produces a leading substring of the full result.*)
 
-    VAR i: [0..4];  pos: CARDINAL;
-
     BEGIN
-        pos := 0;
-        FOR i := 0 TO 4 DO
-            ConvertHex8 (digest[i], result, pos);
-        END (*FOR*);
-        IF pos <= HIGH(result) THEN
-            result[pos] := CHR(0);
-        END (*IF*);
+        BEDigestToString (5, digest, result);
     END SHA1DigestToString;
 
 (********************************************************************************)

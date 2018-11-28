@@ -13,7 +13,7 @@ DEFINITION MODULE SHA1;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            14 February 2005                *)
-        (*  Last edited:        16 February 2005                *)
+        (*  Last edited:        4 October 2017                  *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (*  Restriction: for efficiency, we impose the          *)
@@ -21,6 +21,9 @@ DEFINITION MODULE SHA1;
         (*    1. Integral multiple of 8 bits, i.e. data are     *)
         (*       presented as a sequence of bytes.              *)
         (*    2. Length is limited to < 2^32 bits.              *)
+        (*                                                      *)
+        (*  I should at some stage remove restriction 2,        *)
+        (*  the standard allows for 2^64 bits.                  *)
         (*                                                      *)
         (********************************************************)
 

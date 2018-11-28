@@ -6,7 +6,7 @@ DEFINITION MODULE Domains;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 July 2002                    *)
-        (*  Last edited:        6 December 2015                 *)
+        (*  Last edited:        17 September 2018               *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -125,11 +125,6 @@ PROCEDURE OpenDomainINI (D: Domain): HINI;
 
     (* Puts some information about domain D into the transaction log.   *)
     (* (But only if extra logging has been specified.)                  *)
-
-(*PROCEDURE POPFetchLatestOption (D: Domain): BOOLEAN;*)
-
-    (* Returns TRUE iff the "POP fetch latest messages" option is set   *)
-    (* for this domain.  (Obsolete option.)                             *)
 
         (********************************************************)
         (*            MATCHING A USER TO A DOMAIN               *)

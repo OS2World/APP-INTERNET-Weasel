@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE BigFrame;
         (*             The settings notebook and its frame          *)
         (*                                                          *)
         (*    Started:        28 June 1999                          *)
-        (*    Last edited:    18 August 2017                        *)
+        (*    Last edited:    10 August 2018                        *)
         (*    Status:         Working                               *)
         (*                                                          *)
         (************************************************************)
@@ -39,7 +39,7 @@ IMPORT SYSTEM;
 IMPORT OS2, OS2RTL, Strings;
 
 IMPORT DID, SUPage1, IMAPPage, SULogging, Filter, OptionP1, OptionP2, OptionP3,
-       RelayPage, DomainPage, BlackLists, SUDomains, UserPage,
+       RelayPage, ChunkingPage, DomainPage, BlackLists, SUDomains, UserPage,
        AliasPage, HostLists, CommonSettings, INIData, RINIData, WSUINI;
 
 FROM Names IMPORT
@@ -73,7 +73,8 @@ CONST
 TYPE
     LanguageString = ARRAY [0..31] OF CHAR;
     Page = (pbase, pimap, pdomains, puser, palias, plocal, plog, pfilters,
-            popt1, popt2, popt3, prelay, pwhite, ptrusted, pgatefor, pbanned, pblack);
+            popt1, popt2, popt3, prelay, pchunking, pwhite, ptrusted, pgatefor,
+            pbanned, pnochunk, pblack);
 
 VAR
     (* INI file name for the Setup INI *)
@@ -137,6 +138,7 @@ PROCEDURE SetLanguage;
             OptionP2.SetLanguage (LangCode);
             OptionP3.SetLanguage (LangCode);
             RelayPage.SetLanguage (LangCode);
+            ChunkingPage.SetLanguage (LangCode);
             IF MultiDomain THEN
                 DomainPage.SetLanguage(LangCode);
             ELSE
@@ -172,6 +174,7 @@ PROCEDURE SetPageFonts (UpdateAll: BOOLEAN);
                 OptionP2.SetFont (PageFont);
                 OptionP3.SetFont (PageFont);
                 RelayPage.SetFont (PageFont);
+                ChunkingPage.SetFont (PageFont);
                 HostLists.SetFonts (PageFont);
                 BlackLists.SetFont (PageFont);
             END (*IF*);
@@ -267,6 +270,8 @@ PROCEDURE InitialiseNotebook (hwnd: OS2.HWND);
         IDofPage[popt3] := LastPageID;
         RelayPage.CreatePage(hwnd, LastPageID);
         IDofPage[prelay] := LastPageID;
+        ChunkingPage.CreatePage(hwnd, LastPageID);
+        IDofPage[pchunking] := LastPageID;
         HostLists.CreatePage(hwnd, whitelisted, 0,
                      CommonSettings.MainNotebook, FALSE, UseTNI, IDofPage[pwhite]);
         HostLists.CreatePage(hwnd, mayrelay, 0,
@@ -524,11 +529,11 @@ PROCEDURE ["SysCall"] MainDialogueProc(hwnd     : OS2.HWND
                    Strings.Append ("      ", stringval);
                    Strings.Append (filename, stringval);
                    OS2.WinSetWindowText (hwnd, stringval);
-                   InitialiseNotebook (bookwin);
                    OS2.WinSetWindowPtr (bookwin, OS2.QWL_USER,
                                SYSTEM.CAST(SYSTEM.ADDRESS,
                                     OS2.WinSubclassWindow (bookwin,
                                                            SubWindowProc)));
+                   InitialiseNotebook (bookwin);
                    RETURN NIL;
 
            |  CommonSettings.FONTCHANGED:
@@ -594,6 +599,7 @@ PROCEDURE ["SysCall"] MainDialogueProc(hwnd     : OS2.HWND
                    OptionP1.StoreData;
                    OptionP2.StoreData;
                    OptionP3.StoreData;
+                   ChunkingPage.StoreData;
                    RelayPage.StoreData;
                    IF MultiDomain THEN
                        DomainPage.StoreData;

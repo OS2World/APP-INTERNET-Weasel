@@ -7,7 +7,7 @@ DEFINITION MODULE TaskControl;
         (*                  related procedures.                         *)
         (*                                                              *)
         (*      Programmer:     P. Moylan                               *)
-        (*      Last edited:    22 December 2013                        *)
+        (*      Last edited:    7 January 2018                          *)
         (*      Status:         OK                                      *)
         (*                                                              *)
         (****************************************************************)
@@ -27,6 +27,16 @@ TYPE
     PriorityLevel = [0..MaxPriority];
     NameString = ARRAY [0..15] OF CHAR;
     PROC1 = PROCEDURE (ADDRESS);
+
+
+PROCEDURE IsFullScreen(): BOOLEAN;
+
+    (* Returns TRUE if this is a full-screen OS/2 session. *)
+
+PROCEDURE NotDetached(): BOOLEAN;
+
+    (* Returns TRUE unless called by a process running detached.        *)
+    (* (A detached process may not do keyboard, screen, or mouse I/O.)  *)
 
 PROCEDURE CreateTask (StartAddress: PROC;  taskpriority: PriorityLevel;
                                            taskname: NameString): BOOLEAN;

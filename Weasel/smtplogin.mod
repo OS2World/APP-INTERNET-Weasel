@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -29,7 +29,7 @@ IMPLEMENTATION MODULE SMTPLogin;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            5 February 2003                 *)
-        (*  Last edited:        26 April 2017                   *)
+        (*  Last edited:        5 January 2018                  *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -67,9 +67,9 @@ FROM Sockets IMPORT
 FROM Internet IMPORT
     (* const*)  Zero8;
 
-FROM Semaphores IMPORT
-    (* type *)  Semaphore,
-    (* proc *)  Signal;
+FROM Watchdog IMPORT
+    (* type *)  WatchdogID,
+    (* proc *)  KickWatchdog;
 
 FROM MXCheck IMPORT
     (* proc *)  DoMXLookup;
@@ -279,8 +279,8 @@ PROCEDURE AuthenticateWith (method: AuthMethod;  SB: SBuffer;
                         (* For some unexplained reason (compiler bug?), we  *)
                         (* cannot trust the value of k here.                *)
 
-                        HMAC_MD5 (TimeStamp, LENGTH(TimeStamp),
-                                  pass, LENGTH(pass), digest);
+                        HMAC_MD5 (pass, LENGTH(pass),
+                                      TimeStamp, LENGTH(TimeStamp), digest);
                         MD5DigestToString (digest, digeststr);
 
                         (* Temporary code while debugging. *)
@@ -486,7 +486,7 @@ PROCEDURE OpenConnection (IPAddr: CARDINAL): Socket;
 
 PROCEDURE ConnectToDomain (domain: HostName;  VAR (*OUT*) s: Socket;
                          LogId: TransactionLogID;
-                         watchdog: Semaphore;
+                         watchID: WatchdogID;
                          VAR (*OUT*) LookupFailure: BOOLEAN): BOOLEAN;
 
     (* Try to connect to the given domain.  If necessary and        *)
@@ -513,7 +513,7 @@ PROCEDURE ConnectToDomain (domain: HostName;  VAR (*OUT*) s: Socket;
                     Strings.Append (IPstr, message);
                     LogTransaction (LogId, message);
                     s := OpenConnection (address[j]);
-                    Signal (watchdog);
+                    KickWatchdog (watchID);
                     success := s <> NotASocket;
                     IF success THEN
                         LogTransactionL (LogId, "connected");
@@ -540,7 +540,7 @@ PROCEDURE ConnectToDomain (domain: HostName;  VAR (*OUT*) s: Socket;
 PROCEDURE PostmasterCheck (domain: DomainName;  OurHostName: HostName;
                                 OurDomain: DomainName;
                                 LogID: TransactionLogID;
-                                watchdog: Semaphore;
+                                watchID: WatchdogID;
                                 VAR (*OUT*) TempFailure: BOOLEAN): BOOLEAN;
 
     (* SMTP connection for a dummy "send to postmaster" whose purpose   *)
@@ -555,7 +555,7 @@ PROCEDURE PostmasterCheck (domain: DomainName;  OurHostName: HostName;
     BEGIN
         TempFailure := FALSE;
         SB := NIL;
-        success := ConnectToDomain (domain, s, LogID, watchdog, ConnectionLost);
+        success := ConnectToDomain (domain, s, LogID, watchID, ConnectionLost);
         IF ConnectionLost THEN
 
             (* We should give the domain the benefit of the doubt if    *)

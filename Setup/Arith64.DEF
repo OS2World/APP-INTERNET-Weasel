@@ -1,0 +1,123 @@
+DEFINITION MODULE Arith64;
+
+        (********************************************************)
+        (*                                                      *)
+        (*            Support for 64-bit integers               *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            17 October 2001                 *)
+        (*  Last edited:        22 June 2018                    *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM SYSTEM IMPORT CARD32, INT32;
+
+TYPE
+    CARD64 = RECORD
+                 high, low: CARD32;
+             END (*RECORD*);
+
+    INT64  = RECORD
+                 high: INT32;
+                 low: CARD32;
+             END (*RECORD*);
+
+    (* The following is used only when getting results from *)
+    (* the OS/2 API.                                        *)
+
+    CARD64API = RECORD
+                    low, high: CARD32;
+                END (*RECORD*);
+
+CONST
+    Zero64 = CARD64{0, 0};
+    Max64 = CARD64{MAX(CARDINAL), MAX(CARDINAL)};
+
+
+
+PROCEDURE ToAPI64 (val: CARD64): CARD64API;
+
+    (* Converts a CARD64 value to a CARD64API value. *)
+
+PROCEDURE FromAPI64 (val: CARD64API): CARD64;
+
+    (* Converts a CARD64API value to a CARD64 value. *)
+
+PROCEDURE IsZero (val: CARD64): BOOLEAN;
+
+    (* Returns TRUE iff val = 0 *)
+
+PROCEDURE Compare64 (A, B: CARD64): INTEGER;
+
+    (* Returns >0 if A>B, =0 if A=B, <0 if A<B.  *)
+
+PROCEDURE Add64 (VAR (*INOUT*) A: CARD64;  B: CARDINAL);
+
+    (* Computes  A := A + B.  This differs from Sum64 (below) in the    *)
+    (* type of B, and in the way the result is returned.                *)
+
+PROCEDURE Sub64 (VAR (*INOUT*) A: CARD64;  B: CARDINAL);
+
+    (* Computes  A := A - B.  This differs from Diff64 (below) in the   *)
+    (* type of B, and in the way the result is returned.                *)
+
+PROCEDURE INC64 (VAR (*INOUT*) A: CARD64);
+
+    (* Increments A by 1.  *)
+
+PROCEDURE DEC64 (VAR (*INOUT*) A: CARD64);
+
+    (* Decrements A by 1.  *)
+
+PROCEDURE ShortSub (A, B: CARD64): CARDINAL;
+
+    (* Returns A-B as a CARDINAL value, or MAX(CARDINAL) in the case of *)
+    (* overflow.                                                        *)
+
+PROCEDURE Sum64 (A, B: CARD64): CARD64;
+
+    (* Returns A+B. *)
+
+PROCEDURE Diff64 (A, B: CARD64): INT64;
+
+    (* Returns A-B. *)
+
+PROCEDURE Mul32 (A, B: CARDINAL): CARD64;
+
+    (* Returns A*B. *)
+
+PROCEDURE Mul64 (A, B: CARD64): CARD64;
+
+    (* Returns A*B. *)
+
+PROCEDURE ShortMul64 (A: CARD64;  B: CARDINAL): CARD64;
+
+    (* Returns A*B, for the case where the second operand is a CARDINAL. *)
+
+PROCEDURE LongDiv64 (A: CARD64;  B: CARDINAL;  VAR (*OUT*) quotient: CARD64;
+                                  VAR (*OUT*) remainder: CARDINAL);
+
+    (* Divides A by B, returns quotient and remainder. *)
+
+PROCEDURE ShortDiv (A: CARD64;  B: CARDINAL): CARDINAL;
+
+    (* Returns A DIV B as a CARDINAL value, or MAX(CARDINAL) if the     *)
+    (* result overflows.                                                *)
+
+PROCEDURE Div10 (number: CARD64;  VAR (*OUT*) quotient: CARD64;
+                                  VAR (*OUT*) remainder: CARDINAL);
+
+    (* Divides number by 10, returns quotient and remainder. *)
+
+PROCEDURE FLOAT64 (number: CARD64): REAL;
+
+    (* Converts CARD64 to REAL. *)
+
+PROCEDURE ORDL (number: INT64): CARDINAL;
+
+    (* Converts INT64 to CARDINAL. *)
+
+END Arith64.
+

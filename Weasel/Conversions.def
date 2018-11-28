@@ -5,7 +5,7 @@ DEFINITION MODULE Conversions;
         (*              Miscellaneous type conversions          *)
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
-        (*  Last edited:        12 February 2004                *)
+        (*  Last edited:        26 November 2018                *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -13,7 +13,7 @@ DEFINITION MODULE Conversions;
 FROM SYSTEM IMPORT
     (* type *)  CARD8, CARD32;
 
-FROM Types IMPORT
+FROM Arith64 IMPORT
     (* type *)  CARD64;
 
 TYPE HexDigit = [0..15];
@@ -51,6 +51,12 @@ PROCEDURE HexToString (value: CARDINAL;  VAR (*OUT*) buffer: ARRAY OF CHAR);
 PROCEDURE LongHexToString (value: CARD32;  VAR (*OUT*) buffer: EightChar);
 
     (* Converts 'value' to a string in hexadecimal notation.    *)
+
+PROCEDURE HexToStringLJ (value: CARDINAL;  VAR (*OUT*) buffer: ARRAY OF CHAR;
+                                            VAR (*INOUT*) pos: CARDINAL);
+
+    (* Stores value in hexadecimal, left justified, starting at *)
+    (* buffer[pos], and updates pos.                            *)
 
 PROCEDURE ShortCardToString (number: CARD8;
                                         VAR (*OUT*) buffer: ARRAY OF CHAR;

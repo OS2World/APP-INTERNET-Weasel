@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE OptionP1;
         (*                 Option page 1 of the notebook                *)
         (*                                                              *)
         (*        Started:        30 June 1999                          *)
-        (*        Last edited:    18 August 2017                        *)
+        (*        Last edited:    25 November 2018                      *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -56,7 +56,7 @@ FROM Inet2Misc IMPORT
     (* proc *)  AddressToHostName;
 
 FROM LowLevel IMPORT
-    (* proc *)  IAND;
+    (* proc *)  IAND, EVAL;
 
 (**************************************************************************)
 
@@ -73,7 +73,7 @@ CONST
 VAR
     ChangeInProgress: BOOLEAN;
     OurPageHandle, notebookhandle: OS2.HWND;
-    OldMAILFROMcheck, OldSPFenabled, OldUseFixedLocalName: BOOLEAN;
+    OldCheckNoRDNS, OldMAILFROMcheck, OldSPFenabled, OldUseFixedLocalName: BOOLEAN;
     OldBadPasswordLimit: CARDINAL;
     OldAuthTime: CARDINAL;
     OldAuthMethods: CARDINAL;
@@ -100,6 +100,8 @@ PROCEDURE SetLanguage (lang: LangHandle);
         OS2.WinSetDlgItemText (OurPageHandle, DID.BadPasswordLimitEnable, stringval);
         StrToBuffer (lang, "OptionP1.BadPasswordLimitLabel", stringval);
         OS2.WinSetDlgItemText (OurPageHandle, DID.BadPasswordLimitLabel, stringval);
+        StrToBuffer (lang, "OptionP1.CheckNoRDNS", stringval);
+        OS2.WinSetDlgItemText (OurPageHandle, DID.CheckNoRDNS, stringval);
         StrToBuffer (lang, "OptionP1.MAILFROMcheck", stringval);
         OS2.WinSetDlgItemText (OurPageHandle, DID.MAILFROMcheck, stringval);
         StrToBuffer (lang, "OptionP1.SPFenabled", stringval);
@@ -170,6 +172,10 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
             OS2.WinShowWindow (OS2.WinWindowFromID(hwnd, DID.BadPasswordLimitLabel), TRUE);
         END (*IF*);
 
+        (* Reject mail if rDNS fails. *)
+
+        LoadCheckbox (DID.CheckNoRDNS, TRUE, OldCheckNoRDNS, 'CheckNoRDNS');
+
         (* Apply address checks to MAIL FROM address. *)
 
         LoadCheckbox (DID.MAILFROMcheck, TRUE, OldMAILFROMcheck, 'MAILFROMcheck');
@@ -215,7 +221,7 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
         IF INIGetString ('$SYS', 'OurHostName', name) THEN
             OldOurHostName := name;
         ELSE
-            AddressToHostName (ServerIPAddress(), name);
+            EVAL (AddressToHostName (ServerIPAddress(), name));
             OldOurHostName := "";
         END (*IF*);
         OS2.WinSetDlgItemText (hwnd, DID.OurHostName, name);
@@ -276,6 +282,10 @@ PROCEDURE StoreData;
         IF j <> OldBadPasswordLimit THEN
             INIPut ('$SYS', 'BadPasswordLimit', j);
         END (*IF*);
+
+        (* CheckNoRDNS check. *)
+
+        StoreCheckbox (DID.CheckNoRDNS, OldCheckNoRDNS, 'CheckNoRDNS');
 
         (* MAILFROM check. *)
 

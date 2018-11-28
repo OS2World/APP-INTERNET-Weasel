@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -27,7 +27,7 @@ IMPLEMENTATION MODULE INIData;
         (*               Looking after our INI file data            *)
         (*                                                          *)
         (*    Started:        30 March 2000                         *)
-        (*    Last edited:    17 July 2017                          *)
+        (*    Last edited:    21 November 2018                      *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
@@ -117,7 +117,7 @@ PROCEDURE ChooseDefaultINI (appname: ARRAY OF CHAR;
             RETURN TRUE;
         END (*IF*);
 
-        (* That leaves the case where both files exists.  In that case  *)
+        (* That leaves the case where both files exist.  In that case   *)
         (* we look up the entry ($SYS, useTNI) in each file.            *)
 
         useTNI := FALSE;  useTNI0 := FALSE;
@@ -150,6 +150,52 @@ PROCEDURE ChooseDefaultINI (appname: ARRAY OF CHAR;
         RETURN useTNI0 = useTNI;
 
     END ChooseDefaultINI;
+
+(************************************************************************)
+
+PROCEDURE CommitTNIDecision (appname: ARRAY OF CHAR;  useTNI: BOOLEAN);
+
+    (* Stores the specified useTNI value in such a way that it will     *)
+    (* become the default for the next ChooseDefaultINI decision, all   *)
+    (* other factors being equal.                                       *)
+
+    VAR exists: BOOLEAN;
+        hini: HINI;
+        app: ARRAY [0..5] OF CHAR;
+        name: FilenameString;
+
+    BEGIN
+        (* Store the useTNI value in whichever of the two files exist,  *)
+        (* or both if both exist.  If neither exists, create only one.  *)
+
+        app := "$SYS";
+        Strings.Assign (appname, name);
+        Strings.Append (".TNI", name);
+        exists := Exists(name);
+        IF exists OR useTNI THEN
+            IF exists THEN
+                hini := OpenINIFile (name, TRUE);
+            ELSE
+                hini := CreateINIFile (name, TRUE);
+            END (*IF*);
+            INIPut (hini, app, "UseTNI", useTNI);
+            CloseINIFile (hini);
+        END (*IF*);
+
+        Strings.Assign (appname, name);
+        Strings.Append (".INI", name);
+        exists := Exists(name);
+        IF exists OR NOT useTNI THEN
+            IF exists THEN
+                hini := OpenINIFile (name, FALSE);
+            ELSE
+                hini := CreateINIFile (name, FALSE);
+            END (*IF*);
+            INIPut (hini, app, "UseTNI", useTNI);
+            CloseINIFile (hini);
+        END (*IF*);
+
+    END CommitTNIDecision;
 
 (************************************************************************)
 (*                   READING/WRITING A LOCAL INI FILE                   *)

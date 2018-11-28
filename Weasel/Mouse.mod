@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  PMOS/2 software library                                               *)
-(*  Copyright (C) 2015   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -27,7 +27,7 @@ IMPLEMENTATION MODULE Mouse;
         (*                  Mouse driver                        *)
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
-        (*  Last edited:        2 April 2015                    *)
+        (*  Last edited:        7 January 2018                  *)
         (*  Status:                                             *)
         (*      The USEIOCTL option does not work, because of   *)
         (*      a problem with the MOU_READEVENTQUE function.   *)
@@ -49,9 +49,6 @@ FROM SYSTEM IMPORT
 FROM Storage IMPORT
     (* proc *)  DEALLOCATE;
 
-FROM Keyboard IMPORT
-    (* proc *)  IsFullScreen;
-
 FROM LowLevel IMPORT
     (* proc *)  EVAL, IAND, ALLOCATE64;
 
@@ -66,7 +63,8 @@ FROM Mouse0 IMPORT
 
 FROM TaskControl IMPORT
     (* type *)  Lock,
-    (* proc *)  CreateTask, CreateLock, DestroyLock, Obtain, Release;
+    (* proc *)  CreateTask, CreateLock, DestroyLock, Obtain, Release,
+                IsFullScreen;
 
 FROM Windows IMPORT         (* for debugging *)
     (* type *)  Window, Colour, FrameType, DividerType,

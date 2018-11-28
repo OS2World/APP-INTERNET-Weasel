@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE POPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 April 1998                   *)
-        (*  Last edited:        22 May 2017                     *)
+        (*  Last edited:        13 September 2018               *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -48,9 +48,12 @@ FROM TaskControl IMPORT
     (* type *)  Lock,
     (* proc *)  CreateLock, DestroyLock, Obtain, Release;
 
-FROM Semaphores IMPORT
-    (* type *)  Semaphore,
-    (* proc *)  Signal;
+FROM Timer IMPORT
+    (* proc *)  Sleep;
+
+FROM Watchdog IMPORT
+    (* type *)  WatchdogID,
+    (* proc *)  KickWatchdog;
 
 FROM LowLevel IMPORT
     (* proc *)  EVAL;
@@ -176,135 +179,6 @@ TYPE
 (************************************************************************)
 
 VAR UseTNI: BOOLEAN;
-
-(************************************************************************)
-(*                   GUARD AGAINST DICTIONARY ATTACK                    *)
-(************************************************************************)
-
-CONST ThrottleTime = 10;      (* seconds *)
-
-TYPE
-    HammerListPointer = POINTER TO HammerListEntry;
-    HammerListEntry = RECORD
-                          next: HammerListPointer;
-                          time: CARDINAL;          (* seconds *)
-                          address: CARDINAL;
-                      END (*RECORD*);
-
-VAR HammerList: RECORD
-                    access: Lock;
-                    head: HammerListPointer;
-                END (*RECORD*);
-
-(************************************************************************)
-
-PROCEDURE MarkForThrottling (IPAddress: CARDINAL);
-
-    (* Records this IP address as one that, because of undesirable      *)
-    (* behaviour, should be locked out for the next 10 seconds.         *)
-
-    VAR t: CARDINAL;  found: BOOLEAN;
-        previous, current, next, p: HammerListPointer;
-
-    BEGIN
-        t := time();          (* seconds *)
-        Obtain (HammerList.access);
-
-        (* First delete all the expired entries in the list. *)
-
-        current := HammerList.head;
-        WHILE (current <> NIL) AND (current^.time < t) DO
-            HammerList.head := current^.next;
-            DEALLOCATE (current, SIZE(HammerListEntry));
-            current := HammerList.head;
-        END (*WHILE*);
-
-        (* Look for an existing match for this IP address.  If there is *)
-        (* such an entry, delete it; we'll later reinsert it further on *)
-        (* in the list.                                                 *)
-
-        INC (t, ThrottleTime);
-        found := FALSE;
-        previous := NIL;
-        WHILE (current <> NIL) AND (current^.time <= t) AND NOT found DO
-            next := current^.next;
-            IF current^.address = IPAddress THEN
-                IF previous = NIL THEN
-                    HammerList.head := next;
-                ELSE
-                    previous^.next := next;
-                END (*IF*);
-                DEALLOCATE (current, SIZE(HammerListEntry));
-                found := TRUE;
-            ELSE
-                previous := current;
-            END (*IF*);
-            current := next;
-        END (*WHILE*);
-
-        (* Insert a new entry for 10 seconds from now, keeping the      *)
-        (* list ordered by time.                                        *)
-
-        WHILE (current <> NIL) AND (current^.time < t) DO
-            previous := current;
-            current := current^.next;
-        END (*WHILE*);
-
-        (* The insertion has to be made between previous^ and current^. *)
-
-        NEW (p);
-        WITH p^ DO
-            next := current;
-            time := t;
-            address := IPAddress;
-        END (*WITH*);
-        IF previous = NIL THEN
-            HammerList.head := p;
-        ELSE
-            previous^.next := p;
-        END (*IF*);
-
-        Release (HammerList.access);
-
-    END MarkForThrottling;
-
-(************************************************************************)
-
-PROCEDURE ThrottlePOP (IPAddress: CARDINAL): BOOLEAN;
-
-    (* Returns TRUE iff this IP address is on the list of addresses to  *)
-    (* be blocked because of suspect behaviour in the past 10 seconds.  *)
-
-    VAR t: CARDINAL;  found: BOOLEAN;
-        current, next: HammerListPointer;
-
-    BEGIN
-        t := time();          (* seconds *)
-        Obtain (HammerList.access);
-
-        (* First delete all the expired entries in the list. *)
-
-        current := HammerList.head;
-        WHILE (current <> NIL) AND (current^.time < t) DO
-            HammerList.head := current^.next;
-            DEALLOCATE (current, SIZE(HammerListEntry));
-            current := HammerList.head;
-        END (*WHILE*);
-
-        (* Now see whether this IP address is on the list. *)
-
-        found := FALSE;
-        WHILE (current <> NIL) AND NOT found DO
-            next := current^.next;
-            found := current^.address = IPAddress;
-            current := next;
-        END (*WHILE*);
-
-        Release (HammerList.access);
-
-        RETURN found;
-
-    END ThrottlePOP;
 
 (************************************************************************)
 
@@ -613,28 +487,40 @@ PROCEDURE LockMailbox (M: Mailbox;  LogID: TransactionLogID): CARDINAL;
     (* We discard the domain list, which was only needed for password   *)
     (* checking.                                                        *)
 
-    VAR filename: FilenameString;  cid: ChanId;
+    CONST MaxTries = 12;
+
+    VAR filename: FilenameString;  tries: CARDINAL;  cid: ChanId;
 
     BEGIN
         filename := M^.directory;
         Strings.Append (LockFileName, filename);
-        IF FileSys.Exists (filename) THEN
-            RETURN 2;
-        ELSE
-            cid := OpenNewFile (filename, FALSE);
-            IF cid <> NoSuchChannel THEN
-                CloseFile (cid);
-                M^.HaveLock := TRUE;
-                DiscardDomainList (M^.domains);
-                BuildDescriptorArray (M);
-                IF M^.overflow THEN
-                    LogTransactionL (LogID, "Mailbox too big to list all files.");
-                END (*IF*);
-                RETURN 0;
-            ELSE
-                RETURN 3;
+
+        (* If mailbox is locked, keep checking for a short time in the  *)
+        (* hope that the lock will soon be released.                    *)
+
+        tries := 0;
+        WHILE FileSys.Exists (filename) DO
+            INC (tries);
+            IF tries >= MaxTries THEN
+                RETURN 2;
             END (*IF*);
+            Sleep (400);
+        END (*WHILE*);
+
+        cid := OpenNewFile (filename, FALSE);
+        IF cid <> NoSuchChannel THEN
+            CloseFile (cid);
+            M^.HaveLock := TRUE;
+            DiscardDomainList (M^.domains);
+            BuildDescriptorArray (M);
+            IF M^.overflow THEN
+                LogTransactionL (LogID, "Mailbox too big to list all files.");
+            END (*IF*);
+            RETURN 0;
+        ELSE
+            RETURN 3;
         END (*IF*);
+
     END LockMailbox;
 
 (************************************************************************)
@@ -868,6 +754,7 @@ PROCEDURE SizeOfMessage (M: Mailbox;  MessageNumber: CARDINAL;
 
 PROCEDURE GetUID (M: Mailbox;  MessageNumber: CARDINAL;
                                    VAR (*OUT*) UID: MD5_DigestType;
+                                   lognames: BOOLEAN;
                                    ID: TransactionLogID): BOOLEAN;
 
     (* If message MessageNumber exists, sets UID to a persistent and    *)
@@ -886,7 +773,9 @@ PROCEDURE GetUID (M: Mailbox;  MessageNumber: CARDINAL;
             name := M^.directory;
             Strings.Append (p^.shortname, name);
             Strings.Append (".MSG", name);
-            LogTransaction (ID, name);
+            IF lognames THEN
+                LogTransaction (ID, name);
+            END (*IF*);
             EVAL (FirstDirEntry(name, FALSE, FALSE, D));
             DirSearchDone (D);
             ctx := MD5Init();
@@ -900,9 +789,10 @@ PROCEDURE GetUID (M: Mailbox;  MessageNumber: CARDINAL;
 
 (************************************************************************)
 
-PROCEDURE SendFile (SB: SBuffer;  sem: Semaphore;
+PROCEDURE SendFile (SB: SBuffer;  watchID: WatchdogID;
                     VAR (*IN*) filename: ARRAY OF CHAR;
                     VAR (*OUT*) bytessent: CARDINAL;
+                    lognames: BOOLEAN;
                       id: TransactionLogID): BOOLEAN;
 
     (* Sends the contents of a file via SB.  *)
@@ -916,13 +806,15 @@ PROCEDURE SendFile (SB: SBuffer;  sem: Semaphore;
         buffer: ARRAY [0..BufferSize-1] OF CHAR;
 
     BEGIN
-        LogTransaction (id, filename);
+        IF lognames THEN
+            LogTransaction (id, filename);
+        END (*IF*);
         cid := OpenOldFile (filename, FALSE, TRUE);
         success := cid <> NoSuchChannel;
         MoreToGo := TRUE;  AtEOL := TRUE;
         bytessent := 0;
         WHILE success AND MoreToGo DO
-            Signal (sem);
+            KickWatchdog (watchID);
             ReadRaw (cid, buffer, BufferSize, amount);
             IF amount = 0 THEN
 
@@ -957,9 +849,10 @@ PROCEDURE SendFile (SB: SBuffer;  sem: Semaphore;
 
 (************************************************************************)
 
-PROCEDURE SendPartFile (SB: SBuffer;  sem: Semaphore;
+PROCEDURE SendPartFile (SB: SBuffer;  watchID: WatchdogID;
                             VAR (*IN*) filename: ARRAY OF CHAR;
                             MaxLines: CARDINAL;
+                            lognames: BOOLEAN;
                               id: TransactionLogID): BOOLEAN;
 
     (* Sends the header, plus MaxLines of the body, via SB.     *)
@@ -972,13 +865,15 @@ PROCEDURE SendPartFile (SB: SBuffer;  sem: Semaphore;
         lines, sent: CARDINAL;
 
     BEGIN
-        LogTransaction (id, filename);
+        IF lognames THEN
+            LogTransaction (id, filename);
+        END (*IF*);
         lines := 0;  PastHeader := FALSE;
         cid := OpenOldFile (filename, FALSE, FALSE);
         success := cid <> NoSuchChannel;
         MoreToGo := TRUE;
         WHILE success AND MoreToGo DO
-            Signal (sem);
+            KickWatchdog (watchID);
             ReadLine (cid, buffer);
             IF buffer[0] = CtrlZ THEN
 
@@ -1013,16 +908,17 @@ PROCEDURE SendPartFile (SB: SBuffer;  sem: Semaphore;
 
 (************************************************************************)
 
-PROCEDURE SendMessage (SB: SBuffer;  sem: Semaphore;  M: Mailbox;
+PROCEDURE SendMessage (SB: SBuffer;  watchID: WatchdogID;  M: Mailbox;
                                N, MaxLines: CARDINAL;
                                VAR (*OUT*) bytessent: CARDINAL;
+                               lognames: BOOLEAN;
                                          id: TransactionLogID): BOOLEAN;
 
     (* Sends message N in mailbox N via SB.  The caller must            *)
     (* already have confirmed that this message exists.                 *)
     (* MaxLines refers to the number of non-header lines to be sent.    *)
-    (* We must Signal(sem) every so often to ensure that the operation  *)
-    (* does not time out.                                               *)
+    (* We must call KickWatchdog every so often to ensure that the      *)
+    (* operation does not time out.                                     *)
     (* A FALSE result means a communications failure.                   *)
 
     VAR success: BOOLEAN;  p: DescrPointer;
@@ -1037,9 +933,9 @@ PROCEDURE SendMessage (SB: SBuffer;  sem: Semaphore;  M: Mailbox;
             Strings.Append (p^.shortname, name);
             Strings.Append (".MSG", name);
             IF MaxLines = MAX(CARDINAL) THEN
-                success := SendFile (SB, sem, name, bytessent, id);
+                success := SendFile (SB, watchID, name, bytessent, lognames, id);
             ELSE
-                success := SendPartFile (SB, sem, name, MaxLines, id);
+                success := SendPartFile (SB, watchID, name, MaxLines, lognames, id);
                 bytessent := 0;         (* dummy info *)
             END (*IF*);
         END (*IF*);
@@ -1125,9 +1021,5 @@ PROCEDURE CommitChanges (M: Mailbox);
 
 BEGIN
     UseTNI := FALSE;
-    CreateLock (HammerList.access);
-    HammerList.head := NIL;
-FINALLY
-    DestroyLock (HammerList.access);
 END POPData.
 

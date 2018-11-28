@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ MODULE Weasel;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            12 April 1998                   *)
-        (*  Last edited:        30 August 2017                  *)
+        (*  Last edited:        18 September 2018               *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -67,7 +67,7 @@ FROM Semaphores IMPORT
     (* proc *)  CreateSemaphore, Wait, Signal;
 
 FROM TaskControl IMPORT
-    (* proc *)  CreateTask, ThreadCount;
+    (* proc *)  CreateTask, ThreadCount, NotDetached;
 
 FROM Heap IMPORT
     (* proc *)  EnableHeapLogging, StopHeapLogging;
@@ -76,11 +76,11 @@ FROM Exceptq IMPORT
     (* proc *)  InstallExceptq, UninstallExceptq;
 
 FROM SplitScreen IMPORT
-    (* proc *)  NotDetached, WriteString, WriteLn;
+    (* proc *)  WriteString, WriteLn;
 
 FROM INIData IMPORT
     (* proc *)  OpenINIFile, CloseINIFile, INIGet, INIGetString,
-                SetWorkingDirectory;
+                INIPut, SetWorkingDirectory;
 
 FROM MiscFuncs IMPORT
     (* proc *)  ConvertDecimal, ConvertCard;
@@ -100,7 +100,7 @@ FROM CtrlC IMPORT
     (* proc *)  SetBreakHandler;
 
 FROM WSession IMPORT
-    (* proc *)  SetSessionParameters, NewSession, NumberOfUsers;
+    (* proc *)  SetServerParameters, NewSession, NumberOfUsers;
 
 FROM POPCommands IMPORT
     (* proc *)  SetPopLogName;
@@ -135,12 +135,12 @@ TYPE
 
 CONST
     Nul = CHR(0);
-    ServiceName = ServiceNameArray {"SMTP", "POP", "IMAP", "MSA"};
+    ServiceName = ServiceNameArray {"POP", "SMTP", "MSA", "IMAP"};
 
 CONST
-    DefaultPort = CardArray {25, 110, 143, 587};
+    DefaultPort = CardArray {110, 25, 587, 143};
     DefaultMaxUsers = CardArray {10, 10, 10, 10};
-    DefaultTimeout = CardArray {900, 900, 1800, 900};             (* seconds   *)
+    DefaultTimeout = CardArray {900, 900, 900, 1800};             (* seconds   *)
 
 VAR
     WeaselName: ARRAY [0..63] OF CHAR;
@@ -150,7 +150,6 @@ VAR
     ServerPort: CardArray;
     ServerEnabled: CARDINAL;
     BindAddr: CARDINAL;
-    ProVersion: BOOLEAN;
     CalledFromInetd: BOOLEAN;
     ScreenEnabled: BOOLEAN;
     ExtraLogging: BOOLEAN;
@@ -276,30 +275,30 @@ PROCEDURE LoadUpdateableINIData;
             EVAL(GetItem ("BindAddr", BindAddr));
             IF NOT GetItem ("MaxUsers", MaxUsers) THEN
                 IF GetItem ("MaxUsers", MaxUsers3) THEN
-                    MaxUsers[SMTP] := MaxUsers3[SMTP];
                     MaxUsers[POP] := MaxUsers3[POP];
-                    MaxUsers[IMAP] := MaxUsers3[IMAP];
-                    MaxUsers[MSA] := DefaultMaxUsers[MSA];
-                ELSIF GetItem ("MaxUsers", MaxUsers2) THEN
-                    MaxUsers[SMTP] := MaxUsers2[SMTP];
-                    MaxUsers[POP] := MaxUsers2[POP];
+                    MaxUsers[SMTP] := MaxUsers3[SMTP];
+                    MaxUsers[MSA] := MaxUsers3[MSA];
                     MaxUsers[IMAP] := DefaultMaxUsers[IMAP];
+                ELSIF GetItem ("MaxUsers", MaxUsers2) THEN
+                    MaxUsers[POP] := MaxUsers2[POP];
+                    MaxUsers[SMTP] := MaxUsers2[SMTP];
                     MaxUsers[MSA] := DefaultMaxUsers[MSA];
+                    MaxUsers[IMAP] := DefaultMaxUsers[IMAP];
                 ELSE
                     MaxUsers := DefaultMaxUsers;
                 END (*IF*);
             END (*IF*);
             IF NOT GetItem ("TimeOut", TimeoutLimit) THEN
                 IF GetItem ("TimeoutLimit", TimeoutLimit3) THEN
-                    TimeoutLimit[SMTP] := TimeoutLimit3[SMTP];
                     TimeoutLimit[POP] := TimeoutLimit3[POP];
-                    TimeoutLimit[IMAP] := TimeoutLimit3[IMAP];
-                    TimeoutLimit[MSA] := DefaultTimeout[MSA];
-                ELSIF GetItem ("TimeoutLimit", TimeoutLimit2) THEN
-                    TimeoutLimit[SMTP] := TimeoutLimit2[SMTP];
-                    TimeoutLimit[POP] := TimeoutLimit2[POP];
+                    TimeoutLimit[SMTP] := TimeoutLimit3[SMTP];
+                    TimeoutLimit[MSA] := TimeoutLimit3[MSA];
                     TimeoutLimit[IMAP] := DefaultTimeout[IMAP];
+                ELSIF GetItem ("TimeoutLimit", TimeoutLimit2) THEN
+                    TimeoutLimit[POP] := TimeoutLimit2[POP];
+                    TimeoutLimit[SMTP] := TimeoutLimit2[SMTP];
                     TimeoutLimit[MSA] := DefaultTimeout[MSA];
+                    TimeoutLimit[IMAP] := DefaultTimeout[IMAP];
                 ELSE
                     TimeoutLimit := DefaultTimeout;
                 END (*IF*);
@@ -329,10 +328,10 @@ PROCEDURE LoadUpdateableINIData;
         SetPopLogName (LogPOPusers, PopLogName);
         ExtraLogging := ReloadDeliveryINIData (FALSE, BindAddr);
 
-        (* The SetSessionParameters procedure also forces the SMTPData  *)
-        (* module to reload its updateable data.                        *)
+        (* The SetServerParameters procedure also forces the SMTPData  *)
+        (* module to reload its updateable data.                       *)
 
-        SetSessionParameters (MaxUsers, TimeoutLimit, BadPasswordLimit,
+        SetServerParameters (MaxUsers, TimeoutLimit, BadPasswordLimit,
                                      AuthTime, AuthMethods, NoPOPinTL);
         SetMaxMessageSize;
 
@@ -372,19 +371,19 @@ PROCEDURE LoadINIData;
         END (*IF*);
         IF INIData.INIValid (hini) THEN
             IF NOT GetItem ("Enable", ServerEnabled) THEN
-                ServerEnabled := 2;
+                ServerEnabled := 1;
             END (*IF*);
             IF NOT GetItem ("ServerPort", ServerPort) THEN
                 IF GetItem ("ServerPort", ServerPort3) THEN
-                    ServerPort[SMTP] := ServerPort3[SMTP];
                     ServerPort[POP] := ServerPort3[POP];
-                    ServerPort[IMAP] := ServerPort3[IMAP];
-                    ServerPort[MSA] := DefaultPort[MSA];
-                ELSIF GetItem ("ServerPort", ServerPort2) THEN
-                    ServerPort[SMTP] := ServerPort2[SMTP];
-                    ServerPort[POP] := ServerPort2[POP];
+                    ServerPort[SMTP] := ServerPort3[SMTP];
+                    ServerPort[MSA] := ServerPort3[MSA];
                     ServerPort[IMAP] := DefaultPort[IMAP];
+                ELSIF GetItem ("ServerPort", ServerPort2) THEN
+                    ServerPort[POP] := ServerPort2[POP];
+                    ServerPort[SMTP] := ServerPort2[SMTP];
                     ServerPort[MSA] := DefaultPort[MSA];
+                    ServerPort[IMAP] := DefaultPort[IMAP];
                 ELSE
                     ServerPort := DefaultPort;
                 END (*IF*);
@@ -555,10 +554,10 @@ PROCEDURE RunTheServer;
         ELSE
             LogTransactionL (LogID, "Getting configuration data from weasel.ini");
         END (*IF*);
-        Enabled[SMTP] := ODD(ServerEnabled);
-        Enabled[POP] := ODD(ServerEnabled DIV 2);
-        Enabled[IMAP] := ODD(ServerEnabled DIV 4) AND ProVersion;
-        Enabled[MSA] := ODD(ServerEnabled DIV 8);
+        Enabled[POP] := ODD(ServerEnabled);
+        Enabled[SMTP] := ODD(ServerEnabled DIV 2);
+        Enabled[MSA] := ODD(ServerEnabled DIV 4);
+        Enabled[IMAP] := ODD(ServerEnabled DIV 8);
 
         IF CalledFromInetd THEN
 
@@ -580,7 +579,7 @@ PROCEDURE RunTheServer;
                 j := POP;
                 IF temp = DefaultPort[SMTP] THEN
                     j := SMTP;
-                ELSIF ProVersion AND (temp = DefaultPort[IMAP]) THEN
+                ELSIF temp = DefaultPort[IMAP] THEN
                     j := IMAP;
                 END (*IF*);
                 IF NOT NewSession (j, InetdSocket, client) THEN
@@ -604,7 +603,8 @@ PROCEDURE RunTheServer;
                 Strings.Append ("            ", message);
                 UpdateTopScreenLine (0, message);
                 (*SetOurTitle (message);*)
-                UpdateTopScreenLine (25, "(C) 1998-2017 Peter Moylan");
+                UpdateTopScreenLine (25, "(C) 1998-2018 Peter Moylan");
+                UpdateTopScreenLine (54, "Users:");
 
                 EVAL (SetBreakHandler (ControlCHandler));
             END (*IF*);
@@ -798,7 +798,11 @@ PROCEDURE INIChangeDetector;
             OS2.DosWaitEventSem (UpdaterFlag, OS2.SEM_INDEFINITE_WAIT);
             OS2.DosResetEventSem (UpdaterFlag, count);
             IF NOT ShutdownInProgress THEN
-                LogTransactionL (LogID, "Reloading the INI data");
+                IF UseTNI THEN
+                    LogTransactionL (LogID, "Reloading the TNI data");
+                ELSE
+                    LogTransactionL (LogID, "Reloading the INI data");
+                END (*IF*);
                 LoadUpdateableINIData;
             END (*IF*);
         END (*WHILE*);
@@ -866,6 +870,125 @@ PROCEDURE NotifyTermination;
     END NotifyTermination;
 
 (********************************************************************************)
+(*               CORRECTION TO COMPENSATE INI DATA FORMAT CHANGE                *)
+(********************************************************************************)
+
+TYPE
+    TwoCard = ARRAY [0..1] OF CARDINAL;
+    ThreeCard = ARRAY [0..2] OF CARDINAL;
+    FourCard = ARRAY [0..3] OF CARDINAL;
+
+(********************************************************************************)
+
+PROCEDURE AdjustINIData;
+
+    (* The order of some FourCard INI entries changed in Feb 2018 (ver 2.44c).  *)
+    (* This procedure corrects the order if we see a discrepancy.               *)
+
+    VAR SYSapp: ARRAY [0..7] OF CHAR;
+
+    (****************************************************************************)
+
+    PROCEDURE LoadTwoToFour (hini: INIData.HINI;
+                                    key: ARRAY OF CHAR;  default: FourCard;
+                                                VAR (*OUT*) result: FourCard);
+
+        (* Loads a four-cardinal value from the INI file, allowing for the  *)
+        (* possibility that an older version of the software might have     *)
+        (* left only two or three cardinals there.  Any values not found    *)
+        (* are set to the default.                                          *)
+
+        VAR twoval: TwoCard;  threeval: ThreeCard;
+
+        BEGIN
+            result := default;
+            IF NOT INIGet (hini, SYSapp, key, result) THEN
+                IF INIGet (hini, SYSapp, key, threeval) THEN
+                    result[0] := threeval[0];
+                    result[1] := threeval[1];
+                    result[2] := threeval[2];
+                ELSIF INIGet (hini, SYSapp, key, twoval) THEN
+                    result[0] := twoval[0];
+                    result[1] := twoval[1];
+                END (*IF*);
+            END (*IF*);
+        END LoadTwoToFour;
+
+    (****************************************************************************)
+
+    CONST
+        DefaultPort = FourCard{110, 25, 587, 143};
+        DefaultTimeout = FourCard{120, 120, 120, 0};
+        DefaultMaxUsers = FourCard{10, 10, 10, 0};
+
+    VAR cardval, temp: CARDINAL;  val, IMAPdata: FourCard;
+        switch, bit0, bit1, bit2, bit3, btemp: BOOLEAN;
+        name: ARRAY [0..15] OF CHAR;
+        hini: INIData.HINI;
+
+    BEGIN
+        SYSapp := "$SYS";
+        IF UseTNI THEN
+            name := "weasel.tni";
+            hini := OpenINIFile(name, TRUE);
+        ELSE
+            name := "weasel.ini";
+            hini := OpenINIFile(name, FALSE);
+        END (*IF*);
+        IF INIData.INIValid (hini) THEN
+
+            (* Server ports. *)
+
+            LoadTwoToFour (hini, 'ServerPort', DefaultPort, val);
+
+            (* The order of these values changed in Feb 2018.  Try to   *)
+            (* correct the order if we see a discrepancy.               *)
+
+            switch := val[0] = 25;
+            IF switch THEN
+                temp := val[0];  val[0] := val[1];  val[1] := temp;
+                temp := val[2];  val[2] := val[3];  val[3] := temp;
+                INIPut (hini, SYSapp, 'ServerPort', val);
+
+                IMAPdata[0] := val[3];
+
+                (* Timeout values. *)
+
+                LoadTwoToFour (hini, 'TimeOut', DefaultTimeout, val);
+                temp := val[0];  val[0] := val[1];  val[1] := temp;
+                temp := val[2];  val[2] := val[3];  val[3] := temp;
+                INIPut (hini, SYSapp, 'TimeOut', val);
+                IMAPdata[1] := val[3];
+
+                (* Maximum number of users. *)
+
+                LoadTwoToFour (hini, 'MaxUsers', DefaultMaxUsers, val);
+                temp := val[0];  val[0] := val[1];  val[1] := temp;
+                temp := val[2];  val[2] := val[3];  val[3] := temp;
+                INIPut (hini, SYSapp, 'MaxUsers', val);
+                IMAPdata[2] := val[3];
+
+                (* "Service enabled" flags. *)
+
+                IF NOT INIGet (hini, SYSapp, 'Enable', cardval) THEN
+                    cardval := 1;
+                END (*IF*);
+                bit0 := ODD(cardval);
+                bit1 := ODD(cardval DIV 2);
+                bit2 := ODD(cardval DIV 4);
+                bit3 := ODD(cardval DIV 8);
+                btemp := bit0;  bit0 := bit1;  bit1 := btemp;
+                btemp := bit2;  bit2 := bit3;  bit3 := btemp;
+                cardval := ORD(bit0) + 2*(ORD(bit1) + 2*(ORD(bit2) + 2*ORD(bit3)));
+                INIPut (hini, SYSapp, 'Enable', cardval);
+            END (*IF*);
+        END (*IF*);
+
+        CloseINIFile(hini);
+
+    END AdjustINIData;
+
+(********************************************************************************)
 (*                                 MAIN PROGRAM                                 *)
 (********************************************************************************)
 
@@ -890,7 +1013,7 @@ PROCEDURE DeliberateCrash;
 
 (********************************************************************************)
 
-VAR count: CARDINAL;  abort: BOOLEAN;
+VAR abort: BOOLEAN;
 
 BEGIN
     ExtraLogging := FALSE;
@@ -905,8 +1028,8 @@ BEGIN
         WriteString ("Run ChooseTNI.cmd to fix the problem, then try again");
         WriteLn;
     ELSE
+        AdjustINIData;
         LoadINIData;
-        ProVersion := TRUE;
         GetProgramName (ProgVersion);
         ClearMailboxLocks;
         ShutdownInProgress := FALSE;  RapidShutdown := FALSE;

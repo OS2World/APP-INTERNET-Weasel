@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SULogging;
         (*                 Logging page of the notebook                 *)
         (*                                                              *)
         (*        Started:        2 November 2003                       *)
-        (*        Last edited:    22 May 2017                           *)
+        (*        Last edited:    24 January 2018                       *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -83,7 +83,8 @@ VAR
 
     OldServerPort, OldTimeout, OldMaxUsers: TwoCard;
     OldEnable, OldTransLevel: CARDINAL;
-    OldLogPOPusers, OldLogSMTPItems, OldLogOutgoing, OldNoPOPinTL: BOOLEAN;
+    OldLogPOPusers, OldLogSMTPItems, OldLogOutgoing,
+                    OldNoPOPinTL, OldLogInitLists: BOOLEAN;
     OldSMTPLogName, OldPopLogName, OldOutgoingLogFile,
              OldTransLogName, OldSyslogHost: FilenameString;
 
@@ -127,6 +128,8 @@ PROCEDURE SetLanguage (lang: LangHandle);
         OS2.WinSetDlgItemText (pagehandle, DID.SyslogHostLabel, stringval);
         StrToBuffer (lang, "Logging.NoPOPinTL", stringval);
         OS2.WinSetDlgItemText (pagehandle, DID.NoPOPinTL, stringval);
+        StrToBuffer (lang, "Logging.LogInitLists", stringval);
+        OS2.WinSetDlgItemText (pagehandle, DID.LogInitLists, stringval);
         StrToBuffer (lang, "Logging.ExtraLogging", stringval);
         OS2.WinSetDlgItemText (pagehandle, DID.ExtraLogging, stringval);
     END SetLanguage;
@@ -148,6 +151,8 @@ PROCEDURE EnableFields (hwnd: OS2.HWND);
 
     (* Enables or disables the filename windows, depending on the       *)
     (* checkbox values.                                                 *)
+
+    VAR atleastOne: BOOLEAN;
 
     BEGIN
         IF QueryButton (hwnd, DID.LogSMTPItems) > 0 THEN
@@ -174,6 +179,19 @@ PROCEDURE EnableFields (hwnd: OS2.HWND);
             OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.SyslogHost), TRUE);
         ELSE
             OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.SyslogHost), FALSE);
+        END (*IF*);
+        atleastOne := (QueryButton (hwnd, DID.DiskLog) > 0)
+                        OR (QueryButton (hwnd, DID.ScreenLog) > 0)
+                        OR (QueryButton (hwnd, DID.PipeLog) > 0)
+                        OR (QueryButton (hwnd, DID.SysLog) > 0);
+        IF atleastOne THEN
+            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.NoPOPinTL), TRUE);
+            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.LogInitLists), TRUE);
+            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.ExtraLogging), TRUE);
+        ELSE
+            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.NoPOPinTL), FALSE);
+            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.LogInitLists), FALSE);
+            OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.ExtraLogging), FALSE);
         END (*IF*);
     END EnableFields;
 
@@ -275,13 +293,22 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
         END (*IF*);
         OS2.WinSetDlgItemText (hwnd, DID.SyslogHost, name);
 
-        (* Suppress POP from transactin log. *)
+        (* Suppress POP from transaction log. *)
 
         IF NOT INIFetch ('$SYS', 'NoPOPinTL', OldNoPOPinTL) THEN
             OldNoPOPinTL := FALSE;
         END (*IF*);
         OS2.WinSendDlgItemMsg (hwnd, DID.NoPOPinTL, OS2.BM_SETCHECK,
                                  OS2.MPFROMSHORT(ORD(OldNoPOPinTL)), NIL);
+
+        (* Log initial domain and host list loading. *)
+
+        IF NOT INIFetch ('$SYS', 'LogInitLists', OldLogInitLists) THEN
+            OldLogInitLists := FALSE;
+            INIPut ('$SYS', 'LogInitLists', OldLogInitLists);
+        END (*IF*);
+        OS2.WinSendDlgItemMsg (hwnd, DID.LogInitLists, OS2.BM_SETCHECK,
+                                 OS2.MPFROMSHORT(ORD(OldLogInitLists)), NIL);
 
         CloseINIFile;
         EnableFields (hwnd);
@@ -371,6 +398,13 @@ PROCEDURE StoreData (hwnd: OS2.HWND);
         bool := QueryButton (hwnd, DID.NoPOPinTL) > 0;
         IF bool <> OldNoPOPinTL THEN
             INIPut ('$SYS', 'NoPOPinTL', bool);
+        END (*IF*);
+
+        (* Log initialisation of lists. *)
+
+        bool := QueryButton (hwnd, DID.LogInitLists) > 0;
+        IF bool <> OldLogInitLists THEN
+            INIPut ('$SYS', 'LogInitLists', bool);
         END (*IF*);
 
         CloseINIFile;
@@ -463,5 +497,6 @@ BEGIN
     OldTransLevel := 0;
     OldLogPOPusers := FALSE;  OldLogSMTPItems := FALSE;
     OldLogOutgoing := FALSE;  OldNoPOPinTL := FALSE;
+    OldLogInitLists := FALSE;
 END SULogging.
 

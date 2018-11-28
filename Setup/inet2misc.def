@@ -6,7 +6,7 @@ DEFINITION MODULE Inet2Misc;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            17 January 2002                 *)
-        (*  Last edited:        22 May 2017                     *)
+        (*  Last edited:        24 November 2018                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -37,9 +37,11 @@ PROCEDURE IPToString (IP: ARRAY OF LOC;  EncloseInBrackets: BOOLEAN;
     (* available in the result array, or 17 if EncloseInBrackets is TRUE.       *)
 
 PROCEDURE AddressToHostName (address: CARDINAL;
-                             VAR (*OUT*) Name: HostName);
+                             VAR (*OUT*) Name: HostName): BOOLEAN;
 
-    (* Converts a numeric IP address to a name.  *)
+    (* Converts a numeric IP address to a name.  The result is TRUE if  *)
+    (* we got a genuine name.  If the result is FALSE, then Name is     *)
+    (* just a dotted quad form of the address.                          *)
 
 PROCEDURE WaitForSocket (S: Socket;  timeout: CARDINAL): INTEGER;
 
@@ -85,6 +87,14 @@ PROCEDURE Swap4 (val: CARD32): CARD32;
     (* Returns the argument value in byte-reversed order.  This is needed       *)
     (* because network byte order is most significant byte first, whereas our   *)
     (* local host order is least significant byte first.                        *)
+
+PROCEDURE NonRouteable (address: CARDINAL): BOOLEAN;
+
+    (* Returns TRUE iff address (in network byte order) is one of the   *)
+    (* addresses reserved for internal LAN use.  These are:             *)
+    (*     (Class A) 10.*.*.*                                           *)
+    (*     (Class B) 172.16.*.* through 172.31.*.*                      *)
+    (*     (Class C) 192.168.*.*                                        *)
 
 END Inet2Misc.
 

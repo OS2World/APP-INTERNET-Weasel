@@ -6,14 +6,14 @@ DEFINITION MODULE POPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 April 1998                   *)
-        (*  Last edited:        21 April 2017                   *)
+        (*  Last edited:        13 September 2018               *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
 
 
 FROM SBuffers   IMPORT (*type*) SBuffer;
-FROM Semaphores IMPORT (*type*) Semaphore;
+FROM Watchdog   IMPORT (*type*) WatchdogID;
 FROM TransLog   IMPORT (*type*) TransactionLogID;
 FROM MD5        IMPORT (*type*) MD5_DigestType;
 FROM Domains    IMPORT (*type*) Domain;
@@ -21,15 +21,6 @@ FROM Domains    IMPORT (*type*) Domain;
 
 TYPE Mailbox;                      (* is private *)
 
-PROCEDURE MarkForThrottling (IPAddress: CARDINAL);
-
-    (* Records this IP address as one that, because of undesirable      *)
-    (* behaviour, should be locked out for the next 10 seconds.         *)
-
-PROCEDURE ThrottlePOP (IPAddress: CARDINAL): BOOLEAN;
-
-    (* Returns TRUE iff this IP address is on the list of addresses to  *)
-    (* be blocked because of suspect behaviour in the past 10 seconds.  *)
 
 PROCEDURE OpenMailbox (VAR (*INOUT*) M: Mailbox;
                                VAR (*IN*) username: ARRAY OF CHAR;
@@ -95,22 +86,24 @@ PROCEDURE SizeOfMessage (M: Mailbox;  MessageNumber: CARDINAL;
 
 PROCEDURE GetUID (M: Mailbox;  MessageNumber: CARDINAL;
                                    VAR (*OUT*) UID: MD5_DigestType;
+                                   lognames: BOOLEAN;
                                    ID: TransactionLogID): BOOLEAN;
 
     (* If message MessageNumber exists, sets UID to a persistent and    *)
     (* unique identifier for this message, and returns TRUE.  Otherwise *)
     (* result is FALSE and UID is undefined.                            *)
 
-PROCEDURE SendMessage (SB: SBuffer;  sem: Semaphore;  M: Mailbox;
+PROCEDURE SendMessage (SB: SBuffer;  watchID: WatchdogID;  M: Mailbox;
                                N, MaxLines: CARDINAL;
                                VAR (*OUT*) bytessent: CARDINAL;
+                               lognames: BOOLEAN;
                                          id: TransactionLogID): BOOLEAN;
 
     (* Sends message N in mailbox N via SB.  The caller must            *)
     (* already have confirmed that this message exists.                 *)
     (* MaxLines refers to the number of non-header lines to be sent.    *)
-    (* We must Signal(sem) every so often to ensure that the operation  *)
-    (* does not time out.                                               *)
+    (* We must call KickWatchdog every so often to ensure that the      *)
+    (* operation does not time out.                                     *)
     (* A FALSE result means a communications failure.                   *)
 
 PROCEDURE MarkForDeletion (M: Mailbox;  N: CARDINAL;

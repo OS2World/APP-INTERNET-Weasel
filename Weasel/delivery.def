@@ -7,7 +7,7 @@ DEFINITION MODULE Delivery;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            12 May 1998                     *)
-        (*  Last edited:        7 December 2015                 *)
+        (*  Last edited:        22 July 2018                    *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -131,7 +131,7 @@ PROCEDURE ChooseIncomingFileDirectory (CRL: CombinedRecipientList;
     (* the name of the Forward directory if the first local recipient   *)
     (* has no maibox.  In either case the name includes a trailing '\'. *)
 
-PROCEDURE CopyToRecipients (messagefile: FilenameString;
+PROCEDURE CopyToRecipients (VAR (*IN*) messagefile: FilenameString;
                             returnpath: PathString;
                             offset: FilePos;
                             LogID: TransactionLogID;
@@ -149,6 +149,12 @@ PROCEDURE LoadDeliveryINIData (TNImode: BOOLEAN);
 
     (* Loads the values of this module's global variables that reside   *)
     (* in the main INI file.  Also starts the transaction logging.      *)
+
+PROCEDURE PromoteRetryJobs (VAR (*IN*) target: ARRAY OF CHAR);
+
+    (* Promotes mail on the retry list by taking any mail destined for  *)
+    (* target and moving it immediately to the output queue, i.e. the   *)
+    (* retry delay is cancelled.                                        *)
 
 END Delivery.
 

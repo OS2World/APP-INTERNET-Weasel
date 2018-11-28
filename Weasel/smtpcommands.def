@@ -6,7 +6,7 @@ DEFINITION MODULE SMTPCommands;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 April 1998                   *)
-        (*  Last edited:        2 October 2016                  *)
+        (*  Last edited:        31 January 2018                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -17,6 +17,9 @@ FROM SBuffers IMPORT
 
 FROM Semaphores IMPORT
     (* type *)  Semaphore;
+
+FROM Watchdog IMPORT
+    (* type *)  WatchdogID;
 
 FROM TransLog IMPORT
     (* type *)  TransactionLogID;
@@ -37,7 +40,7 @@ PROCEDURE SetMaxMessageSize;
     (* Gets maximum message size as determined from INI file. *)
 
 PROCEDURE OpenSession (SB: SBuffer;  HostIPAddress, ClientIPAddress: CARDINAL;
-                       KeepAlive: Semaphore; LogID: TransactionLogID;
+                       WID: WatchdogID;  LogID: TransactionLogID;
                        whitelisted, MayRelay, MSAsession: BOOLEAN;
                        VAR (*OUT*) success: BOOLEAN): Session;
 

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SMTPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 April 1998                   *)
-        (*  Last edited:        9 June 2017                     *)
+        (*  Last edited:        25 November 2018                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -50,9 +50,9 @@ FROM TaskControl IMPORT
     (* type *)  Lock,
     (* proc *)  CreateLock, Obtain, Release;
 
-FROM Semaphores IMPORT
-    (* type *)  Semaphore,
-    (* proc *)  Signal;
+FROM Watchdog IMPORT
+    (* type *)  WatchdogID,
+    (* proc *)  KickWatchdog;
 
 FROM FileOps IMPORT
     (* const*)  NoSuchChannel,
@@ -131,16 +131,9 @@ CONST
     ReceivedOffset = 0;
 
 TYPE
-    (* The ChunkPtr data structure is needed only if we are accepting   *)
-    (* data in chunks.  The data array is allocated one more byte than  *)
-    (* is implied by the size field, so that a Nul can be added to      *)
-    (* stop searches from running off the end.                          *)
-
-    ChunkPtr = POINTER TO
-                    RECORD
-                        next: ChunkPtr;
-                        size: CARDINAL;
-                        data: CharArrayPointer;
+    ChunkingState = RECORD
+                        cid: ChanId;
+                        HaveCR, HaveCRLF: BOOLEAN;
                     END (*RECORD*);
 
     (* An ItemDescriptor record keeps track of the information needed   *)
@@ -156,12 +149,12 @@ TYPE
     (*   TempName          name of a file where the incoming item is    *)
     (*                       stored before being distributed to all     *)
     (*                       recipients.                                *)
-    (*   firstchunk,                                                    *)
-    (*      lastchunk      list pointers for chunked data.              *)
+    (*   chunkstate        state of the current CHUNKING operation      *)
     (*   offset            effective starting point of the file if it   *)
     (*                       has to be relayed.                         *)
     (*   charcount         bytes received, used for logging             *)
     (*   LogID             ID used for transaction logging              *)
+    (*   watchID           watchdog handle                              *)
     (*   returnpath        path supplied by MAIL FROM:                  *)
     (*   firstrecipient    as supplied in first RCPT TO:                *)
     (*   recipientcount    number of RCPT TO: recipients                *)
@@ -188,8 +181,9 @@ TYPE
                fromdomain: DomainName;
                OurHostname: HostName;
                LogID: TransactionLogID;
+               watchID: WatchdogID;
                TempName: FilenameString;
-               firstchunk, lastchunk: ChunkPtr;
+               chunkstate: ChunkingState;
                offset: FilePos;
                charcount: CARDINAL;
                returnpath, firstrecipient: PathString;
@@ -237,6 +231,11 @@ VAR
 
     SMTPLogName: FilenameString;
 
+    (* Flag to say that we should reject mail if an rDNS on the client  *)
+    (* address fails.                                                   *)
+
+    CheckNoRDNS: BOOLEAN;
+
     (* Flag to say that we should apply "unacceptable host" checks to   *)
     (* the domain in the MAIL FROM command.                             *)
 
@@ -263,26 +262,33 @@ VAR
 (************************************************************************)
 
 PROCEDURE CreateItemDescriptor (SB: SBuffer;  ClientIPAddress: CARDINAL;
-                                 ID: TransactionLogID;
+                                 ID: TransactionLogID;  watchid: WatchdogID;
                                   MayRelay, OnWhitelist: BOOLEAN): ItemDescriptor;
 
-    (* Creates a descriptor for a new mail item.  ID is for *)
-    (* transaction logging.                                 *)
+    (* Creates a descriptor for a new mail item.  Returns NIL if we     *)
+    (* want to reject the client because of an rDNS failure.            *)
 
     VAR result: ItemDescriptor;
+        ClientName: HostName;
 
     BEGIN
+        IF (NOT AddressToHostName (ClientIPAddress, ClientName))
+                                                    AND CheckNoRDNS THEN
+            RETURN NIL;
+        END (*IF*);
+
         NEW (result);
         WITH result^ DO
             RealIPAddr := ClientIPAddress;
-            AddressToHostName (ClientIPAddress, RealName);
+            RealName := ClientName;
             LogID := ID;
+            watchID := watchid;
             HELOname := "";
             fromdomain := "";
             OurHostname := "localhost";      (* fallback default *)
             GetOurHostName (SocketOf(SB), OurHostname);
             TempName := "";
-            firstchunk := NIL;  lastchunk := NIL;
+            chunkstate.cid := NoSuchChannel;
             firstrecipient := "";
             recipientcount := 0;
             Recipients := CreateCombinedRecipientList();
@@ -326,26 +332,6 @@ PROCEDURE ParsePathString (path: ARRAY OF CHAR;
 
 (************************************************************************)
 
-PROCEDURE DiscardChunks (desc: ItemDescriptor);
-
-    (* Discards any chunked data that has been collected.  *)
-
-    VAR next: ChunkPtr;
-
-    BEGIN
-        WITH desc^ DO
-            WHILE firstchunk <> NIL DO
-                next := firstchunk^.next;
-                DEALLOCATE (firstchunk^.data, firstchunk^.size + 1);
-                DEALLOCATE (firstchunk, SIZE (ChunkPtr));
-                firstchunk := next;
-            END (*WHILE*);
-            lastchunk := NIL;
-        END (*WITH*);
-    END DiscardChunks;
-
-(************************************************************************)
-
 PROCEDURE ResetItemDescriptor (desc: ItemDescriptor;
                                ReturnPath: ARRAY OF CHAR);
 
@@ -369,7 +355,7 @@ PROCEDURE ResetItemDescriptor (desc: ItemDescriptor;
             desc^.postmasterOK := FALSE;
             desc^.softfail := FALSE;
             desc^.SkipFiltering := desc^.SkipFiltering0;
-            DiscardChunks (desc);
+            desc^.chunkstate.cid := NoSuchChannel;
         END (*IF*);
     END ResetItemDescriptor;
 
@@ -439,7 +425,7 @@ PROCEDURE SetClaimedSendingHost (desc: ItemDescriptor;
         Strings.Assign (ClaimedName, desc^.HELOname);
         IF desc^.whitelisted THEN
             RETURN TRUE;
-        ELSIF BannedHost(ClaimedName) THEN
+        ELSIF BannedHost(ClaimedName, desc^.LogID, desc^.watchID) THEN
             RETURN FALSE;
         ELSIF SPFenabled THEN
             desc^.SPFans1 := SPFcheck (desc, "postmaster", ClaimedName);
@@ -558,7 +544,6 @@ PROCEDURE ProcessRCPTAddress (desc: ItemDescriptor;
 (************************************************************************)
 
 PROCEDURE FromAddressAcceptable (desc: ItemDescriptor;  S: Socket;
-                               watchdog: Semaphore;
                                VAR (*OUT*) TempFailure: BOOLEAN): BOOLEAN;
 
     (* Returns TRUE if we're satisfied with the sender's address as     *)
@@ -607,26 +592,26 @@ PROCEDURE FromAddressAcceptable (desc: ItemDescriptor;  S: Socket;
 
         IF NOT StringMatch(domain, desc^.HELOname) THEN
 
-            Signal (watchdog);
+            KickWatchdog (desc^.watchID);
 
             (* Do the "banned hosts" checks if the  *)
             (* MAILFROMcheck option has been set.   *)
 
             IF OK AND MAILFROMcheck THEN
-                OK := NOT BannedHost(domain);
+                OK := NOT BannedHost(domain, desc^.LogID, desc^.watchID);
 
                 (* To avoid excessive time delays, we should only look  *)
                 (* at the primary MX host for this domain.              *)
 
                 IF OK AND (DoMXLookup (domain, address) = 0) THEN
                     IF address[0] <> 0 THEN
-                        Signal (watchdog);
+                        KickWatchdog (desc^.watchID);
                         CheckHost (address[0], IsBanned, whitelisted, MayRelay);
                         IF IsBanned THEN
                             OK := FALSE;
                         ELSIF NOT MayRelay THEN
-                            Signal (watchdog);
-                            OK := NOT OnBlacklist (address[0], desc^.LogID, watchdog, message);
+                            KickWatchdog (desc^.watchID);
+                            OK := NOT OnBlacklist (address[0], desc^.LogID, desc^.watchID, message);
                         END (*IF*);
                     END (*IF*);
                 END (*IF*);
@@ -636,7 +621,7 @@ PROCEDURE FromAddressAcceptable (desc: ItemDescriptor;  S: Socket;
 
             IF SPFenabled THEN
                 IF OK THEN
-                    Signal (watchdog);
+                    KickWatchdog (desc^.watchID);
                     desc^.SPFans2 := SPFcheck (desc, user, domain);
                     OK := desc^.SPFans2 <> SPF_fail;
                 ELSE
@@ -659,10 +644,10 @@ PROCEDURE FromAddressAcceptable (desc: ItemDescriptor;  S: Socket;
             IF OurDomainName[0] = Nul THEN
                 Strings.Assign (desc^.OurHostname, OurDomainName);
             END (*IF*);
-            Signal (watchdog);
+            KickWatchdog (desc^.watchID);
             desc^.postmasterOK := PostmasterCheck (domain, desc^.OurHostname,
                                      OurDomainName, desc^.LogID,
-                                      watchdog, TempFailure);
+                                      desc^.watchID, TempFailure);
             desc^.softfail := TempFailure;
             IF TempFailure THEN
                 LogTransactionL (desc^.LogID, "[pc]Soft failure of postmaster check");
@@ -856,7 +841,8 @@ PROCEDURE NoChunksYet (desc: ItemDescriptor): BOOLEAN;
     (* Returns TRUE if there is not yet any chunked data. *)
 
     BEGIN
-        RETURN desc^.firstchunk = NIL;
+        (*RETURN desc^.firstchunk = NIL;*)
+        RETURN desc^.chunkstate.cid = NoSuchChannel;
     END NoChunksYet;
 
 (************************************************************************)
@@ -987,7 +973,7 @@ PROCEDURE KeywordMatch (kwd: ARRAY OF CHAR;
 (************************************************************************)
 
 PROCEDURE ReceiveMessage0 (SB: SBuffer;  cid: ChanId;  LocalHost: HostName;
-                             sem: Semaphore;  StoreIt: BOOLEAN;
+                             watchID: WatchdogID;  StoreIt: BOOLEAN;
                               VAR (*OUT*) FromPresent,
                                           TooManyHops: BOOLEAN): CARDINAL;
 
@@ -1023,7 +1009,7 @@ PROCEDURE ReceiveMessage0 (SB: SBuffer;  cid: ChanId;  LocalHost: HostName;
         ReceivedCount := 0;
         total := 0;
         REPEAT
-            Signal (sem);
+            KickWatchdog (watchID);
             amount := AcceptOneLine (SB, LineBuffer);
             IF amount = MAX(CARDINAL) THEN
                 total := amount;
@@ -1084,7 +1070,7 @@ PROCEDURE ReceiveMessage0 (SB: SBuffer;  cid: ChanId;  LocalHost: HostName;
 (************************************************************************)
 
 PROCEDURE ReceiveMessage (SB: SBuffer;  cid: ChanId;  LocalHost: HostName;
-                              sem: Semaphore;
+                              watchID: WatchdogID;
                               VAR (*OUT*) FromPresent,
                                           TooManyHops: BOOLEAN): CARDINAL;
 
@@ -1099,13 +1085,13 @@ PROCEDURE ReceiveMessage (SB: SBuffer;  cid: ChanId;  LocalHost: HostName;
     (* Invariant: called only if itemdata^.dataOK = TRUE.               *)
 
     BEGIN
-        RETURN ReceiveMessage0 (SB, cid, LocalHost, sem, TRUE,
+        RETURN ReceiveMessage0 (SB, cid, LocalHost, watchID, TRUE,
                                                 FromPresent, TooManyHops);
     END ReceiveMessage;
 
 (************************************************************************)
 
-PROCEDURE SkipMessage (SB: SBuffer;  sem: Semaphore);
+PROCEDURE SkipMessage (SB: SBuffer;  watchID: WatchdogID);
 
     (* Like ReceiveMessage, but the incoming data are discarded rather  *)
     (* than being written to a file.                                    *)
@@ -1114,7 +1100,7 @@ PROCEDURE SkipMessage (SB: SBuffer;  sem: Semaphore);
     VAR dummy1, dummy2: BOOLEAN;  dummyhost: HostName;
 
     BEGIN
-        EVAL (ReceiveMessage0 (SB, NoSuchChannel, dummyhost, sem,
+        EVAL (ReceiveMessage0 (SB, NoSuchChannel, dummyhost, watchID,
                                                   FALSE, dummy1, dummy2));
     END SkipMessage;
 
@@ -1270,12 +1256,11 @@ PROCEDURE StartNewMessage (itemdata: ItemDescriptor): ChanId;
 (************************************************************************)
 
 PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
-                         sem: Semaphore;
                          VAR (*OUT*) FailureReason: ARRAY OF CHAR): BOOLEAN;
 
     (* Receives an incoming message, stores it in a temporary file      *)
-    (* whose name is recorded in itemdata.  We periodically signal on   *)
-    (* sem to confirm that the reception has not timed out.             *)
+    (* whose name is recorded in itemdata.  We periodically kick the    *)
+    (* watchdog to confirm that the reception has not timed out.        *)
 
     VAR success, dummy, TooManyHops, FromPresent: BOOLEAN;
         count: CARDINAL;
@@ -1295,13 +1280,13 @@ PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
                 (* Read the new message into the temporary file. *)
 
                 count := ReceiveMessage (SB, cid, itemdata^.OurHostname,
-                                                 sem, FromPresent, TooManyHops);
+                                         itemdata^.watchID, FromPresent, TooManyHops);
                 success := count <> MAX(CARDINAL);
                 IF success THEN
                     INC (itemdata^.charcount, count);
                 END (*IF*);
                 CloseFile (cid);
-                Signal (sem);
+                KickWatchdog (itemdata^.watchID);
 
                 IF TooManyHops THEN
                     Strings.Assign ("554 too many hops (max 25)", FailureReason);
@@ -1323,14 +1308,14 @@ PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
             ELSE
                 itemdata^.dataOK := FALSE;
                 Strings.Assign ("554 could not create message file", FailureReason);
-                SkipMessage (SB, sem);
+                SkipMessage (SB, itemdata^.watchID);
                 itemdata^.TempName[0] := Nul;
             END (*IF*);
 
         ELSE
             itemdata^.dataOK := FALSE;
             Strings.Assign ("554 no recipients", FailureReason);
-            SkipMessage (SB, sem);
+            SkipMessage (SB, itemdata^.watchID);
         END (*IF*);
 
         IF NOT success AND (itemdata^.TempName[0] <> Nul) THEN
@@ -1342,7 +1327,7 @@ PROCEDURE AcceptMessage (SB: SBuffer;  itemdata: ItemDescriptor;
             WriteLogItem (itemdata);
         END (*IF*);
 
-        Signal (sem);
+        KickWatchdog (itemdata^.watchID);
         RETURN success;
 
     END AcceptMessage;
@@ -1397,98 +1382,6 @@ PROCEDURE CheckHeader (cid: ChanId;
 
 (************************************************************************)
 
-PROCEDURE CopyChunksToFile (cid: ChanId;  itemdata: ItemDescriptor);
-
-    (* The incoming data are in a linear list starting with             *)
-    (* itemdata^.firstchunk.  We copy this to an already-opened file,   *)
-    (* discarding the original chunks as we go.                         *)
-
-    (* To be compatible with the file format used elsewhere in Weasel,  *)
-    (* we also have to byte-stuff any line that begins with a '.'.      *)
-    (* This is a major overhead -- I would have preferred the           *)
-    (* byte-stuffing to have been done by the sender, as is standard    *)
-    (* for other SMTP and POP operations -- but GMail chose the less    *)
-    (* efficient interpretation of the standard, and GMail has more     *)
-    (* influence than I have.  (Ignoring the byte-stuffing rule does    *)
-    (* actually make sense for a webmail system.)  An alternative       *)
-    (* solution would have been to store all "in-transit" messages      *)
-    (* with the byte-stuffing removed, but that would make chunking     *)
-    (* efficient at the expense of the more common transfer methods.    *)
-
-    TYPE ThreeChar = ARRAY [0..2] OF CHAR;
-
-    CONST CRLFdot = ThreeChar {CR, LF, '.'};
-
-    VAR p, next: ChunkPtr;
-        q: CharArrayPointer;
-        pos, CharsLeft, gap: CARDINAL;
-        dot: CHAR;
-        found, HaveCRLF, HaveCR: BOOLEAN;
-
-    BEGIN
-        dot := '.';
-        p := itemdata^.firstchunk;
-        HaveCRLF := FALSE;  HaveCR := FALSE;
-        WHILE p <> NIL DO
-
-            (* All we want to do here is copy the chunk to the file,    *)
-            (* but we have to insert an extra '.' in front of every     *)
-            (* line that starts with a '.'.                             *)
-
-            q := p^.data;  CharsLeft := p^.size;
-
-            (* Special case: check for a "CR LF ." that crosses *)
-            (* chunk boundaries.                                *)
-
-            IF HaveCR THEN
-                IF (CharsLeft > 0) AND (q^[0] = LF) THEN
-                    WriteRaw (cid, q^, 1);
-                    q := AddOffset (q, 1);
-                    DEC (CharsLeft);
-                    HaveCRLF := TRUE;
-                END (*IF*);
-            END (*IF*);
-
-            IF HaveCRLF THEN
-                IF (CharsLeft > 0) AND (q^[0] = '.') THEN
-                    WriteRaw (cid, dot, 1);
-                    INC (itemdata^.charcount);
-                END (*IF*);
-            END (*IF*);
-
-            HaveCR := (CharsLeft > 0) AND (q^[CharsLeft-1] = CR);
-            HaveCRLF := (CharsLeft > 1) AND (q^[CharsLeft-2] = CR)
-                                        AND (q^[CharsLeft-1] = LF);
-
-            WHILE CharsLeft > 0 DO
-                Strings.FindNext (CRLFdot, q^, 0, found, pos);
-                IF found THEN
-                    gap := pos + 3;
-                    WriteRaw (cid, q^, gap);
-                    q := AddOffset (q, gap);
-                    DEC (CharsLeft, gap);
-                    WriteRaw (cid, dot, 1);
-                    INC (itemdata^.charcount);
-                ELSE
-                    WriteRaw (cid, q^, CharsLeft);
-                    CharsLeft := 0;
-                END (*IF*);
-            END (*WHILE*);
-
-            INC (itemdata^.charcount, p^.size);
-            DEALLOCATE (p^.data, p^.size + 1);
-            next := p^.next;
-            DISPOSE (p);
-            p := next;
-        END (*WHILE*);
-
-        itemdata^.firstchunk := NIL;
-        itemdata^.lastchunk := NIL;
-
-    END CopyChunksToFile;
-
-(************************************************************************)
-
 PROCEDURE IgnoreChunk (SB: SBuffer;  size: CARDINAL);
 
     (* Reads 'size' bytes from the input channel without storing them.  *)
@@ -1515,118 +1408,177 @@ PROCEDURE IgnoreChunk (SB: SBuffer;  size: CARDINAL);
 (************************************************************************)
 
 PROCEDURE AcceptChunk (SB: SBuffer;  itemdata: ItemDescriptor;
-                         sem: Semaphore;  chunksize: CARDINAL;
+                         chunksize: CARDINAL;
                          finalchunk: BOOLEAN;
                          VAR (*OUT*) FailureReason: ARRAY OF CHAR): BOOLEAN;
 
-    (* Receives one chunk of an incoming message.  When the last chunk  *)
-    (* is received, stores it in a temporary file                       *)
-    (* whose name is recorded in itemdata.  We periodically signal on   *)
-    (* sem to confirm that the reception has not timed out.             *)
+    (* Receives one chunk of an incoming message.  The message is       *)
+    (* stored in a temporary file whose name is recorded in itemdata.   *)
+    (* We periodically kick the watchdog to confirm that the reception  *)
+    (* has not timed out.                                               *)
 
-    VAR cid: ChanId;  p: ChunkPtr;
-        success, FromPresent, TooManyHops, dummy: BOOLEAN;
+    TYPE ThreeChar = ARRAY [0..2] OF CHAR;
+
+    CONST
+        CRLFdot = ThreeChar {CR, LF, '.'};
+        subchunksize = 8192;
+
+    VAR cid: ChanId;
+        amount, CharsLeft, k, pos, gap: CARDINAL;
+        dot: CHAR;
+        success, FromPresent, TooManyHops, dummy, found, HaveCR, HaveCRLF: BOOLEAN;
+        buffer: ARRAY [0..subchunksize] OF CHAR;
 
     BEGIN
-        success := TRUE;
+        dot := '.';
         FailureReason[0] := Nul;
-        IF itemdata^.firstchunk = NIL THEN
+        buffer[subchunksize] := Nul;   (* guard against search overflow *)
+        cid := itemdata^.chunkstate.cid;
+        IF cid = NoSuchChannel THEN
+
+            (* This is the first chunk in the message, so open a new    *)
+            (* message file.                                            *)
+
             itemdata^.dataOK := TRUE;
+            cid := StartNewMessage (itemdata);
+            itemdata^.chunkstate.cid := cid;
+            HaveCRLF := FALSE;  HaveCR := FALSE;
+
+        ELSE
+            HaveCRLF := itemdata^.chunkstate.HaveCRLF;
+            HaveCR := itemdata^.chunkstate.HaveCR;
         END (*IF*);
 
-        (* Receive the chunk, put it on our temporary list.  Note that  *)
-        (* we keep accepting chunks even if there has been a previous   *)
-        (* error, but in that case there is no point in storing them.   *)
+        (* Receive the chunk, insert stuffed dots where needed, and     *)
+        (* append it to the file.  Note that we must keep accepting     *)
+        (* chunks even if there has been a previous error, but in that  *)
+        (* case there is no point in storing them.                      *)
 
-        IF chunksize > 0 THEN
-            NEW (p);
-            IF p <> NIL THEN
-                p^.next := NIL;
-                p^.size := chunksize;
-                ALLOCATE (p^.data, chunksize + 1);
+        WHILE chunksize > 0 DO
+            (* Pick up next subchunk. *)
+
+            IF chunksize >= subchunksize THEN
+                amount := subchunksize;
+            ELSE
+                amount := chunksize;
+                buffer[amount] := Nul;
             END (*IF*);
-            IF (p = NIL) OR (p^.data = NIL) THEN
-                Strings.Assign ("452 out of memory, try again later", FailureReason);
-                IgnoreChunk (SB, chunksize);
-                IF p <> NIL THEN
-                    DISPOSE (p);
-                END (*IF*);
-                success := FALSE;
+            IF GetRaw (SB, amount, ADR(buffer)) THEN
+                INC (itemdata^.charcount, amount);
+            ELSE
+                itemdata^.dataOK := FALSE;
             END (*IF*);
-            IF success THEN
-                p^.data^[chunksize] := Nul;
-                                          (* guard against search overflow *)
-                IF itemdata^.firstchunk = NIL THEN
-                    itemdata^.firstchunk := p;
-                ELSE
-                    itemdata^.lastchunk^.next := p;
+            DEC (chunksize, amount);
+
+            IF itemdata^.dataOK THEN
+                (* Process this block. *)
+
+                CharsLeft := amount;  k := 0;
+
+                (* Special case: check for a "CR LF ." that crosses *)
+                (* block boundaries.                                *)
+
+                IF HaveCR THEN
+                    IF (CharsLeft > 0) AND (buffer[0] = LF) THEN
+                        WriteRaw (cid, buffer, 1);
+                        k := 1;
+                        DEC (CharsLeft);
+                        HaveCRLF := TRUE;
+                    END (*IF*);
                 END (*IF*);
-                itemdata^.lastchunk := p;
-                IF NOT GetRaw (SB, chunksize, CAST(LocArrayPointer, p^.data)) THEN
-                    itemdata^.dataOK := FALSE;
+
+                IF HaveCRLF THEN
+                    IF (CharsLeft > 0) AND (buffer[k] = '.') THEN
+                        WriteRaw (cid, dot, 1);
+                        INC (itemdata^.charcount);
+                    END (*IF*);
                 END (*IF*);
+
+                (* Look at the end of the block to set the flags    *)
+                (* for the next block.                              *)
+
+                HaveCR := (amount > 0) AND (buffer[amount-1] = CR);
+                HaveCRLF := (amount > 1) AND (buffer[amount-2] = CR)
+                                            AND (buffer[amount-1] = LF);
+
+                (* Now search for the pattern CRLFdot in what remains   *)
+                (* of the buffer.  Note that the last character in the  *)
+                (* buffer is permanently a Nul, to stop the search      *)
+                (* from overrunning the buffer.                         *)
+
+                WHILE CharsLeft > 0 DO
+                    Strings.FindNext (CRLFdot, buffer, k, found, pos);
+                    IF found THEN
+                        gap := pos - k + 3;
+                        WriteRaw (cid, buffer[k], gap);
+                        INC (k, gap);
+                        DEC (CharsLeft, gap);
+                        WriteRaw (cid, dot, 1);
+                        INC (itemdata^.charcount);
+                    ELSE
+                        WriteRaw (cid, buffer[k], CharsLeft);
+                        CharsLeft := 0;
+                    END (*IF*);
+                END (*WHILE*);
+
+            ELSE
+
+                (* Ignore this block.  We are going to reject the   *)
+                (* message, so there is no point in storing the     *)
+                (* rest of it.                                      *)
+
             END (*IF*);
-        END (*IF*);
 
-        Signal (sem);
+            KickWatchdog (itemdata^.watchID);
 
-        IF NOT success THEN
-            (* Fall through to end of IF statement. *)
+        END (*WHILE*);
 
-        ELSIF NOT itemdata^.dataOK THEN
-            Strings.Assign ("554 Data transfer failed", FailureReason);
-            success := FALSE;
+        (* Save some flags for use by the next chunk. *)
 
-        (* Once the final chunk has been received, move the data    *)
-        (* into a message file.                                     *)
+        itemdata^.chunkstate.HaveCRLF := HaveCRLF;
+        itemdata^.chunkstate.HaveCR := HaveCR;
 
-        ELSIF finalchunk THEN
+        success := itemdata^.dataOK;
+
+        IF finalchunk THEN
+
+            (* We have now received the entire message, so do the   *)
+            (* final cleaning up.                                   *)
 
             FromPresent := TRUE;
             TooManyHops := FALSE;
+            CheckHeader (cid, FromPresent, TooManyHops);
+            CloseFile (cid);
+            itemdata^.chunkstate.cid := NoSuchChannel;
+            KickWatchdog (itemdata^.watchID);
 
-            cid := StartNewMessage (itemdata);
-            IF cid <> NoSuchChannel THEN
-
-                (* Move the chunks to the message file. *)
-
-                CopyChunksToFile (cid, itemdata);
-
-                IF itemdata^.charcount > LimitOnMessageSize() THEN
-                    Strings.Assign ("552 message size exceeds limit on this server", FailureReason);
-                    success := FALSE;
-                ELSE
-                    CheckHeader (cid, FromPresent, TooManyHops);
-                END (*IF*);
-
-                CloseFile (cid);
-                Signal (sem);
-
+            IF NOT success THEN
+                Strings.Assign ("554 Data transfer failed", FailureReason);
+            ELSIF itemdata^.charcount > LimitOnMessageSize() THEN
+                Strings.Assign ("552 message size exceeds limit on this server", FailureReason);
+                success := FALSE;
+            ELSE
                 IF TooManyHops THEN
                     Strings.Assign ("554 too many hops (max 25)", FailureReason);
                     success := FALSE;
-
                 ELSIF NOT FromPresent THEN
                     Strings.Assign ("554 From: header line is missing", FailureReason);
                     success := FALSE;
-
                 END (*IF*);
+            END (*IF*);
 
-                IF NOT success AND (itemdata^.TempName[0] <> Nul) THEN
+            IF success THEN
+                FailureReason[0] := Nul;
+                IF LogSMTPItems THEN
+                    WriteLogItem (itemdata);
+                END (*IF*);
+            ELSE
+                IF itemdata^.TempName[0] <> Nul THEN
                     FileSys.Remove (itemdata^.TempName, dummy);
                     itemdata^.TempName[0] := Nul;
                 END (*IF*);
-
-                IF success AND LogSMTPItems THEN
-                    WriteLogItem (itemdata);
-                END (*IF*);
-
             END (*IF*);
 
-        END (*IF*);
-
-        IF NOT success THEN
-            DiscardChunks (itemdata);
         END (*IF*);
 
         RETURN success;
@@ -1634,7 +1586,7 @@ PROCEDURE AcceptChunk (SB: SBuffer;  itemdata: ItemDescriptor;
     END AcceptChunk;
 
 (************************************************************************)
-(*                            FILTERS                                   *)
+(*                               FILTERS                                *)
 (************************************************************************)
 
 PROCEDURE MakeRecipientListFile (stage: CARDINAL;  desc: ItemDescriptor;
@@ -2570,6 +2522,10 @@ PROCEDURE LoadSMTPINIData (TNImode: BOOLEAN);
         hini := OpenINIFile (key, UseTNI);
         IF INIData.INIValid (hini) THEN
 
+            IF INIGet (hini, app, "CheckNoRDNS", CheckNoRDNS) THEN
+                CheckNoRDNS := FALSE;
+            END (*IF*);
+
             (* For the filters, convert from old version if necessary. *)
 
             key := "FilterProg4";
@@ -2618,6 +2574,7 @@ BEGIN
     CreateLock (LogFileLock);
     LogSMTPItems := FALSE;
     SPFenabled := FALSE;
+    CheckNoRDNS := FALSE;
     pmchecklevel := marksuspectfiles;
     SerialiseFilters := TRUE;
     CreateLock (FilterAccess);

@@ -5,7 +5,7 @@ DEFINITION MODULE Keyboard;
         (*      Module to deal with keyboard input.     *)
         (*                                              *)
         (*  Programmer:         P. Moylan               *)
-        (*  Last edited:        9 August 1999           *)
+        (*  Last edited:        7 January 2018          *)
         (*  Status:             OK                      *)
         (*                                              *)
         (************************************************)
@@ -78,15 +78,6 @@ PROCEDURE HotKey (FunctionKey: BOOLEAN;  code: CHAR;  S: Semaphore);
     (* user's hot key handler can do a PutBack().  Note: there is no    *)
     (* provision for having multiple hot key handlers for the same key; *)
     (* any existing hot key mapping will be overridden.                 *)
-
-PROCEDURE IsFullScreen(): BOOLEAN;
-
-    (* Returns TRUE if this is a full-screen OS/2 session. *)
-
-PROCEDURE NotDetached(): BOOLEAN;
-
-    (* Returns TRUE unless called by a process running detached.        *)
-    (* (A detached process may not do keyboard, screen, or mouse I/O.)  *)
 
 END Keyboard.
 

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Domains;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 July 2002                    *)
-        (*  Last edited:        21 May 2017                     *)
+        (*  Last edited:        17 September 2018               *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -74,7 +74,7 @@ FROM MiscFuncs IMPORT
     (* proc*)   EVAL, ConvertCard;
 
 FROM Inet2Misc IMPORT
-    (* proc *)  AddressToHostName, IPToString;
+    (* proc *)  AddressToHostName, IPToString, NonRouteable;
 
 FROM LogCtx IMPORT
     (* var  *)  WCtx;
@@ -991,29 +991,10 @@ PROCEDURE DiscardDomain (VAR (*INOUT*) D: Domain);
 (*            REFRESHING THE LIST OF OUR LOCAL IP ADDRESSES             *)
 (************************************************************************)
 
-PROCEDURE IsInternal (address: CARDINAL): BOOLEAN;
-
-    (* Returns TRUE iff address (in network byte order?) is one of the  *)
-    (* addresses reserved for internal LAN use.  These are:             *)
-    (*     (Class A) 10.*.*.*                                           *)
-    (*     (Class B) 172.16.*.* through 172.31.*.*                      *)
-    (*     (Class C) 192.168.*.*                                        *)
-    (* Note that the addresses are stored in bigendian order but the    *)
-    (* processor does its calculations in littleendian order.  That is  *)
-    (* why the numbers below appear to be back to front.                *)
-
-    BEGIN
-        RETURN (IAND(address, 0FFH) = 10)
-             OR (IAND(address, 010FFH) = 172 + 256*16)
-             OR (IAND(address, 0FFFFH) = 192 + 256*168);
-    END IsInternal;
-
-(************************************************************************)
-
 PROCEDURE RefreshOurIPAddresses(): BOOLEAN;
 
     (* Updates the list of our local IP addresses by reading the        *)
-    (* SIOCGIFCONF data.  Based ideas given to me by Paul Ratcliffe     *)
+    (* SIOCGIFCONF data.  Based on ideas given to me by Paul Ratcliffe  *)
     (* and Bob Eager.                                                   *)
     (* Returns TRUE iff one of these is an active dial-up interface.    *)
 
@@ -1078,7 +1059,7 @@ PROCEDURE RefreshOurIPAddresses(): BOOLEAN;
                         HaveDialup := TRUE;
                         ifkind := dialup;
                     ELSIF Strings.Equal (name, "lo") THEN ifkind := loopback
-                    ELSIF IsInternal(ThisAddress) THEN ifkind := internal
+                    ELSIF NonRouteable(ThisAddress) THEN ifkind := internal
                     ELSE ifkind := normal
                     END (*IF*);
                     IF PrimaryAddress[ifkind] = 0 THEN

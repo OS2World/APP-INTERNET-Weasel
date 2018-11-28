@@ -5,7 +5,7 @@ DEFINITION MODULE INIData;
         (*               Looking after INI file data                *)
         (*                                                          *)
         (*    Started:        30 March 2000                         *)
-        (*    Last edited:    17 July 2017                          *)
+        (*    Last edited:    21 November 2018                      *)
         (*    Status:         Working                               *)
         (*                                                          *)
         (************************************************************)
@@ -32,6 +32,12 @@ PROCEDURE ChooseDefaultINI (appname: ARRAY OF CHAR;
     (* default.  The function result is FALSE if we are unable to make  *)
     (* a decision, i.e. either choice is equally good, and in that case *)
     (* the returned useTNI value should be ignored.                     *)
+
+PROCEDURE CommitTNIDecision (appname: ARRAY OF CHAR;  useTNI: BOOLEAN);
+
+    (* Stores the specified useTNI value in such a way that it will     *)
+    (* become the default for the next ChooseDefaultINI decision, all   *)
+    (* other factors being equal.                                       *)
 
 PROCEDURE OpenINIFile (VAR (*IN*) filename: ARRAY OF CHAR; UseTextFile: BOOLEAN): HINI;
 

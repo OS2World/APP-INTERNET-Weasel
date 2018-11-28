@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SUPage1;
         (*                    Page 1 of the notebook                    *)
         (*                                                              *)
         (*        Started:        30 June 1999                          *)
-        (*        Last edited:    30 August 2017                        *)
+        (*        Last edited:    25 November 2018                      *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -76,14 +76,18 @@ TYPE
     TextPointer = POINTER TO TextArray;
 
 VAR
-    ChangeInProgress: BOOLEAN;
-    OldMultiDomainEnabled: BOOLEAN;
     OurPageID: CARDINAL;
     OurLang: LangHandle;
+    ChangeInProgress: BOOLEAN;
+    OldMultiDomainEnabled: BOOLEAN;
 
-    (* Whether to use TNI instead of INI. *)
+    (* A flag to say that INI values have been loaded.  *)
 
-    ChooseTNI, OldChooseTNI: BOOLEAN;
+    LoadCompleted: BOOLEAN;
+
+    (* A flag used to indicate a version change.  *)
+
+    switch: BOOLEAN;
 
     (* Handle to the window that belongs to this page.  We can save     *)
     (* this as a static value because there is never more than one      *)
@@ -100,7 +104,6 @@ VAR
     (* Original values of some ini variables. *)
 
     OldServerPort, OldTimeout, OldMaxUsers: FourCard;
-    OldEnable: CARDINAL;
     OldLanguage: ARRAY [0..LangStringSize-1] OF CHAR;
     MailRoot: DirectoryString;
 
@@ -109,11 +112,6 @@ VAR
     OutputThreadCount: CARDINAL;
     IMAPdata: FourCard;
     IMAPenabled: BOOLEAN;
-
-    (* Text for a spinbutton control. *)
-
-    INIchoiceText: ARRAY [0..1] OF TextArray;
-    INIchoicePtr: ARRAY [0..1] OF TextPointer;
 
 (************************************************************************)
 (*             ENSURING THAT EVERY USER HAS A MAIL DIRECTORY            *)
@@ -245,8 +243,6 @@ PROCEDURE SetLanguage (lang: LangHandle);
         OS2.WinSetDlgItemText (pagehandle, DID.MSABoxLabel, stringval);
         StrToBuffer (lang, "Page1.Language", stringval);
         OS2.WinSetDlgItemText (pagehandle, DID.LanguageLabel, stringval);
-        StrToBuffer (lang, "Page1.INIchoice", stringval);
-        OS2.WinSetDlgItemText (pagehandle, DID.INIchoicelabel, stringval);
         StrToBuffer (lang, "Page1.MailRoot", stringval);
         OS2.WinSetDlgItemText (pagehandle, DID.MailRootLabel, stringval);
         StrToBuffer (lang, "Rego.Multidomain", stringval);
@@ -270,12 +266,12 @@ PROCEDURE Mismatch (val1, val2: FourCard):  BOOLEAN;
 (************************************************************************)
 
 PROCEDURE LoadTwoToFour (app, key: ARRAY OF CHAR;  default: FourCard;
-                          VAR (*OUT*) result: FourCard): BOOLEAN;
+                                            VAR (*OUT*) result: FourCard);
 
     (* Loads a four-cardinal value from the INI file, allowing for the  *)
     (* possibility that an older version of the software might have     *)
-    (* left only two or three cardinals there.  Returns TRUE iff at     *)
-    (* least two values found.                                          *)
+    (* left only two or three cardinals there.  Any values not found    *)
+    (* are set to the default.                                          *)
 
     VAR twoval: TwoCard;  threeval: ThreeCard;  atleasttwo: BOOLEAN;
         j: [0..3];
@@ -288,14 +284,9 @@ PROCEDURE LoadTwoToFour (app, key: ARRAY OF CHAR;  default: FourCard;
                 result[0] := threeval[0];
                 result[1] := threeval[1];
                 result[2] := threeval[2];
-                result[3] := 0;
-                atleasttwo := TRUE;
             ELSIF INIFetch (app, key, twoval) THEN
                 result[0] := twoval[0];
                 result[1] := twoval[1];
-                result[2] := 0;
-                result[3] := 0;
-                atleasttwo := TRUE;
             END (*IF*);
         END (*IF*);
         FOR j := 0 TO 3 DO
@@ -303,7 +294,6 @@ PROCEDURE LoadTwoToFour (app, key: ARRAY OF CHAR;  default: FourCard;
                 result[j] := MAX(INT16);
             END (*IF*);
         END (*FOR*);
-        RETURN atleasttwo;
     END LoadTwoToFour;
 
 (************************************************************************)
@@ -314,90 +304,93 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
     (* or loads default values if they're not in the INI file.                  *)
 
     CONST
-        DefaultPort = FourCard{25, 110, 0, 587};
-        DefaultTimeout = FourCard{120, 120, 0, 120};
-        DefaultMaxUsers = FourCard{10, 10, 0, 10};
+        DefaultPort = FourCard{110, 25, 587, 143};
+        DefaultTimeout = FourCard{120, 120, 120, 0};
+        DefaultMaxUsers = FourCard{10, 10, 10, 0};
 
-    VAR cardval: CARDINAL;  val0, val1, val3: INT16;
+    VAR cardval, j: CARDINAL;  val: ARRAY [0..3] OF INT16;
+        temp: INT16;
+        bit0, bit1, bit2, bit3, btemp: BOOLEAN;
         stringval: DirectoryString;
 
     BEGIN
         OpenINIFile;
 
-        (* Whether to use INI or TNI. *)
-
-        IF NOT INIFetch ('$SYS', 'UseTNI', ChooseTNI) THEN
-            ChooseTNI := FALSE;
-        END (*IF*);
-        OldChooseTNI := ChooseTNI;
-        OS2.WinSendDlgItemMsg (hwnd, DID.INIchoice, OS2.SPBM_SETCURRENTVALUE,
-                                    OS2.MPFROMSHORT(ORD(ChooseTNI)), NIL);
-        (*
-        IF ChooseTNI THEN
-            OS2.WinSetDlgItemText (hwnd, DID.ThreadCount, "ChooseTNI is TRUE");
-        ELSE
-            OS2.WinSetDlgItemText (hwnd, DID.ThreadCount, "ChooseTNI is FALSE");
-        END (*IF*);
-        *)
-
         (* Server ports. *)
 
-        IF LoadTwoToFour ('$SYS', 'ServerPort', DefaultPort, OldServerPort) THEN
-            val0 := OldServerPort[0];
-            val1 := OldServerPort[1];
-            IMAPdata[0] := OldServerPort[2];
-            val3 := OldServerPort[3];
-        ELSE
-            val0 := 25;  val1 := 110;  IMAPdata[0] := 143;  val3 := 587;
+        LoadTwoToFour ('$SYS', 'ServerPort', DefaultPort, OldServerPort);
+        FOR j := 0 TO 3 DO
+            val[j] := OldServerPort[j];
+        END (*FOR*);
+
+        (* The order of these values changed in Feb 2018.  Try to   *)
+        (* correct the order if we see a discrepancy.               *)
+
+        switch := val[0] = 25;
+        IF switch THEN
+            temp := val[0];  val[0] := val[1];  val[1] := temp;
+            temp := val[2];  val[2] := val[3];  val[3] := temp;
         END (*IF*);
-        OS2.WinSetDlgItemShort (hwnd, DID.SMTPPortField, val0, FALSE);
-        OS2.WinSetDlgItemShort (hwnd, DID.POPPortField, val1, FALSE);
-        OS2.WinSetDlgItemShort (hwnd, DID.MSAPortField, val3, FALSE);
+
+        IMAPdata[0] := val[3];
+
+        OS2.WinSetDlgItemShort (hwnd, DID.POPPortField, val[0], FALSE);
+        OS2.WinSetDlgItemShort (hwnd, DID.SMTPPortField, val[1], FALSE);
+        OS2.WinSetDlgItemShort (hwnd, DID.MSAPortField, val[2], FALSE);
 
         (* Timeout values. *)
 
-        IF LoadTwoToFour ('$SYS', 'TimeOut', DefaultTimeout, OldTimeout) THEN
-            val0 := OldTimeout[0];
-            val1 := OldTimeout[1];
-            IMAPdata[1] := OldTimeout[2];
-            val3 := OldTimeout[3];
-        ELSE
-            val0 := 120;  val1 := 120;  IMAPdata[1] := 1800;  val3 := 120;
+        LoadTwoToFour ('$SYS', 'TimeOut', DefaultTimeout, OldTimeout);
+        FOR j := 0 TO 3 DO
+            val[j] := OldTimeout[j];
+        END (*FOR*);
+        IF switch THEN
+            temp := val[0];  val[0] := val[1];  val[1] := temp;
+            temp := val[2];  val[2] := val[3];  val[3] := temp;
         END (*IF*);
-        OS2.WinSetDlgItemShort (hwnd, DID.SMTPTimeOut, val0, FALSE);
-        OS2.WinSetDlgItemShort (hwnd, DID.POPTimeOut, val1, FALSE);
-        OS2.WinSetDlgItemShort (hwnd, DID.MSATimeOut, val3, FALSE);
+        OS2.WinSetDlgItemShort (hwnd, DID.POPTimeOut, val[0], FALSE);
+        OS2.WinSetDlgItemShort (hwnd, DID.SMTPTimeOut, val[1], FALSE);
+        OS2.WinSetDlgItemShort (hwnd, DID.MSATimeOut, val[2], FALSE);
+        IMAPdata[1] := val[3];
 
         (* Maximum number of users. *)
 
-        IF LoadTwoToFour ('$SYS', 'MaxUsers', DefaultMaxUsers, MaxUsers) THEN
-            OldMaxUsers := MaxUsers;
-            val0 := MaxUsers[0];
-            val1 := MaxUsers[1];
-            IMAPdata[2] := MaxUsers[2];
-            val3 := MaxUsers[3];
-        ELSE
-            val0 := 10;  val1 := 10;  IMAPdata[2] := 10;  val3 := 10;
+        LoadTwoToFour ('$SYS', 'MaxUsers', DefaultMaxUsers, MaxUsers);
+        OldMaxUsers := MaxUsers;
+        FOR j := 0 TO 3 DO
+            val[j] := MaxUsers[j];
+        END (*FOR*);
+        IF switch THEN
+            temp := val[0];  val[0] := val[1];  val[1] := temp;
+            temp := val[2];  val[2] := val[3];  val[3] := temp;
         END (*IF*);
-        OS2.WinSetDlgItemShort (hwnd, DID.SMTPMaxUsers, val0, FALSE);
-        OS2.WinSetDlgItemShort (hwnd, DID.POPMaxUsers, val1, FALSE);
-        OS2.WinSetDlgItemShort (hwnd, DID.MSAMaxUsers, val3, FALSE);
+        OS2.WinSetDlgItemShort (hwnd, DID.POPMaxUsers, val[0], FALSE);
+        OS2.WinSetDlgItemShort (hwnd, DID.SMTPMaxUsers, val[1], FALSE);
+        OS2.WinSetDlgItemShort (hwnd, DID.MSAMaxUsers, val[2], FALSE);
+        IMAPdata[2] := val[3];
 
         (* "Service enabled" flags. *)
 
-        IF INIGetCard ('$SYS', 'Enable', cardval) THEN
-            ServicesEnabled := cardval;
-            OldEnable := cardval;
-        ELSE
+        IF NOT INIGetCard ('$SYS', 'Enable', cardval) THEN
             cardval := 1;
         END (*IF*);
-        OS2.WinSendDlgItemMsg (hwnd, DID.SMTPenable, OS2.BM_SETCHECK,
-                                    OS2.MPFROMSHORT(ORD(ODD(cardval))), NIL);
+        bit0 := ODD(cardval);
+        bit1 := ODD(cardval DIV 2);
+        bit2 := ODD(cardval DIV 4);
+        bit3 := ODD(cardval DIV 8);
+        IF switch THEN
+            btemp := bit0;  bit0 := bit1;  bit1 := btemp;
+            btemp := bit2;  bit2 := bit3;  bit3 := btemp;
+            cardval := ORD(bit0) + 2*(ORD(bit1) + 2*(ORD(bit2) + 2*ORD(bit3)));
+        END (*IF*);
+        ServicesEnabled := cardval;
         OS2.WinSendDlgItemMsg (hwnd, DID.POPenable, OS2.BM_SETCHECK,
-                                    OS2.MPFROMSHORT(ORD(ODD(cardval DIV 2))), NIL);
-        IMAPenabled := ODD(cardval DIV 4);
+                                    OS2.MPFROMSHORT(ORD(bit0)), NIL);
+        OS2.WinSendDlgItemMsg (hwnd, DID.SMTPenable, OS2.BM_SETCHECK,
+                                    OS2.MPFROMSHORT(ORD(bit1)), NIL);
         OS2.WinSendDlgItemMsg (hwnd, DID.MSAenable, OS2.BM_SETCHECK,
-                                    OS2.MPFROMSHORT(ORD(ODD(cardval DIV 8))), NIL);
+                                    OS2.MPFROMSHORT(ORD(bit2)), NIL);
+        IMAPenabled := bit3;
 
         (* Language. *)
 
@@ -431,6 +424,7 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
         END (*IF*);
 
         CloseINIFile;
+        LoadCompleted := TRUE;
 
     END LoadValues;
 
@@ -469,35 +463,37 @@ PROCEDURE StoreUserNumbers (hwnd: OS2.HWND);
         buffer: ARRAY [0..63] OF CHAR;
 
     BEGIN
+        IF NOT LoadCompleted THEN
+            RETURN;
+        END (*IF*);
+
         INIopen := FALSE;
 
         (* Maximum number of users. *)
 
-        OS2.WinQueryDlgItemShort (hwnd, DID.SMTPMaxUsers, temp, FALSE);
-        val[0] := temp;
         OS2.WinQueryDlgItemShort (hwnd, DID.POPMaxUsers, temp, FALSE);
+        val[0] := temp;
+        OS2.WinQueryDlgItemShort (hwnd, DID.SMTPMaxUsers, temp, FALSE);
         val[1] := temp;
-        val[2] := IMAPdata[2];
         OS2.WinQueryDlgItemShort (hwnd, DID.MSAMaxUsers, temp, FALSE);
-        val[3] := temp;
-        IF Mismatch (val, MaxUsers) THEN
-            IF NOT INIopen THEN
-                OpenINIFile;
-                INIopen := TRUE;
-            END (*IF*);
+        val[2] := temp;
+        val[3] := IMAPdata[2];
+        IF switch OR Mismatch (val, MaxUsers) THEN
+            OpenINIFile;
+            INIopen := TRUE;
             INIPut ('$SYS', 'MaxUsers', val);
             MaxUsers := val;
         END (*IF*);
 
         (* "Service enabled" flags. *)
 
-        enable := QueryButton (hwnd, DID.SMTPenable)
-                   + 2 * QueryButton (hwnd, DID.POPenable)
-                   + 8 * QueryButton (hwnd, DID.MSAenable);
+        enable := QueryButton (hwnd, DID.POPenable)
+                   + 2 * QueryButton (hwnd, DID.SMTPenable)
+                   + 4 * QueryButton (hwnd, DID.MSAenable);
         IF IMAPenabled THEN
-            INC (enable, 4);
+            INC (enable, 8);
         END (*IF*);
-        IF enable <> ServicesEnabled THEN
+        IF switch OR (enable <> ServicesEnabled) THEN
             IF NOT INIopen THEN
                 OpenINIFile;
                 INIopen := TRUE;
@@ -512,11 +508,10 @@ PROCEDURE StoreUserNumbers (hwnd: OS2.HWND);
 
         (* Calculate and display the thread count. *)
 
-        ThreadCount := 10;        (* initial overhead *)
-        INC (ThreadCount, OutputThreadCount);
+        ThreadCount := 12 + OutputThreadCount;
         FOR temp := 0 TO 3 DO
             IF ODD(enable) THEN
-                INC (ThreadCount, 2*val[temp]);
+                INC (ThreadCount, val[temp]);
             END (*IF*);
             enable := enable DIV 2;
         END (*FOR*);
@@ -562,7 +557,7 @@ PROCEDURE StoreData (hwnd1: OS2.HWND;  Multidomain: BOOLEAN);
 
     (* Stores the values on page 1 back into the INI file.  *)
 
-    VAR val: FourCard;  temp: INT16;  enable, bool: BOOLEAN;
+    VAR val: FourCard;  temp: INT16;  enable: BOOLEAN;
         langval: ARRAY [0..LangStringSize] OF CHAR;
         (*debugmes: ARRAY [0..127] OF CHAR;*)
 
@@ -571,41 +566,28 @@ PROCEDURE StoreData (hwnd1: OS2.HWND;  Multidomain: BOOLEAN);
 
         OpenINIFile;
 
-        (* Whether to use TNI. *)
-
-        temp := 0;
-        OS2.WinSendDlgItemMsg (hwnd1, DID.INIchoice, OS2.SPBM_QUERYVALUE,
-                        ADR(temp), OS2.MPFROM2SHORT(0,0));
-        bool := temp <> 0;
-        (*
-        IF bool <> OldChooseTNI THEN
-            INIPut ('$SYS', 'UseTNI', bool);
-        END (*IF*);
-        *)
-            INIPut ('$SYS', 'UseTNI', bool);
-
         (* Server ports. *)
 
-        OS2.WinQueryDlgItemShort (hwnd1, DID.SMTPPortField, temp, FALSE);
-        val[0] := temp;
         OS2.WinQueryDlgItemShort (hwnd1, DID.POPPortField, temp, FALSE);
+        val[0] := temp;
+        OS2.WinQueryDlgItemShort (hwnd1, DID.SMTPPortField, temp, FALSE);
         val[1] := temp;
-        val[2] := IMAPdata[0];
         OS2.WinQueryDlgItemShort (hwnd1, DID.MSAPortField, temp, FALSE);
-        val[3] := temp;
+        val[2] := temp;
+        val[3] := IMAPdata[0];
         IF Mismatch (val, OldServerPort) THEN
             INIPut ('$SYS', 'ServerPort', val);
         END (*IF*);
 
         (* Timeout values. *)
 
-        OS2.WinQueryDlgItemShort (hwnd1, DID.SMTPTimeOut, temp, FALSE);
-        val[0] := temp;
         OS2.WinQueryDlgItemShort (hwnd1, DID.POPTimeOut, temp, FALSE);
+        val[0] := temp;
+        OS2.WinQueryDlgItemShort (hwnd1, DID.SMTPTimeOut, temp, FALSE);
         val[1] := temp;
-        val[2] := IMAPdata[1];
         OS2.WinQueryDlgItemShort (hwnd1, DID.MSATimeOut, temp, FALSE);
-        val[3] := temp;
+        val[2] := temp;
+        val[3] := IMAPdata[1];
         IF Mismatch (val, OldTimeout) THEN
             INIPut ('$SYS', 'TimeOut', val);
         END (*IF*);
@@ -661,8 +643,6 @@ PROCEDURE ["SysCall"] DialogueProc (hwnd: OS2.HWND;  msg: OS2.ULONG;
         IF msg = OS2.WM_INITDLG THEN
 
             OS2.WinSetWindowPos (hwnd, 0, 0, 0, 0, 0, OS2.SWP_MOVE);
-            OS2.WinSendDlgItemMsg (hwnd, DID.INIchoice, OS2.SPBM_SETARRAY,
-                        ADR(INIchoicePtr), OS2.MPFROMSHORT(2));
             LoadValues (hwnd);
             RETURN NIL;
 
@@ -760,9 +740,9 @@ PROCEDURE SetFont (VAR (*IN*) name: CommonSettings.FontName);
 
 (**************************************************************************)
 
-VAR j: CARDINAL;
-
 BEGIN
+    LoadCompleted := FALSE;
+    switch := FALSE;
     ChangeInProgress := FALSE;
     pagehandle := OS2.NULLHANDLE;
     hwndParent := OS2.NULLHANDLE;
@@ -772,14 +752,8 @@ BEGIN
     OldServerPort := FourCard{0,0,0,0};
     OldTimeout := FourCard{0,0,0,0};
     OldMaxUsers := FourCard{0,0,0,0};
-    OldEnable := 0;
     OldLanguage := "";
     MailRoot := "";
     OldMultiDomainEnabled := FALSE;
-    INIchoiceText[0] := "INI";
-    INIchoiceText[1] := "TNI";
-    FOR j := 0 TO 1 DO
-        INIchoicePtr[j] := ADR(INIchoiceText[j]);
-    END (*FOR*);
 END SUPage1.
 

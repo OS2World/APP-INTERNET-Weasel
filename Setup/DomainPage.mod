@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE DomainPage;
         (*             The 'our domains' page of the notebook           *)
         (*                                                              *)
         (*        Started:        19 December 2001                      *)
-        (*        Last edited:    22 May 2017                           *)
+        (*        Last edited:    27 May 2018                           *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -71,11 +71,26 @@ TYPE
 VAR
     OurPageHandle, notebookhandle, hwndParent: OS2.HWND;
     Changed, ChangeInProgress, UseTNI: BOOLEAN;
-    PageID: CARDINAL;
+    PageID, DomainCount: CARDINAL;
     MailRoot: FilenameString;
     AcceptUnknown: BOOLEAN;
     W4style: BOOLEAN;
     OurLang: LangHandle;
+
+(************************************************************************)
+
+PROCEDURE DisplayDomainCount;
+
+    (* Writes domain count to the appropriate field in the page.    *)
+
+    VAR buffer: ARRAY [0..63] OF CHAR;
+        hwnd: OS2.HWND;
+
+    BEGIN
+        hwnd := OurPageHandle;
+        StrToBufferN (OurLang, "Domains.DomainCount", DomainCount, buffer);
+        OS2.WinSetDlgItemText (hwnd, DID.DomainCount, buffer);
+    END DisplayDomainCount;
 
 (************************************************************************)
 (*                     ADDING OR REMOVING A DOMAIN                      *)
@@ -91,7 +106,9 @@ PROCEDURE Add (name: DomainName);
 
     BEGIN
         SUDomains.CreateDomain (name);
+        INC (DomainCount);
         hwnd := OurPageHandle;
+        DisplayDomainCount;
         index := OS2.LONGFROMMR(
                    OS2.WinSendDlgItemMsg (hwnd, DID.DomainList, OS2.LM_QUERYSELECTION, NIL, NIL));
         IF index = OS2.LIT_NONE THEN
@@ -135,8 +152,10 @@ PROCEDURE Remove (name: DomainName);
         END (*LOOP*);
 
         IF index < count THEN
+            DEC (DomainCount);
             SUDomains.DeleteDomain (name, hwnd, OurLang);
             hwnd := OurPageHandle;
+            DisplayDomainCount;
             OS2.WinSendDlgItemMsg (hwnd, DID.DomainList, OS2.LM_DELETEITEM,
                                    OS2.MPFROMSHORT(index), NIL);
             OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.RenameDomain), FALSE);
@@ -166,9 +185,11 @@ PROCEDURE SetLanguage (lang: LangHandle);
         StrToBuffer (lang, "Domains.revert", stringval);
         OS2.WinSetDlgItemText (OurPageHandle, DID.RevertToSingleDomain, stringval);
         StrToBuffer (lang, "Domains.Label", stringval);
-        OS2.WinSetDlgItemText (OurPageHandle, DID.DomainPageLabel, stringval);
+        OS2.WinSetDlgItemText (OurPageHandle, DID.DomainPage, stringval);
         StrToBuffer (lang, "Domains.explain", stringval);
         OS2.WinSetDlgItemText (OurPageHandle, DID.DomainPageHint, stringval);
+        StrToBufferN (lang, "Domains.DomainCount", DomainCount, stringval);
+        OS2.WinSetDlgItemText (OurPageHandle, DID.DomainCount, stringval);
         StrToBuffer (lang, "Buttons.Add", stringval);
         OS2.WinSetDlgItemText (OurPageHandle, DID.AddDomain, stringval);
         StrToBuffer (lang, "Buttons.Rename", stringval);
@@ -283,10 +304,12 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
 
         (* Load the list of domain names from the INI file. *)
 
+        DomainCount := 0;
         GetStringList ("$SYS", "Domains", state);
         REPEAT
             NextString (state, name);
             IF name[0] <> Nul THEN
+                INC (DomainCount);
                 ToLower (name);
                 OS2.WinSendDlgItemMsg (hwnd, DID.DomainList, OS2.LM_INSERTITEM,
                      OS2.MPFROMSHORT(OS2.LIT_END), ADR(name));
@@ -365,12 +388,15 @@ PROCEDURE ["SysCall"] DialogueProc (hwnd     : OS2.HWND
     BEGIN
 
         IF msg = OS2.WM_INITDLG THEN
+            OurPageHandle := hwnd;
+            DisplayDomainCount;
             OS2.WinSetWindowPos (hwnd, 0, 0, 0, 0, 0, OS2.SWP_MOVE);
             OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.RenameDomain), FALSE);
             OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.EditDomain), FALSE);
             OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.PromoteDomain), FALSE);
             OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.DeleteDomain), FALSE);
             LoadValues (hwnd);
+            DisplayDomainCount;
             RETURN NIL;
         END (*IF*);
 
@@ -430,13 +456,7 @@ PROCEDURE ["SysCall"] DialogueProc (hwnd     : OS2.HWND
             ELSIF ButtonID = DID.DeleteDomain THEN
 
                    IF AreYouSure (SUDomains.UserCount(name)) THEN
-                       SUDomains.DeleteDomain (name, hwnd, OurLang);
-                       OS2.WinSendDlgItemMsg (hwnd, DID.DomainList, OS2.LM_DELETEITEM,
-                                              OS2.MPFROMSHORT(index), NIL);
-                       OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.RenameDomain), FALSE);
-                       OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.EditDomain), FALSE);
-                       OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.PromoteDomain), FALSE);
-                       OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DID.DeleteDomain), FALSE);
+                       Remove (name);
                        Changed := TRUE;
                    END (*IF*);
 
@@ -485,6 +505,9 @@ PROCEDURE ["SysCall"] DialogueProc (hwnd     : OS2.HWND
                     OS2.WinSendMsg (hwnd, OS2.WM_COMMAND,
                           OS2.MPFROMSHORT(DID.EditDomain), NIL);
                     RETURN NIL;
+                ELSIF NotificationCode = OS2.BKN_PAGESELECTED THEN
+                    DisplayDomainCount;
+                    RETURN OS2.WinDefDlgProc(hwnd, msg, mp1, mp2);
                 ELSE
                     RETURN OS2.WinDefDlgProc(hwnd, msg, mp1, mp2);
                 END (*IF*);
@@ -574,6 +597,7 @@ BEGIN
     MailRoot := "";
     AcceptUnknown := FALSE;
     ChangeInProgress := FALSE;
+    DomainCount := 0;
     OurPageHandle := OS2.NULLHANDLE;
     notebookhandle := OS2.NULLHANDLE;
 END DomainPage.

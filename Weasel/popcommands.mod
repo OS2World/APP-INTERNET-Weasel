@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE POPCommands;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            21 April 1998                   *)
-        (*  Last edited:        22 May 2017                     *)
+        (*  Last edited:        13 September 2018               *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -70,9 +70,6 @@ FROM TaskControl IMPORT
 FROM Timer IMPORT
     (* proc *)  Sleep;
 
-FROM Semaphores IMPORT
-    (* type *)  Semaphore;
-
 FROM Conversions IMPORT
     (* proc *)  StringToCardinal;
 
@@ -104,12 +101,18 @@ FROM Authentication IMPORT
                 CreateNextChallenge, CheckResponse,
                 AuthenticationDone;
 
+FROM Watchdog IMPORT
+    (* type *)  WatchdogID;
+
 FROM POPData IMPORT
     (* type *)  Mailbox,
     (* proc *)  OpenMailbox, DiscardMailbox, PasswordOK, NumberAndSize,
                 SizeOfMessage, SendMessage, MarkForDeletion, UndeleteAll,
                 CommitChanges, MaxMessageNumber, GetUID, APOPCheck,
-                ClaimMailbox, MarkForThrottling;
+                ClaimMailbox;
+
+FROM HammerCheck IMPORT
+    (* proc *)  NotePasswordError;
 
 FROM Domains IMPORT
     (* type *)  Domain, NameOfDomain;
@@ -138,13 +141,12 @@ TYPE
 
     (* The session record.  The fields are:                             *)
     (*     ID          a session identifier for transaction logging     *)
+    (*     watchID     watchdog ID for this session                     *)
     (*     sbuffer     The socket buffer                                *)
     (*     HostAddr    Our own IP address                               *)
     (*     ClientAddr  The IP address of the client                     *)
     (*     state       To track whether the user is currently logged in.*)
     (*     mailbox     Information about the user's mailbox.            *)
-    (*     watchdog    A semaphore on which we have to signal on slow   *)
-    (*                  transfers so as to avoid timeout.               *)
     (*     badpasscount  The number of times the client has given an    *)
     (*                   incorrect password in this session             *)
     (*     BadCommandCount  Number of invalid commands in sequence      *)
@@ -161,12 +163,12 @@ TYPE
     Session = POINTER TO SessionRecord;
     SessionRecord = RECORD
                         ID: TransactionLogID;
+                        watchID: WatchdogID;
                         TimeStamp: FilenameString;
                         sbuffer: SBuffer;
                         HostAddr, ClientAddr: CARDINAL;
                         state: ClientState;
                         mailbox: Mailbox;
-                        watchdog: Semaphore;
                         badpasscount, BadCommandCount: CARDINAL;
                         retrcount, retrchars,
                           delecount, delechars,
@@ -190,7 +192,13 @@ TYPE
 (********************************************************************************)
 
 VAR
-    (* LogPOPusers is TRUE iff we are keeping a user log. *)
+    (* FullTransLog is TRUE iff we are logging all POP operations to the        *)
+    (* transaction log.  Note that the transaction log is a separate log from   *)
+    (* the POP log.                                                             *)
+
+    FullTransLog: BOOLEAN;
+
+    (* LogPOPusers is TRUE iff we are keeping a POP log. *)
 
     LogPOPusers: BOOLEAN;
 
@@ -216,7 +224,10 @@ VAR
     AuthTime: CARDINAL;
 
     (* Limit on the number of password failures before we forcibly terminate    *)
-    (* the session.  A value of 0 disables this check.                          *)
+    (* the session.  A value of 0 disables this check.  It does not, however,   *)
+    (* disable the "mark for throttling" operation where we lock this user out  *)
+    (* for a few seconds, because we want to block attackers who have repeated  *)
+    (* password errors.                                                         *)
 
     MaxBadPassCount: CARDINAL;
 
@@ -261,6 +272,8 @@ PROCEDURE WriteLogData (S: Session);
 
         (* Writes timestamp, followed by user@domain. *)
 
+        VAR IPBuffer: ARRAY [0..16] OF CHAR;
+
         BEGIN
             FWriteString (cid, datetime);  FWriteString (cid, " ");
             FWriteString (cid, S^.username);
@@ -268,11 +281,24 @@ PROCEDURE WriteLogData (S: Session);
             IF dname[0] <> Nul THEN
                 FWriteString (cid, dname);
             END (*IF*);
+            FWriteChar (cid, " ");
+            IPToString (S^.ClientAddr, TRUE, IPBuffer);
+            FWriteString (cid, IPBuffer);
         END TimeStampandUser;
 
     (****************************************************************************)
 
-    VAR IPBuffer: ARRAY [0..16] OF CHAR;
+    PROCEDURE WriteLogInfo (label: ARRAY OF CHAR;  files, bytes: CARDINAL);
+
+        BEGIN
+            TimeStampandUser;
+            FWriteChar (cid, ' ');  FWriteString (cid, label);  FWriteChar (cid, ' ');
+            FWriteLJCard (cid, files);  FWriteString (cid, " files (");
+            FWriteLJCard (cid, bytes);  FWriteString (cid, " bytes)");
+            FWriteLn (cid);
+        END WriteLogInfo;
+
+    (****************************************************************************)
 
     BEGIN
         Obtain (LogFileLock);
@@ -281,31 +307,22 @@ PROCEDURE WriteLogData (S: Session);
         NameOfDomain (S^.domain, dname);
 
         IF S^.retrcount > 0 THEN
-            FWriteString (cid, datetime);  FWriteChar (cid, " ");
 
             (* Write timestamp user@domain [IPaddr] *)
 
-            TimeStampandUser;
-            FWriteChar (cid, " ");
-            IPToString (S^.ClientAddr, TRUE, IPBuffer);
-            FWriteString (cid, IPBuffer);
+            WriteLogInfo ("retrieved", S^.retrcount, S^.retrchars);
 
-            FWriteString (cid, " retrieved ");
-            FWriteLJCard (cid, S^.retrcount);  FWriteString (cid, " files (");
-            FWriteLJCard (cid, S^.retrchars);  FWriteString (cid, " bytes)");
-            FWriteLn (cid);
         END (*IF*);
 
         IF S^.delecount > 0 THEN
-            TimeStampandUser;
-            FWriteString (cid, " deleted ");
-            FWriteLJCard (cid, S^.delecount);  FWriteString (cid, " files (");
-            FWriteLJCard (cid, S^.delechars);  FWriteString (cid, " bytes)");
-            FWriteLn (cid);
+
+            WriteLogInfo ("deleted", S^.delecount, S^.delechars);
+
         END (*IF*);
 
         CloseFile (cid);
         Release (LogFileLock);
+
     END WriteLogData;
 
 (********************************************************************************)
@@ -323,12 +340,9 @@ PROCEDURE AppendTimeStamp (S: Session;  VAR (*INOUT*) buffer: ARRAY OF CHAR);
 (********************************************************************************)
 
 PROCEDURE OpenSession (SB: SBuffer;  HostIPAddress, ClientIPAddress: CARDINAL;
-                                    KeepAlive: Semaphore;
-                                    LogID: TransactionLogID): Session;
+                              WID: WatchdogID;  LogID: TransactionLogID): Session;
 
-    (* Creates a new session state record.  During lengthy operations           *)
-    (* we have to do a Signal(KeepAlive) every so often in order to stop the    *)
-    (* session from timing out.                                                 *)
+    (* Creates a new session state record.  *)
 
     VAR result: Session;
         LocalHostName: HostName;
@@ -338,6 +352,7 @@ PROCEDURE OpenSession (SB: SBuffer;  HostIPAddress, ClientIPAddress: CARDINAL;
         Delivery.GetOurHostName (SocketOf(SB), LocalHostName);
         NEW (result);
         WITH result^ DO
+            watchID := WID;
             ID := LogID;
             mailbox := NIL;
             sbuffer := SB;
@@ -345,7 +360,6 @@ PROCEDURE OpenSession (SB: SBuffer;  HostIPAddress, ClientIPAddress: CARDINAL;
             ClientAddr := ClientIPAddress;
             state := Idle;
             CreateTimeStamp (ID, LocalHostName, TimeStamp);
-            watchdog := KeepAlive;
             badpasscount := 0;
             BadCommandCount := 0;
             retrcount := 0;  retrchars := 0;
@@ -376,15 +390,18 @@ PROCEDURE CloseSession (S: Session);
 (*                     POP-BEFORE-SMTP RELAY AUTHORISATION                      *)
 (********************************************************************************)
 
-PROCEDURE SetPOPParameters (AuthTimeLimit: CARDINAL);
+PROCEDURE SetPOPParameters (AuthTimeLimit: CARDINAL;  minimalLog: BOOLEAN);
 
     (* Sets the time (in minutes) that a POP-before-SMTP authorisation remains  *)
-    (* valid.  A zero value disables this form of authorisation.                *)
+    (* valid.  A zero value disables this form of authorisation.  The second    *)
+    (* parameter, if TRUE, suppresses most of the POP detail from the           *)
+    (* transaction log.                                                         *)
 
     BEGIN
         Obtain (AuthList.lock);
         AuthTime := AuthTimeLimit;
         Release (AuthList.lock);
+        FullTransLog := NOT minimalLog;
     END SetPOPParameters;
 
 (********************************************************************************)
@@ -523,11 +540,16 @@ PROCEDURE Reply2 (session: Session;  message1, message2: ARRAY OF CHAR);
         sent: CARDINAL;
 
     BEGIN
-        Strings.Assign ("> ", buffer);
-        Strings.Append (message1, buffer);
-        Strings.Append (message2, buffer);
-        LogTransaction (session^.ID, buffer);
-        Strings.Delete (buffer, 0, 2);
+        IF FullTransLog THEN
+            Strings.Assign ("> ", buffer);
+            Strings.Append (message1, buffer);
+            Strings.Append (message2, buffer);
+            LogTransaction (session^.ID, buffer);
+            Strings.Delete (buffer, 0, 2);
+        ELSE
+            Strings.Assign (message1, buffer);
+            Strings.Append (message2, buffer);
+        END (*IF*);
         IF NOT SendLine (session^.sbuffer, buffer, sent) THEN
             session^.state := MustExit;
         END (*IF*);
@@ -544,10 +566,14 @@ PROCEDURE Reply (session: Session;  message: ARRAY OF CHAR);
         sent: CARDINAL;
 
     BEGIN
-        Strings.Assign ("> ", buffer);
-        Strings.Append (message, buffer);
-        LogTransaction (session^.ID, buffer);
-        Strings.Delete (buffer, 0, 2);
+        IF FullTransLog THEN
+            Strings.Assign ("> ", buffer);
+            Strings.Append (message, buffer);
+            LogTransaction (session^.ID, buffer);
+            Strings.Delete (buffer, 0, 2);
+        ELSE
+            Strings.Assign (message, buffer);
+        END (*IF*);
         IF NOT SendLine (session^.sbuffer, buffer, sent) THEN
             session^.state := MustExit;
         END (*IF*);
@@ -628,10 +654,10 @@ PROCEDURE APOP (session: Session;  VAR (*IN*) args: ARRAY OF CHAR);
 
         IF PasswordIsBad THEN
             INC (session^.badpasscount);
+            NotePasswordError (session^.ClientAddr);
             IF (MaxBadPassCount > 0)
                          AND (session^.badpasscount >= MaxBadPassCount) THEN
                 Reply (session, "-ERR too many retries, disconnecting");
-                MarkForThrottling (session^.ClientAddr);
                 session^.state := MustExit;
             ELSE
                 Reply (session, "-ERR authorisation failure");
@@ -668,9 +694,11 @@ PROCEDURE AUTH (session: Session;  VAR (*IN*) args: ARRAY OF CHAR);
                         CreateNextChallenge (state, message);
                         Reply2 (session, "+ ", message);
                         IF GetLine (session^.sbuffer, message) THEN
-                            Strings.Assign ("< ", logline);
-                            Strings.Append (message, logline);
-                            LogTransaction (session^.ID, logline);
+                            IF FullTransLog THEN
+                                Strings.Assign ("< ", logline);
+                                Strings.Append (message, logline);
+                                LogTransaction (session^.ID, logline);
+                            END (*IF*);
                             IF (message[0] = '*') AND (message[1] = Nul) THEN
                                 Reply (session, "-ERR Authentication cancelled");
                                 working := FALSE;
@@ -684,11 +712,11 @@ PROCEDURE AUTH (session: Session;  VAR (*IN*) args: ARRAY OF CHAR);
                         END (*IF*);
                     END (*WHILE*);
                     IF working AND NOT authenticated THEN
+                        NotePasswordError (session^.ClientAddr);
                         INC (session^.badpasscount);
                         IF (MaxBadPassCount > 0)
                                 AND (session^.badpasscount >= MaxBadPassCount) THEN
                             Reply (session, "-ERR too many retries, disconnecting");
-                            MarkForThrottling (session^.ClientAddr);
                             session^.state := MustExit;
                         ELSE
                             Reply (session, "-ERR Authentication failed");
@@ -852,11 +880,11 @@ PROCEDURE PASS (session: Session;  VAR (*IN*) password: ARRAY OF CHAR);
             END (*CASE*);
 
             IF PasswordIsBad THEN
+                NotePasswordError (session^.ClientAddr);
                 INC (session^.badpasscount);
                 IF (MaxBadPassCount > 0)
                            AND (session^.badpasscount >= MaxBadPassCount) THEN
                     Reply (session, "-ERR too many retries, disconnecting");
-                    MarkForThrottling (session^.ClientAddr);
                     session^.state := MustExit;
                 ELSE
                     Reply (session, "-ERR authorisation failure");
@@ -898,17 +926,17 @@ PROCEDURE RETR (session: Session;  VAR (*IN*) number: ARRAY OF CHAR);
             ConvertCard (size, message, pos);  message[pos] := Nul;
             Strings.Append (" bytes", message);
             Reply (session, message);
-            IF SendMessage (session^.sbuffer, session^.watchdog,
+            IF SendMessage (session^.sbuffer, session^.watchID,
                             session^.mailbox, N, MAX(CARDINAL),
-                             bytessent, session^.ID) THEN
+                             bytessent, FullTransLog, session^.ID) THEN
                 INC (session^.retrcount);  INC (session^.retrchars, bytessent);
-                pos := 0;  ConvertCard (bytessent, message, pos);  message[pos] := Nul;
-                Strings.Append (" bytes sent", message);
-                LogTransaction (session^.ID, message);
-            Strings.Append (" bytes", message);
-
+                IF FullTransLog THEN
+                    pos := 0;  ConvertCard (bytessent, message, pos);  message[pos] := Nul;
+                    Strings.Append (" bytes sent", message);
+                    LogTransaction (session^.ID, message);
+                END (*IF*);
             ELSE
-                session^.state := MustExit;
+                Reply (session, "-ERR failed to send message");
             END (*IF*);
         ELSE
             Reply (session, "-ERR no such message");
@@ -965,8 +993,9 @@ PROCEDURE TOP (session: Session;  VAR (*IN*) Params: ARRAY OF CHAR);
         lines := StringToCardinal (Params);
         IF SizeOfMessage (session^.mailbox, N, size) THEN
             Reply (session, "+OK");
-            IF NOT SendMessage (session^.sbuffer, session^.watchdog,
-                            session^.mailbox, N, lines, dummy, session^.ID) THEN
+            IF NOT SendMessage (session^.sbuffer, session^.watchID,
+                            session^.mailbox, N, lines,
+                             dummy, FullTransLog, session^.ID) THEN
                 session^.state := MustExit;
             END (*IF*);
         ELSE
@@ -1043,7 +1072,7 @@ PROCEDURE UIDL (session: Session;  VAR (*IN*) number: ARRAY OF CHAR);
             Reply (session, "+OK");
             FOR N := 1 TO MaxMessageNumber(session^.mailbox) DO
                 buffer := "";
-                IF GetUID (session^.mailbox, N, UID, session^.ID) THEN
+                IF GetUID (session^.mailbox, N, UID, FullTransLog, session^.ID) THEN
                     SendNumberAndUID;
                 END (*IF*);
             END (*FOR*);
@@ -1054,7 +1083,7 @@ PROCEDURE UIDL (session: Session;  VAR (*IN*) number: ARRAY OF CHAR);
             (* List for message "number". *)
 
             N := StringToCardinal (number);
-            IF GetUID (session^.mailbox, N, UID, session^.ID) THEN
+            IF GetUID (session^.mailbox, N, UID, FullTransLog, session^.ID) THEN
                 Strings.Assign ("+OK ", buffer);
                 SendNumberAndUID;
             ELSE
@@ -1225,14 +1254,16 @@ PROCEDURE HandleCommand (S: Session;  VAR (*IN*) Command: ARRAY OF CHAR;
         END (*IF*);
         QuitReceived := Handler = QUIT;
 
-        (* Echo command to transaction log. *)
+        IF FullTransLog THEN
+            (* Echo command to transaction log. *)
 
-        IF Handler = PASS THEN
-            LogTransactionL (S^.ID, "< PASS ******");
-        ELSE
-            Strings.Insert ("< ", 0, Command);
-            LogTransaction (S^.ID, Command);
-            Strings.Delete (Command, 0, 2);
+            IF Handler = PASS THEN
+                LogTransactionL (S^.ID, "< PASS ******");
+            ELSE
+                Strings.Insert ("< ", 0, Command);
+                LogTransaction (S^.ID, Command);
+                Strings.Delete (Command, 0, 2);
+            END (*IF*);
         END (*IF*);
 
         IF (Handler <> NoSuchCommand) AND (Handler <> GarbledCommandSequence) THEN
@@ -1275,5 +1306,6 @@ BEGIN
         CreateLock (lock);
     END (*WITH*);
     LogPOPusers := FALSE;
+    FullTransLog := TRUE;
 END POPCommands.
 

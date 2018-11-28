@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -35,7 +35,7 @@ IMPLEMENTATION MODULE RINIData;
         (*     a handle on every call.                              *)
         (*                                                          *)
         (*      Started:        13 January 2002                     *)
-        (*      Last edited:    22 July 2017                        *)
+        (*      Last edited:    21 November 2018                    *)
         (*      Status:         OK                                  *)
         (*                                                          *)
         (************************************************************)
@@ -123,6 +123,9 @@ PROCEDURE ChooseDefaultINI (appname: ARRAY OF CHAR;
         app: ARRAY [0..5] OF CHAR;
         Iname, Tname: FilenameString;
 
+    (* A CommitTNIDecision, see below, will effect the result the next  *)
+    (* time we have to do the check.                                    *)
+
     BEGIN
         IF NOT RemoteFlag THEN
             RETURN INIData.ChooseDefaultINI (appname, useTNI);
@@ -174,6 +177,41 @@ PROCEDURE ChooseDefaultINI (appname: ARRAY OF CHAR;
         RETURN useTNI0 = useTNI;
 
     END ChooseDefaultINI;
+
+(************************************************************************)
+
+PROCEDURE CommitTNIDecision (appname: ARRAY OF CHAR;  useTNI: BOOLEAN);
+
+    (* Stores the specified useTNI value in such a way that it will     *)
+    (* become the default for the next ChooseDefaultINI decision, all   *)
+    (* other factors being equal.                                       *)
+
+    VAR app: ARRAY [0..5] OF CHAR;
+        name: FilenameString;
+
+    BEGIN
+        IF NOT RemoteFlag THEN
+            INIData.CommitTNIDecision (appname, useTNI);
+        END (*IF*);
+
+        (* The following code only needs to handle the remote case.     *)
+        (* Store the useTNI value in whichever of the two files exist,  *)
+        (* or both if both exist.  If neither exists, create only one.  *)
+
+        app := "$SYS";
+        Strings.Assign (appname, name);
+        Strings.Append (".TNI", name);
+        IF SelectRemoteFile(name) OR useTNI THEN
+            INIPut (app, "UseTNI", useTNI);
+        END (*IF*);
+
+        Strings.Assign (appname, name);
+        Strings.Append (".INI", name);
+        IF SelectRemoteFile(name) OR NOT useTNI THEN
+            INIPut (app, "UseTNI", useTNI);
+        END (*IF*);
+
+    END CommitTNIDecision;
 
 (************************************************************************)
 (*                  OPENING AND CLOSING THE INI FILE                    *)
@@ -231,12 +269,12 @@ PROCEDURE PutBinaryString (app, key: ARRAY OF CHAR;  VAR (*IN*) variable: ARRAY 
 
 (********************************************************************************)
 
-PROCEDURE INIPut (app, key: ARRAY OF CHAR;  VAR (*IN*) variable: ARRAY OF LOC);
+PROCEDURE INIPut (app, key: ARRAY OF CHAR;  VAR (*IN*) value: ARRAY OF LOC);
 
     (* Writes data to the INI file. *)
 
     BEGIN
-        PutBinaryString (app, key, variable, HIGH(variable)+1);
+        PutBinaryString (app, key, value, HIGH(value)+1);
     END INIPut;
 
 (********************************************************************************)

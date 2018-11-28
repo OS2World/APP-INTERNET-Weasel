@@ -6,7 +6,7 @@ DEFINITION MODULE POPCommands;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            21 April 1998                   *)
-        (*  Last edited:        11 April 2012                   *)
+        (*  Last edited:        2 February 2018                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -15,8 +15,8 @@ DEFINITION MODULE POPCommands;
 FROM SBuffers IMPORT
     (* type *)  SBuffer;
 
-FROM Semaphores IMPORT
-    (* type *)  Semaphore;
+FROM Watchdog IMPORT
+    (* type *)  WatchdogID;
 
 FROM TransLog IMPORT
     (* type *)  TransactionLogID;
@@ -35,22 +35,21 @@ PROCEDURE SetBadPasswordLimit (limit: CARDINAL);
     (* Sets the limit on the number of password failures before we forcibly     *)
     (* terminate a POP3 session.  A value of 0 disables this check.             *)
 
-PROCEDURE SetPOPParameters (AuthTime: CARDINAL);
+PROCEDURE SetPOPParameters (AuthTimeLimit: CARDINAL;  minimalLog: BOOLEAN);
 
     (* Sets the time (in minutes) that a POP-before-SMTP authorisation remains  *)
-    (* valid.  A zero value disables this form of authorisation.                *)
+    (* valid.  A zero value disables this form of authorisation.  The second    *)
+    (* parameter, if TRUE, suppresses most of the POP detail from the           *)
+    (* transaction log.                                                         *)
 
 PROCEDURE SetPopLogName (enable: BOOLEAN;  VAR (*IN*) name: FilenameString);
 
     (* Sets the filename of the POP user log. *)
 
 PROCEDURE OpenSession (SB: SBuffer;  HostIPAddress, ClientIPAddress: CARDINAL;
-                                    KeepAlive: Semaphore;
-                                    LogID: TransactionLogID): Session;
+                              WID: WatchdogID;  LogID: TransactionLogID): Session;
 
-    (* Creates a new session state record.  During lengthy operations           *)
-    (* we have to do a Signal(KeepAlive) every so often in order to stop the    *)
-    (* session from timing out.                                                 *)
+    (* Creates a new session state record.  *)
 
 PROCEDURE AppendTimeStamp (S: Session;  VAR (*INOUT*) buffer: ARRAY OF CHAR);
 

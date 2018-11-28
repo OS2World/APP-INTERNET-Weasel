@@ -6,7 +6,7 @@ DEFINITION MODULE Misc;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            4 July 1999                     *)
-        (*  Last edited:        29 September 2016               *)
+        (*  Last edited:        10 August 2018                  *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)

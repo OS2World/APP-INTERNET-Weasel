@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -29,7 +29,7 @@ IMPLEMENTATION MODULE Delivery;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            12 May 1998                     *)
-        (*  Last edited:        30 August 2017                  *)
+        (*  Last edited:        25 November 2018                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -147,10 +147,8 @@ FROM Semaphores IMPORT
 FROM Timer IMPORT
     (* proc *)  TimedWait, Sleep;
 
-FROM Types IMPORT
-    (* type *)  CARD64, INT64;
-
-FROM LONGLONG IMPORT
+FROM Arith64 IMPORT
+    (* type *)  CARD64, INT64,
     (* proc *)  Diff64, Sub64, DEC64;
 
 FROM TaskControl IMPORT
@@ -408,7 +406,7 @@ TYPE
 (*       2. The mail item also goes into the mail sack, provided that   *)
 (*          the mail sack is not too full.  If the mail sack is too     *)
 (*          full, the item will be picked up on a later directory scan  *)
-(*          by the task called OnlineChecker, which will put it in      *)
+(*          by the task called OnlineChecker, which will put it into    *)
 (*          the mail sack.                                              *)
 (*       3. The task called Sorter takes mail out of the mail sack,     *)
 (*          possibly splits it into multiple jobs, and puts one or      *)
@@ -541,6 +539,20 @@ VAR
                                       END;
                   END (*RECORD*);
 
+    (* List of jobs waiting to be reattempted (with a delay).   *)
+
+    RetryList: RECORD
+                   access: Lock;
+                   head: OutJobPtr;
+                   RecipientCount: RECORD
+                                       count, limit: CARDINAL;
+                                   END;
+               END (*RECORD*);
+
+    (* Maximum number of bytes in an outgoing chunk. *)
+
+    MaxChunkSize: CARDINAL;
+
     (* Maximum number of recipients per outgoing mail item.  If *)
     (* there are more than this, we have to break the list of   *)
     (* recipients into batches.                                 *)
@@ -551,16 +563,6 @@ VAR
     (* and number of retries before giving up.                   *)
 
     WarnRetries, MaxRetries: CARDINAL;
-
-    (* List of jobs waiting to be reattempted (with a delay).   *)
-
-    RetryList: RECORD
-                   access: Lock;
-                   head: OutJobPtr;
-                   RecipientCount: RECORD
-                                       count, limit: CARDINAL;
-                                   END;
-               END (*RECORD*);
 
     (* The directory used to hold mail waiting to be forwarded. *)
 
@@ -1331,7 +1333,8 @@ PROCEDURE StartNewFile (p: OutJobPtr): ChanId;
             (* Set the size and offset. *)
 
             p^.offset := CurrentPosition(cid);
-            p^.size := p^.offset;
+            p^.size.low := p^.offset.low;
+            p^.size.high := p^.offset.high;
         END (*IF*);
 
         RETURN cid;
@@ -1549,7 +1552,7 @@ PROCEDURE SendRelayMail (VAR (*IN*) filename, from: ARRAY OF CHAR;
 
     BEGIN
         IF RL <> NIL THEN
-            NEW (p);
+            NEW (p);  p^.next := NIL;
             Strings.Assign (filename, p^.file);
             Strings.Assign (from, p^.sender);
             p^.domain := "";
@@ -1902,7 +1905,7 @@ PROCEDURE PublicNotification;
 
 (************************************************************************)
 
-PROCEDURE CopyToRecipients (messagefile: FilenameString;
+PROCEDURE CopyToRecipients (VAR (*IN*) messagefile: FilenameString;
                             returnpath: PathString;
                             offset: FilePos;
                             LogID: TransactionLogID;
@@ -2607,7 +2610,7 @@ PROCEDURE SendCommand (SB: SBuffer;  ID: TransactionLogID;  command: ARRAY OF CH
 
 (************************************************************************)
 
-PROCEDURE SendFile (SB: SBuffer;  name: FilenameString;  offset: FilePos;
+PROCEDURE SendFile (SB: SBuffer;  VAR (*IN*) name: FilenameString;  offset: FilePos;
                          VAR (*OUT*) ConnectionLost: BOOLEAN;
                          VAR (*OUT*) sent: CARDINAL): BOOLEAN;
 
@@ -2733,7 +2736,7 @@ PROCEDURE AppendHostName (IPaddress: CARDINAL;
     VAR name: HostName;
 
     BEGIN
-        AddressToHostName (IPaddress, name);
+        EVAL (AddressToHostName (IPaddress, name));
         Strings.Append (name, buffer);
     END AppendHostName;
 
@@ -2753,7 +2756,7 @@ PROCEDURE GetOurHostName (S: Socket;  VAR (*OUT*) name: HostName);
         IF UseFixedLocalName THEN
             name := OurHostName;
         ELSIF NOT getsockname (S, myaddr, size) THEN
-            AddressToHostName (myaddr.in_addr.addr, name);
+            EVAL (AddressToHostName (myaddr.in_addr.addr, name));
         END (*IF*);
     END GetOurHostName;
 
@@ -2899,15 +2902,16 @@ PROCEDURE SendDataFile (SB: SBuffer;  job: OutJobPtr;  UseChunking: BOOLEAN;
 
     (********************************************************************)
 
-    CONST MaxChunkSize = 32767;
-
-    VAR sent: CARDINAL;         (* a dummy in this version. *)
+    VAR pos: CARD64;
+        sent: CARDINAL;         (* a dummy in this version. *)
         success: BOOLEAN;
 
     BEGIN
         ConnectionLost := FALSE;
         IF UseChunking THEN
-            bytesleft := CAST(CARD64, Diff64(GetFileSize(job^.file), job^.offset));
+            pos.low := job^.offset.low;
+            pos.high := job^.offset.high;
+            bytesleft := CAST(CARD64, Diff64(GetFileSize(job^.file), pos));
             cid := OpenOldFile (job^.file, FALSE, TRUE);
             success := cid <> NoSuchChannel;
             IF success THEN
@@ -2957,108 +2961,6 @@ PROCEDURE SendDataFile (SB: SBuffer;  job: OutJobPtr;  UseChunking: BOOLEAN;
         END (*IF*);
         RETURN success;
     END SendDataFile;
-
-(************************************************************************)
-
-(*
-PROCEDURE OldSendDataFile (SB: SBuffer;  job: OutJobPtr;  UseChunking: BOOLEAN;
-                            VAR (*OUT*) ConnectionLost: BOOLEAN): BOOLEAN;
-
-    (* This implements the "send the message" part of the transaction,  *)
-    (* after we've dealt with logging in, specifying recipients, etc.   *)
-
-    VAR cid: ChanId;
-        p: ADDRESS;
-        message, message2: ARRAY [0..511] OF CHAR;
-
-    (********************************************************************)
-
-    PROCEDURE OldSendNextChunk (size: CARDINAL;  final: BOOLEAN): BOOLEAN;
-
-        VAR cmd: ARRAY [0..31] OF CHAR;
-            pos: CARDINAL;  success: BOOLEAN;
-
-        BEGIN
-            (* Create a suitable BDAT command. *)
-
-            Strings.Assign ("BDAT ", cmd);
-            pos := 5;
-            ConvertCard (size, cmd, pos);
-            cmd[pos] := Nul;
-            IF final THEN
-                Strings.Append (" LAST", cmd);
-            END (*IF*);
-
-            (* We cannot use SendCommand here, because the chunk    *)
-            (* must be send immediately after the command, without  *)
-            (* waiting for a reply.                                 *)
-
-            SendCommandOnly (SB, job^.ID, cmd, ConnectionLost);
-            success := OldSendChunk (cid, SB, size, p)
-                        AND PositiveResponse (SB, ConnectionLost);
-            Strings.Assign ('< ', message);
-            GetLastLine (SB, message2);
-            Strings.Append (message2, message);
-            LogTransaction (job^.ID, message);
-            RETURN success;
-        END OldSendNextChunk;
-
-    (********************************************************************)
-
-    CONST ChunkSize = 16384;
-
-    VAR bytesleft: CARD64;
-        sent: CARDINAL;         (* a dummy in this version. *)
-        success: BOOLEAN;
-
-    BEGIN
-        ConnectionLost := FALSE;
-        IF UseChunking THEN
-            bytesleft := CAST(CARD64, Diff64(GetFileSize(job^.file), job^.offset));
-            cid := OpenOldFile (job^.file, FALSE, TRUE);
-            success := cid <> NoSuchChannel;
-            IF success THEN
-                SetPosition (cid, job^.offset);
-            ELSE
-                LogTransactionL (job^.ID, "Failed to open data file");
-                RETURN FALSE;
-            END (*IF*);
-            ALLOCATE (p, ChunkSize);
-            WHILE (bytesleft.high > 0) OR (bytesleft.low > ChunkSize) DO
-                success := OldSendNextChunk (ChunkSize, FALSE);
-                IF NOT success THEN
-                    (* Abandon the attempt. *)
-                    RETURN FALSE;
-                END (*IF*);
-                Sub64 (bytesleft, ChunkSize);
-            END (*WHILE*);
-
-            (* Now send the final chunk. *)
-
-            IF bytesleft.low > 0 THEN
-                success := OldSendNextChunk (bytesleft.low, TRUE);
-            END (*IF*);
-            DEALLOCATE (p, ChunkSize);
-            CloseFile (cid);
-        ELSE
-            (* The non-chunked case. *)
-
-            success := SendCommand (SB, job^.ID, "DATA", ConnectionLost)
-                AND SendFile (SB, job^.file, job^.offset, ConnectionLost, sent);
-            IF NOT ConnectionLost THEN
-                Strings.Assign ('< ', message);
-                GetLastLine (SB, message2);
-                Strings.Append (message2, message);
-                LogTransaction (job^.ID, message);
-            END (*IF*);
-        END (*IF*);
-
-        IF ConnectionLost THEN
-            LogTransactionL (job^.ID, "Connection lost");
-        END (*IF*);
-        RETURN success;
-    END OldSendDataFile;
-*)
 
 (************************************************************************)
 
@@ -3139,6 +3041,7 @@ PROCEDURE DeliverDeLetter (job: OutJobPtr;  IPaddress, port: CARDINAL;
             success := DoLogin (SB, job^.LocalHost, UseAuth,
                                 AuthName, AuthPass, ConnectionLost,
                                 ChunkingAvailable, job^.ID);
+            ChunkingAvailable := ChunkingAvailable AND (MaxChunkSize > 0);
             IF NOT success THEN
                 GetLastLine (SB, failuremessage);
                 LogTransactionL (job^.ID, "Login failed");
@@ -3222,6 +3125,9 @@ PROCEDURE DeliverDeLetter (job: OutJobPtr;  IPaddress, port: CARDINAL;
 
             (* We should try to log out even if the above failed. *)
 
+            IF ChunkingAvailable THEN
+                EVAL (SendCommand (SB, job^.ID, "RSET", ConnectionLost));
+            END (*IF*);
             EVAL (SendCommand (SB, job^.ID, "QUIT", ConnectionLost));
 
         END (*IF*);
@@ -3303,7 +3209,7 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
 
     (********************************************************************)
 
-    PROCEDURE SendViaRelay (host: HostName;  port: CARDINAL;
+    PROCEDURE SendViaRelay (VAR (*IN*) host: HostName;  port: CARDINAL;
                            AuthOption: CARDINAL;
                            AuthUser: UserName;  AuthPass: PassString)
                                                                 : BOOLEAN;
@@ -3400,7 +3306,7 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
 
     (********************************************************************)
 
-    PROCEDURE SendToDomain (domain: HostName;  port: CARDINAL): BOOLEAN;
+    PROCEDURE SendToDomain (VAR (*IN*) domain: HostName;  port: CARDINAL): BOOLEAN;
 
         (* Try to send the mail to the given domain.  If necessary and  *)
         (* we get multiple possible addresses for that domain, we try   *)
@@ -3456,7 +3362,7 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
             END (*CASE*);
 
             IF success THEN
-                AddressToHostName (address[j-1], HostUsed);
+                EVAL (AddressToHostName (address[j-1], HostUsed));
             ELSE
                 IF job^.sendto^.remote = NIL THEN
 
@@ -3498,7 +3404,7 @@ PROCEDURE SendToAllRecipients (job: OutJobPtr);
 
             (* Send to the loopback interface, bypassing authentication. *)
 
-            AddressToHostName (LoopbackAddress, HostUsed);
+            EVAL (AddressToHostName (LoopbackAddress, HostUsed));
             success := DeliverDeLetter (job, LoopbackAddress, OurSMTPPort,
                                            FALSE, '', '', TryNextOption, RetryNeeded)
                               AND NOT RetryNeeded;
@@ -3662,8 +3568,6 @@ PROCEDURE MailOneMessage (VAR (*INOUT*) p: OutJobPtr);
 (*                 THE TASK THAT HANDLES OUTGOING MAIL                  *)
 (************************************************************************)
 
-VAR LogMessage: ARRAY [0..511] OF CHAR;
-
 PROCEDURE MailerTask (tasknum: ADDRESS);
 
     (* Takes the mail on the OutQueue, and sends it.  We could be       *)
@@ -3671,7 +3575,7 @@ PROCEDURE MailerTask (tasknum: ADDRESS);
 
     VAR p: OutJobPtr;  LogID: TransactionLogID;
         TaskName: NameString;
-        filename: FilenameString;
+        LogMessage: ARRAY [0..511] OF CHAR;
         TaskNumber, N, status: CARDINAL;
         AllSent: BOOLEAN;
 
@@ -3697,15 +3601,6 @@ PROCEDURE MailerTask (tasknum: ADDRESS);
         Strings.Append (TaskName, LogMessage);
         LogTransaction (LogID, LogMessage);
         InProgress[TaskNumber][0] := Nul;
-
-        (* Test code: report the priority of this thread. *)
-
-        (*
-        LogMessage := "Our priority is ";
-        OS2.DosGetInfoBlocks (ptib, ppib);
-        AppendCard (ptib^.tib_ptib2^.tib2_ulpri, LogMessage);
-        LogTransaction (LogID, LogMessage);
-        *)
 
         LOOP
             Obtain (NumberOfDaemonsLock);
@@ -3810,7 +3705,6 @@ PROCEDURE MailerTask (tasknum: ADDRESS);
                 END (*WITH*);
                 *)
                 p^.ID := LogID;
-                filename := p^.file;
 
                 WITH JobCount DO
                     Obtain (access);
@@ -3850,16 +3744,16 @@ PROCEDURE MailerTask (tasknum: ADDRESS);
                 (* this program is run.                                 *)
 
                 IF AllSent THEN
-                    IF filename[0] <> Nul THEN
-                        status := OS2.DosDelete (filename);
-                        p^.file[0] := Nul;
+                    IF p^.file[0] <> Nul THEN
+                        status := OS2.DosDelete (p^.file);
                         IF status <> 0 THEN
                              Strings.Assign ("Can't delete ", LogMessage);
-                             Strings.Append (filename, LogMessage);
+                             Strings.Append (p^.file, LogMessage);
                              Strings.Append (", error code ", LogMessage);
                              AppendCard (status, LogMessage);
                              LogTransaction (LogID, LogMessage);
                         END (*IF*);
+                        p^.file[0] := Nul;
                     END (*IF*);
                 END (*IF*);
                 DiscardCombinedRecipientList (p^.sendto);
@@ -4219,6 +4113,27 @@ PROCEDURE LimitRecipients (p: OutJobPtr;  VAR (*OUT*) q: OutJobPtr;
 
 (************************************************************************)
 
+PROCEDURE ReportThreadPriority (ID: TransactionLogID);
+
+    (* For testing: put the current thread's priority into the  *)
+    (* transaction log.                                         *)
+
+    VAR ptib: OS2.PTIB;  ppib: OS2.PPIB;
+        rc, code: CARDINAL;
+        message: ARRAY [0..128] OF CHAR;
+
+    BEGIN
+        rc := OS2.DosGetInfoBlocks (ptib, ppib);
+        code := ptib^.tib_ptib2^.tib2_ulpri;
+        message := "Priority class = ";
+        AppendCard (code DIV 256, message);
+        Strings.Append (", delta = ", message);
+        AppendCard (code MOD 256, message);
+        LogTransaction (ID, message);
+    END ReportThreadPriority;
+
+(************************************************************************)
+
 PROCEDURE Sorter;
 
     (* Takes the mail in the MailSack, sorts it, and moves the jobs to  *)
@@ -4236,6 +4151,7 @@ PROCEDURE Sorter;
         Wait (SystemUp);
         Signal (SystemUp);
         LogID := CreateLogID (WCtx, "Sorter ");
+        ReportThreadPriority (LogID);
         LOOP
             Wait (MailSack.count);
             IF ShutdownRequest THEN
@@ -4433,6 +4349,141 @@ PROCEDURE Sorter;
         Signal (TaskDone);
 
     END Sorter;
+
+(************************************************************************)
+(*           MOVING JOBS FROM THE RETRY LIST TO THE MAIL SACK           *)
+(************************************************************************)
+
+PROCEDURE SplitByDestination (VAR (*INOUT*) p: RelayListPointer;
+                                    VAR (*IN*) target: ARRAY OF CHAR;
+                                    VAR (*OUT*) q: RelayListPointer): CARDINAL;
+
+    (* This is a variant of procedure Split -- see earlier in this      *)
+    (* module.  It is very likely that I am duplicating code here, so   *)
+    (* one day I should check to see whether the code can be tidied up. *)
+
+    (* Separates the list of addressees for p so that on exit the q     *)
+    (* list is all for domain 'target', and the p list is what          *)
+    (* remains.  Assumption: p <> NIL on entry, but of course p or q    *)
+    (* can be NIL on procedure exit.                                    *)
+
+    (* Returns the number of entries on the q list.                     *)
+
+    VAR pprev, current, pnext, qtail: RelayListPointer;
+        count: CARDINAL;
+
+    BEGIN
+        pprev := NIL;  current := p;
+        q := NIL;  qtail := NIL;
+        count := 0;
+        REPEAT
+            WHILE (current <> NIL)
+                        AND NOT Strings.Equal(current^.domain, target) DO
+                pprev := current;  current := current^.next;
+            END (*WHILE*);
+
+            IF current <> NIL THEN
+
+                (* Detach current^ from p list. *)
+
+                pnext := current^.next;
+                IF pprev = NIL THEN
+                    p := pnext;
+                ELSE
+                    pprev^.next := pnext;
+                END (*IF*);
+                current^.next := NIL;
+                current := pnext;
+
+                (* Add current^ to q list. *)
+
+                IF q = NIL THEN q := current
+                ELSE qtail^.next := current
+                END (*IF*);
+                qtail := current;
+                INC (count);
+
+            END (*IF*);
+
+        UNTIL current = NIL;
+
+        RETURN count;
+
+    END SplitByDestination;
+
+(************************************************************************)
+
+PROCEDURE PromoteRetryJobs (VAR (*IN*) target: ARRAY OF CHAR);
+
+    (* Promotes mail on the retry list by taking any mail destined for  *)
+    (* target and moving it immediately to the output queue, i.e. the   *)
+    (* retry delay is cancelled.                                        *)
+
+    (* This procedure can result in changes to the message file and     *)
+    (* to the duplication of message files, but all files created       *)
+    (* are hidden files.                                                *)
+
+    VAR count: CARDINAL;
+        previous, p, q: OutJobPtr;
+        q1: RelayListPointer;
+
+    BEGIN
+        Obtain (RetryList.access);
+        previous := NIL;
+        p := RetryList.head;
+        WHILE p <> NIL DO
+            count := SplitByDestination (p^.sendto^.remote, target, q1);
+
+            IF (p^.sendto^.remote = NIL) AND (p^.sendto^.local = NIL) THEN
+
+                (* Special case: all recipients have been transferred   *)
+                (* to q1, so we pull the entire job from the Retry list.*)
+
+                p^.sendto^.remote := q1;
+                IF previous = NIL THEN
+                    RetryList.head := p^.next;
+                ELSE
+                    previous^.next := p^.next;
+                END (*IF*);
+                p^.next := NIL;
+                WITH JobCount DO
+                    Obtain (access);
+                    DEC (count);
+                    IF count < JobCountLimitLow THEN
+                        limit := JobCountLimitHigh;
+                    END (*IF*);
+                    Release (access);
+                END (*WITH*);
+                AddToMailSack (p);
+
+            ELSIF count > 0 THEN
+
+                (* Create a new job for the q1 recipients. *)
+
+                NEW (q);
+                q^ := p^;
+                NEW (q^.sendto);
+                q^.sendto^.local := NIL;
+                q^.sendto^.remote := q1;
+                q^.sendto^.RemoteCount := count;
+                q^.RetryNumber := 0;
+                q^.sendtime := 0;
+                DEC (p^.sendto^.RemoteCount, count);
+                DEC (RetryList.RecipientCount.count, count);
+                StoreMessageFile (q);           (* hidden *)
+                RebuildMessageFile (p);         (* hidden *)
+                AddToMailSack (q);
+
+            END (*IF*);
+
+            previous := p;
+            p := p^.next;
+
+        END (*WHILE*);
+
+        Release (RetryList.access);
+
+    END PromoteRetryJobs;
 
 (************************************************************************)
 (*            THE TASK THAT HANDLES RETRANSMISSION ATTEMPTS             *)
@@ -4737,7 +4788,7 @@ PROCEDURE OnlineChecker;
             IF WeAreOffline <> WeWereOffline THEN
                 RecomputeLocalDomainNames (DisplayAddr, ExtraLogging);
                 IF NOT UseFixedLocalName THEN
-                    AddressToHostName (DisplayAddr, OurHostName);
+                    EVAL (AddressToHostName (DisplayAddr, OurHostName));
                 END (*IF*);
                 IF WeAreOffline THEN
 
@@ -4745,7 +4796,7 @@ PROCEDURE OnlineChecker;
 
                     LogTransactionL (LogID, "Going off-line");
                     IF ScreenEnabled THEN
-                        UpdateTopScreenLine (60, "Offline          ");
+                        (*UpdateTopScreenLine (60, "Offline          ");*)
                     END (*IF*);
                 ELSE
 
@@ -4754,7 +4805,7 @@ PROCEDURE OnlineChecker;
                     LogTransactionL (LogID, "Going on-line");
                     IF ScreenEnabled THEN
                         IPToString (DisplayAddr, TRUE, txtbuf);
-                        UpdateTopScreenLine (60, txtbuf);
+                        (*UpdateTopScreenLine (60, txtbuf);*)
                     END (*IF*);
                     Strings.Assign ("We are using ", message);
                     pos := 13;
@@ -4922,12 +4973,13 @@ PROCEDURE ReloadDeliveryINIData (FirstTime: BOOLEAN;
     (* Returns the value of ExtraLogging.                               *)
 
     VAR hini: INIData.HINI;
-        TransLevel, RetryHours, minutes: CARDINAL;
+        TransLevel, RetryHours, minutes, maxchunksize: CARDINAL;
         temp16: CARD16;
         TransLogName: FilenameString;
         SyslogHost: HostName;
         key: ARRAY [0..20] OF CHAR;
         SYSapp: ARRAY [0..4] OF CHAR;
+        LogInitLists: BOOLEAN;
 
     BEGIN
         SyslogHost := "";
@@ -4936,6 +4988,7 @@ PROCEDURE ReloadDeliveryINIData (FirstTime: BOOLEAN;
         RetryHours := 4*24;
         ForwardRelayOption := 0;
         BindAddr := AddressToBindTo;
+        LogInitLists := TRUE;
         Obtain (LogFileLock);
         key := "weasel.ini";
         hini := OpenINIFile (key, UseTNI);
@@ -4947,6 +5000,8 @@ PROCEDURE ReloadDeliveryINIData (FirstTime: BOOLEAN;
             IF NOT INIGet (hini, SYSapp, key, LogOutgoing) THEN
                 LogOutgoing := FALSE;
             END (*IF*);
+            key := "LogInitLists";
+            EVAL (INIGet (hini, SYSapp, key, LogInitLists));
             key := "OutgoingLogFile";
             IF NOT INIGetString (hini, SYSapp, key, LogFileName) THEN
                 LogFileName := "SMTPOUT.LOG";
@@ -5018,6 +5073,15 @@ PROCEDURE ReloadDeliveryINIData (FirstTime: BOOLEAN;
             IF NOT INIGet (hini, SYSapp, key, OnlineOption) THEN
                 OnlineOption := 2;
             END (*IF*);
+            key := "maxchunksize";
+            IF NOT INIGet (hini, SYSapp, key, maxchunksize) THEN
+                maxchunksize := 8;
+            END (*IF*);
+            IF maxchunksize = 0 THEN
+                MaxChunkSize := 0;
+            ELSE
+                MaxChunkSize := 1024*maxchunksize - 1;
+            END (*IF*);
         END (*IF*);
         CloseINIFile (hini);
         Release (LogFileLock);
@@ -5060,8 +5124,9 @@ PROCEDURE ReloadDeliveryINIData (FirstTime: BOOLEAN;
         END (*IF*);
         SetPrincipalIPAddress (BindAddr);
         StartTransactionLogging (WCtx, TransLogName, TransLevel);
-        RefreshMasterDomainList (FirstTime);
-        RefreshHostLists (FirstTime, UseTNI);
+        LogInitLists := LogInitLists AND FirstTime;
+        RefreshMasterDomainList (LogInitLists);
+        RefreshHostLists (LogInitLists, UseTNI);
         LoadRelayRules (UseTNI);
 
         (* Now that we know how many Send_NN tasks to run, wake up      *)
@@ -5147,6 +5212,7 @@ VAR hini: INIData.HINI;  j: CARDINAL;
 BEGIN
     UseTNI := FALSE;
     UseFixedLocalName := FALSE;
+    MaxChunkSize := 8*1024;
     MaxRecipientsPerLetter := 100;
     MaxRetries := 26;  WarnRetries := 9;
     BindAddr := 0;
@@ -5160,7 +5226,7 @@ BEGIN
     ShutdownRequest := FALSE;  TaskCount := 0;
     IF ScreenEnabled THEN
         ClearScreen;  SetBoundary (2, 30);
-        UpdateTopScreenLine (60, "Offline          ");
+        (*UpdateTopScreenLine (60, "Offline          ");*)
     END (*IF*);
     newmailhev := 0;
     IF OS2.DosOpenEventSem (semName, newmailhev) = OS2.ERROR_SEM_NOT_FOUND THEN

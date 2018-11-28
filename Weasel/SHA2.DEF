@@ -1,0 +1,95 @@
+(**************************************************************************)
+(*                                                                        *)
+(*  SHA256 digest                                                         *)
+(*  Copyright (C) 2016   Peter Moylan                                     *)
+(*                                                                        *)
+(*  This program is free software: you can redistribute it and/or modify  *)
+(*  it under the terms of the GNU General Public License as published by  *)
+(*  the Free Software Foundation, either version 3 of the License, or     *)
+(*  (at your option) any later version.                                   *)
+(*                                                                        *)
+(*  This program is distributed in the hope that it will be useful,       *)
+(*  but WITHOUT ANY WARRANTY; without even the implied warranty of        *)
+(*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *)
+(*  GNU General Public License for more details.                          *)
+(*                                                                        *)
+(*  You should have received a copy of the GNU General Public License     *)
+(*  along with this program.  If not, see <http://www.gnu.org/licenses/>. *)
+(*                                                                        *)
+(*  To contact author:   http://www.pmoylan.org   peter@pmoylan.org       *)
+(*                                                                        *)
+(**************************************************************************)
+
+DEFINITION MODULE SHA2;
+
+        (********************************************************)
+        (*                                                      *)
+        (*              SHA-224 and SHA-256 digest              *)
+        (*                                                      *)
+        (*  Processes a data sequence of arbitrary length,      *)
+        (*  producing a 28-byte or 32-byte "digest" (56 or 64   *)
+        (*  hex characters) as a secure signature of this data  *)
+        (*  sequence.                                           *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            14 December 2016                *)
+        (*  Last edited:        20 December 2016                *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (*  The standard governing this code is Federal         *)
+        (*  Information Processing Standards (FIPS) PUB 180-4,  *)
+        (*  available from http://csrc.nist.gov                 *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM SYSTEM IMPORT CARD32, LOC;
+
+TYPE
+    SHA2_CTX;    (* is private *)
+    SHA2_DigestType = ARRAY [0..7] OF CARD32;
+
+
+PROCEDURE SHA224Init(): SHA2_CTX;
+
+    (* SHA-224 initialization. Begins a SHA-224 operation, creating *)
+    (* a new context.                                               *)
+
+PROCEDURE SHA256Init(): SHA2_CTX;
+
+    (* SHA-256 initialization. Begins the operation, creating a new context. *)
+
+PROCEDURE SHA2Update (context: SHA2_CTX;  data: ARRAY OF LOC;  length: CARDINAL);
+
+    (* SHA-224 and SHA-256 block update operation. Continues a          *)
+    (* message-digest operation, adding more data to what has already   *)
+    (* been processed for this context.                                 *)
+
+PROCEDURE SHA2Final (VAR (*INOUT*) context: SHA2_CTX;
+                     VAR (*OUT*) digest: SHA2_DigestType);
+
+    (* SHA-224 or SHA-256 finalization. Ends the message-digest     *)
+    (* operation, returning the digest and discarding the context.  *)
+
+PROCEDURE SHA224DigestToString (VAR (*IN*) digest: SHA2_DigestType;
+                             VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Converts the digest to a 56-character string.  If there is not enough    *)
+    (* space for 56 characters, produces a leading substring of the full result.*)
+
+PROCEDURE SHA256DigestToString (VAR (*IN*) digest: SHA2_DigestType;
+                             VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Converts the digest to a 64-character string.  If there is not enough    *)
+    (* space for 64 characters, produces a leading substring of the full result.*)
+
+PROCEDURE SHA2FinalDigest (VAR (*INOUT*) context: SHA2_CTX;
+                             VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* SHA-224 or SHA-256 finalization. Ends the message-digest operation,      *)
+    (* returning the digest and discarding the context.  This is equivalent to  *)
+    (* SHA2Final followed by converting the digest to a string, for callers     *)
+    (* who don't need to know the actual digest value.                          *)
+
+END SHA2.
+

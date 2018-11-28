@@ -7,14 +7,14 @@ DEFINITION MODULE MiscFuncs;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            21 May 2017                     *)
-        (*  Last edited:        16 June 2017                    *)
+        (*  Last edited:        26 January 2018                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
 
 
 FROM SYSTEM IMPORT LOC;
-FROM Types IMPORT CARD64;
+FROM Arith64 IMPORT CARD64;
 FROM FileOps IMPORT ChanId;
 
 
@@ -26,6 +26,11 @@ PROCEDURE EVAL (f: ARRAY OF LOC);
 
     (* A do-nothing procedure - we use it for evaluating a function and *)
     (* ignoring the result.                                             *)
+
+PROCEDURE StripWhitespace (VAR (*INOUT*) arg: ARRAY OF CHAR);
+
+    (* Removes leading and trailing whitespace from arg.  The whitespace *)
+    (* characters are space, tab, carriage return, and line feed.        *)
 
 PROCEDURE StringMatch (str1, str2: ARRAY OF CHAR): BOOLEAN;
 

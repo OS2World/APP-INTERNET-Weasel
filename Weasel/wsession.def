@@ -6,7 +6,7 @@ DEFINITION MODULE WSession;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            28 April 1998                   *)
-        (*  Last edited:        11 December 2016                *)
+        (*  Last edited:        2 February 2018                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -19,7 +19,7 @@ FROM Sockets IMPORT
     (* type *)  Socket, SockAddr;
 
 
-PROCEDURE SetSessionParameters (MaxUserLimit, TimeoutLimit: CardArray;
+PROCEDURE SetServerParameters (MaxUserLimit, TimeoutLimit: CardArray;
                                 BadPasswordLimit: CARDINAL;
                                 AuthTime, SMTPAuthMask: CARDINAL;
                                 NoPOPlogging: BOOLEAN);

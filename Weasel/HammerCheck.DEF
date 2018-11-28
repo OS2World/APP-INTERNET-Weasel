@@ -1,0 +1,31 @@
+DEFINITION MODULE HammerCheck;
+
+        (********************************************************)
+        (*                                                      *)
+        (*           Defence against password attacks           *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            6 November 2017                 *)
+        (*  Last edited:        16 November 2017                *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM TransLog IMPORT            (* WHILE DEBUGGING *)
+    (* type *)  TransactionLogID;
+
+
+PROCEDURE NotePasswordError (IPAddress: CARDINAL);
+
+    (* Records this IP address as one that, because of undesirable      *)
+    (* behaviour, should be locked out for a short time.  For a         *)
+    (* persistent attacker, that "short time" will increase.            *)
+
+PROCEDURE Throttle (IPAddress: CARDINAL;  ID: TransactionLogID): BOOLEAN;
+
+    (* Returns TRUE iff this IP address is on the list of addresses to  *)
+    (* be blocked because of recent suspect behaviour.                  *)
+
+END HammerCheck.
+

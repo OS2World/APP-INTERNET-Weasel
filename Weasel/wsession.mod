@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE WSession;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            28 April 1998                   *)
-        (*  Last edited:        26 May 2017                     *)
+        (*  Last edited:        24 February 2018                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -48,6 +48,9 @@ FROM LowLevel IMPORT
 FROM Conversions IMPORT
     (* proc *)  CardinalToString;
 
+FROM SplitScreen IMPORT
+    (* proc *)  WriteStringAt;
+
 FROM SBuffers IMPORT
     (* type *)  SBuffer,
     (* proc *)  CreateSBuffer, CloseSBuffer, SetTimeout, GetLine;
@@ -61,14 +64,14 @@ FROM Inet2Misc IMPORT
     (* proc *)  IPToString, Synch;
 
 FROM MiscFuncs IMPORT
-    (* proc *)  ConvertCard, LockScreen, UnlockScreen, AddEOL;
+    (* proc *)  ConvertCard, ConvertCardRJ, LockScreen, UnlockScreen, AddEOL;
 
-FROM Semaphores IMPORT
-    (* type *)  Semaphore,
-    (* proc *)  CreateSemaphore, DestroySemaphore, Signal;
+FROM Watchdog IMPORT
+    (* type *)  WatchdogID,
+    (* proc *)  AddToWatches, RemoveFromWatches, KickWatchdog;
 
 FROM Timer IMPORT
-    (* proc *)  TimedWait, Sleep;
+    (* proc *)  Sleep;
 
 FROM TaskControl IMPORT
     (* type *)  Lock,
@@ -82,6 +85,9 @@ FROM Names IMPORT
 
 IMPORT Delivery, POPCommands, POPData, SMTPCommands, SMTPData;
 
+FROM HammerCheck IMPORT
+    (* proc *)  Throttle;
+
 FROM TransLog IMPORT
     (* type *)  TransactionLogID,
     (* proc *)  CreateLogID, DiscardLogID, LogTransaction, LogTransactionL;
@@ -91,7 +97,6 @@ FROM TransLog IMPORT
 CONST
     Nul = CHR(0);  CR = CHR(13);  LF = CHR(10);
     NilLogID = CAST(TransactionLogID, NIL);
-    NilSemaphore = CAST(Semaphore, NIL);
     NilSBuffer = CAST(SBuffer, NIL);
 
 TYPE
@@ -102,10 +107,9 @@ TYPE
                   HostIPAddress: CARDINAL;     (* host   - network byte order *)
                   ClientIPAddress: CARDINAL;   (* client - network byte order *)
                   CASE service: ServiceType OF
-                     | SMTP:  SS:  SMTPCommands.Session;
-                     | POP:   SP:  POPCommands.Session;
-                     | IMAP:  SI:  POPCommands.Session;
-                     | MSA:   SA:  SMTPCommands.Session;
+                     | POP:        SP:  POPCommands.Session;
+                     | SMTP, MSA:  SS:  SMTPCommands.Session;
+                     | IMAP:       SI:  POPCommands.Session;
                   END (*CASE*);
                   isopen: BOOLEAN;
               END (*RECORD*);
@@ -119,31 +123,33 @@ TYPE
                            IPAddress: CARDINAL;  (* network byte order *)
                        END (*RECORD*);
 
-    (* Data needed by the timeout checker task. *)
+    (* Data needed in timeout processing. *)
 
-    KeepAlivePointer = POINTER TO KeepAliveRecord;
-    KeepAliveRecord = RECORD
-                          SocketOpen, dying: BOOLEAN;
-                          sem: Semaphore;
-                          service: ServiceType;
+    SocketStatePointer = POINTER TO SocketStateRecord;
+    SocketStateRecord = RECORD
+                          ID: WatchdogID;
                           socket: Socket;
-                          TimedOut: BOOLEAN;
+                          SocketOpen, TimedOut: BOOLEAN;
                       END (*RECORD*);
 
     (* Error message type. *)
 
-    StringArray = ARRAY ServiceType OF ARRAY [0..40] OF CHAR;
+    StringArray = ARRAY ServiceType OF ARRAY [0..45] OF CHAR;
 
 CONST
-    AccessDenied = StringArray {"421 Access denied",
-                                "-ERR Access denied",
-                                "* BYE Access denied",
-                                "421 Access denied"};
-    TooManyUsers = StringArray {"421 User limit exceeded, try again later",
-                                "-ERR User limit exceeded, try again later",
-                                "* BYE Too many users, try again later",
-                                "421 User limit exceeded, try again later"};
-    InitialMessage = StringArray {"220 ", "+OK ", "* OK IMAP4rev1 ready", "220 "};
+    AccessDenied = StringArray {"-ERR Access denied",
+                                "421 Access denied",
+                                "421 Access denied",
+                                "* BYE Access denied"};
+    TooManyUsers = StringArray {"-ERR User limit exceeded, try again later",
+                                "421 User limit exceeded, try again later",
+                                "421 User limit exceeded, try again later",
+                                "* BYE Too many users, try again later"};
+    TempLockedOut = StringArray {"-ERR Temporarily locked out, try again later",
+                                "421 Temporarily locked out, try again later",
+                                "421 Temporarily locked out, try again later",
+                                "* BYE Temporarily locked out, try again later"};
+    InitialMessage = StringArray {"+OK ", "220 ", "220 ", "* OK IMAP4rev1 ready"};
 
 VAR
     (* Critical section protection for these global parameters.  Since  *)
@@ -167,20 +173,20 @@ VAR
 
     ScreenLoggingEnabled: BOOLEAN;
 
+    (* Complete logging of POP sessions. *)
+
+    DoPOPlogging: BOOLEAN;
+
     (* Locks to slow down excessive thread creation during a denial     *)
     (* of service attack.                                               *)
 
     ThreadCreationLock: ARRAY ServiceType OF Lock;
 
-    (* Flag to suppress POP sessions in the transaction log. *)
-
-    SuppressPOPlogging: BOOLEAN;
-
 (************************************************************************)
 (*                       PARAMETER SETTINGS                             *)
 (************************************************************************)
 
-PROCEDURE SetSessionParameters (MaxUserLimit, TimeoutLimit: CardArray;
+PROCEDURE SetServerParameters (MaxUserLimit, TimeoutLimit: CardArray;
                                 BadPasswordLimit: CARDINAL;
                                 AuthTime, SMTPAuthMask: CARDINAL;
                                 NoPOPlogging: BOOLEAN);
@@ -206,13 +212,13 @@ PROCEDURE SetSessionParameters (MaxUserLimit, TimeoutLimit: CardArray;
                 MaxTime[j] := TimeoutLimit[j];
             END (*IF*);
         END (*FOR*);
-        SuppressPOPlogging := NoPOPlogging;
+        DoPOPlogging := NOT NoPOPlogging;
         Release (ParamLock);
-        POPCommands.SetPOPParameters (AuthTime);
+        POPCommands.SetPOPParameters (AuthTime, NoPOPlogging);
         POPCommands.SetBadPasswordLimit (BadPasswordLimit);
         SMTPCommands.SetAuthMask (SMTPAuthMask);
         SMTPData.UpdateINIData;
-    END SetSessionParameters;
+    END SetServerParameters;
 
 (************************************************************************)
 (*                      OPENING A NEW CLIENT SESSION                    *)
@@ -221,7 +227,8 @@ PROCEDURE SetSessionParameters (MaxUserLimit, TimeoutLimit: CardArray;
 (*
 PROCEDURE UpdateTitleBar;
 
-    (* Sets the program title bar to reflect the number of users. *)
+    (* Sets the program title bar to reflect the number of users.   *)
+    (* This doesn't work for some reason.                           *)
 
     VAR k: CARDINAL;  notechange: BOOLEAN;
         message: ARRAY [0..63] OF CHAR;
@@ -255,16 +262,28 @@ PROCEDURE UpdateCount (service: ServiceType;  increment: INTEGER): CARDINAL;
     (* limit, then the count is not updated and the returned value      *)
     (* is zero.                                                         *)
 
-    VAR value: CARDINAL;
+    CONST countpos = CardArray {60, 66, 72, 72};
+
+    VAR value, pos: CARDINAL;  changed: BOOLEAN;
+        msg: ARRAY [0..7] OF CHAR;
 
     BEGIN
         Obtain (ParamLock);
+        changed := TRUE;
         IF increment > 0 THEN INC (UserCount[service], increment);
         ELSIF increment < 0 THEN DEC (UserCount[service], -increment)
+        ELSE changed := FALSE;
         END (*IF*);
         value := UserCount[service];
         IF (value > MaxUsers[service]) AND (increment > 0) THEN
             DEC (UserCount[service], increment);  value := 0;
+            changed := FALSE;
+        END (*IF*);
+        IF changed THEN
+            pos := 0;
+            ConvertCardRJ (UserCount[service], msg, 6, pos);
+            msg[pos] := CHR(0);
+            WriteStringAt (0, countpos[service], msg);
         END (*IF*);
         Release (ParamLock);
         RETURN value;
@@ -277,47 +296,38 @@ PROCEDURE NumberOfUsers(): CARDINAL;
     (* Returns the number of users who are currently logged on. *)
 
     BEGIN
-        RETURN UpdateCount (SMTP, 0) + UpdateCount (MSA, 0)
-                                        + UpdateCount (POP, 0);
+        RETURN UpdateCount (POP, 0) + UpdateCount (SMTP, 0)
+                                    + UpdateCount (MSA, 0);
     END NumberOfUsers;
 
 (************************************************************************)
 
-PROCEDURE TimeoutChecker (arg: ADDRESS);
+PROCEDURE TimeoutHandler (arg: ADDRESS);
 
-    (* A new instance of this task is created for each client session.  *)
-    (* It kills the corresponding SessionHandler task if more than      *)
-    (* MaxTime seconds have passed since the last Signal() on the       *)
-    (* session's KeepAlive semaphore.                                   *)
+    (* This is called from the Watchdog module, which is telling us     *)
+    (* that the session specified by arg has timed out.  We respond by  *)
+    (* cancelling the main socket for this session.  That will cause a  *)
+    (* failure of the input operation in the SessionHandler task, at    *)
+    (* which point that task will discover the TimedOut flag is set.    *)
 
-    VAR p: KeepAlivePointer;  patience: CARDINAL;
+    VAR q: SocketStatePointer;
 
     BEGIN
-        p := arg;
-        REPEAT
-            Obtain (ParamLock);
-            patience := 1000*MaxTime[p^.service];
-            Release (ParamLock);
-            TimedWait (p^.sem, patience, p^.TimedOut);
-        UNTIL p^.TimedOut OR p^.dying;
-        IF p^.SocketOpen THEN
-            so_cancel (p^.socket);
+        q := arg;
+        q^.TimedOut := TRUE;
+        IF q^.SocketOpen THEN
+            so_cancel (q^.socket);
         END (*IF*);
 
-        (* Wait for the socket to be closed. *)
+        (* Do not dispose of the q^ record, because the associated      *)
+        (* service thread will want to inspect q^.TimedOut.             *)
 
-        WHILE p^.SocketOpen DO
-            Sleep (500);
-        END (*WHILE*);
-        DestroySemaphore (p^.sem);
-        DEALLOCATE (p, SIZE(KeepAliveRecord));
-
-    END TimeoutChecker;
+    END TimeoutHandler;
 
 (************************************************************************)
 
 PROCEDURE OpenSession (VAR (*INOUT*) session: Session;  SB: SBuffer;
-                        KeepAlive: Semaphore;
+                         watchID: WatchdogID;
                          whitelisted, MayRelay: BOOLEAN): BOOLEAN;
 
     (* Initialise the data structures for a new session. *)
@@ -326,18 +336,14 @@ PROCEDURE OpenSession (VAR (*INOUT*) session: Session;  SB: SBuffer;
 
     BEGIN
         WITH session DO
-            IF service = SMTP THEN
-                SS := SMTPCommands.OpenSession (SB, HostIPAddress,
-                              ClientIPAddress, KeepAlive, LogID,
-                               whitelisted, MayRelay, FALSE, success);
-            ELSIF service = MSA THEN
-                SA := SMTPCommands.OpenSession (SB, HostIPAddress,
-                               ClientIPAddress, KeepAlive, LogID,
-                                whitelisted, MayRelay, TRUE, success);
-            ELSE
+            IF service = POP THEN
                 SP := POPCommands.OpenSession (SB, HostIPAddress,
-                                       ClientIPAddress, KeepAlive, LogID);
+                                         ClientIPAddress, watchID, LogID);
                 success := TRUE;
+            ELSE
+                SS := SMTPCommands.OpenSession (SB, HostIPAddress,
+                              ClientIPAddress, watchID, LogID,
+                               whitelisted, MayRelay, service = MSA, success);
             END (*IF*);
             isopen := TRUE;
         END (*WITH*);
@@ -353,12 +359,10 @@ PROCEDURE CloseSession (session: Session);
     BEGIN
         WITH session DO
             IF isopen THEN
-                IF service = SMTP THEN
-                    SMTPCommands.CloseSession (SS);
-                ELSIF service = MSA THEN
-                    SMTPCommands.CloseSession (SS);
-                ELSE
+                IF service = POP THEN
                     POPCommands.CloseSession (SP);
+                ELSE
+                    SMTPCommands.CloseSession (SS);
                 END (*IF*);
             END (*IF*);
             isopen := FALSE;
@@ -379,15 +383,12 @@ PROCEDURE HandleCommand (session: Session;  VAR (*IN*) command: ARRAY OF CHAR;
 
     BEGIN
         WITH session DO
-            IF service = SMTP THEN
-                SMTPCommands.HandleCommand (session.SS, command,
-                                                      Quit, ServerAbort);
-            ELSIF service = MSA THEN
-                SMTPCommands.HandleCommand (session.SS, command,
-                                                      Quit, ServerAbort);
-            ELSE
+            IF service = POP THEN
                 POPCommands.HandleCommand (session.SP, command, Quit);
                 ServerAbort := FALSE;
+            ELSE
+                SMTPCommands.HandleCommand (session.SS, command,
+                                                      Quit, ServerAbort);
             END (*IF*);
         END (*WITH*);
     END HandleCommand;
@@ -422,8 +423,7 @@ PROCEDURE SessionHandler (arg: ADDRESS);
 
     VAR
         pCmdBuffer: POINTER TO ARRAY [0..CmdBufferSize-1] OF CHAR;
-        KeepAliveSemaphore: Semaphore;
-        KA: KeepAlivePointer;
+        KB: SocketStatePointer;
         sess: Session;
         SB: SBuffer;
         S: Socket;
@@ -437,11 +437,9 @@ PROCEDURE SessionHandler (arg: ADDRESS);
 
         BEGIN
             CloseSession (sess);
-            IF KA <> NIL THEN
-                DISPOSE (KA);
-            END (*IF*);
-            IF KeepAliveSemaphore <> NilSemaphore THEN
-                DestroySemaphore (KeepAliveSemaphore);
+            IF KB <> NIL THEN
+                RemoveFromWatches (KB^.ID, TRUE);
+                DISPOSE (KB);
             END (*IF*);
             IF pCmdBuffer <> NIL THEN
                 DEALLOCATE (pCmdBuffer, CmdBufferSize);
@@ -488,47 +486,43 @@ PROCEDURE SessionHandler (arg: ADDRESS);
         sess.isopen := FALSE;
         sess.LogID := NilLogID;
         pCmdBuffer := NIL;
-        KA := NIL;
-        KeepAliveSemaphore := NilSemaphore;
+        KB := NIL;
         SB := NilSBuffer;
 
         Obtain (ThreadCreationLock[sess.service]);
-
         S := NSP^.socket;
         size := SIZE(SockAddr);
         getsockname (S, ServerName, size);
         sess.HostIPAddress := ServerName.in_addr.addr;
         sess.ClientIPAddress := NSP^.IPAddress;
+        Release (ThreadCreationLock[sess.service]);
         DEALLOCATE (NSP, SIZE(NewSessionRecord));
 
         (* Create the log file ID for this session. *)
 
-        IF SuppressPOPlogging AND (sess.service = POP) THEN
-            sess.LogID := NilLogID;
-        ELSE
-            CardinalToString (S, LogFilePrefix, 7);
-            IF sess.service = SMTP THEN
-                LogFilePrefix[0] := 'S';
-            ELSIF sess.service = MSA THEN
-                LogFilePrefix[0] := 'M';
-            ELSE
-                LogFilePrefix[0] := 'P';
-            END (*IF*);
-            sess.LogID := CreateLogID (LogCtx.WCtx, LogFilePrefix);
+        CardinalToString (S, LogFilePrefix, 7);
+        IF sess.service = POP THEN
+            LogFilePrefix[0] := 'P';
+        ELSIF sess.service = SMTP THEN
+            LogFilePrefix[0] := 'S';
+        ELSIF sess.service = MSA THEN
+            LogFilePrefix[0] := 'M';
         END (*IF*);
+        sess.LogID := CreateLogID (LogCtx.WCtx, LogFilePrefix);
 
         (* Log the new session commencement. *)
 
         Strings.Assign ("New client ", LogMessage);
         IPToString (sess.ClientIPAddress, TRUE, IPBuffer);
         Strings.Append (IPBuffer, LogMessage);
-        LogTransaction (sess.LogID, LogMessage);
+        IF sess.LogID <> NilLogID THEN
+            LogTransaction (sess.LogID, LogMessage);
+        END (*IF*);
         NEW (pCmdBuffer);
 
         (* Check for too many users. *)
 
         UserNumber := UpdateCount (sess.service, +1);
-        Release (ThreadCreationLock[sess.service]);
         IF UserNumber = 0 THEN
             Strings.Assign (TooManyUsers[sess.service], pCmdBuffer^);
             Reply (S, sess.LogID, pCmdBuffer^);
@@ -558,21 +552,30 @@ PROCEDURE SessionHandler (arg: ADDRESS);
             AbandonSession;
         END (*IF*);
 
+        (* Register us with the watchdog.  *)
+
+        NEW (KB);
+        WITH KB^ DO
+            SocketOpen := TRUE;  socket := S;
+            TimedOut := FALSE;
+        END (*WITH*);
+        KB^.ID := AddToWatches (MaxTime[sess.service], TimeoutHandler, KB);
+
         (* Check the realtime blacklists, if this check is enabled. *)
 
-        CreateSemaphore (KeepAliveSemaphore, 0);
         IF (NOT whitelisted) AND (NOT MayRelay) AND (sess.service = SMTP)
                    AND OnBlacklist(sess.ClientIPAddress, sess.LogID,
-                                      KeepAliveSemaphore, pCmdBuffer^) THEN
+                                      KB^.ID, pCmdBuffer^) THEN
             Reply (S, sess.LogID, pCmdBuffer^);
             AbandonSession;
         END (*IF*);
 
-        (* Special control for POP sessions to reduce simultaneous   *)
-        (* logins from the same IP address.                          *)
+        (* After a password error we lock out that IP address very  *)
+        (* briefly.  Multiple password errors suggest an attacker,  *)
+        (* in which case the lockout time keeps increasing.         *)
 
-        IF (sess.service = POP) AND POPData.ThrottlePOP(sess.ClientIPAddress) THEN
-            Strings.Assign ("-ERR Too many password errors", pCmdBuffer^);
+        IF Throttle(sess.ClientIPAddress, sess.LogID) THEN
+            Strings.Assign (TempLockedOut[sess.service], pCmdBuffer^);
             Reply (S, sess.LogID, pCmdBuffer^);
             AbandonSession;
         END (*IF*);
@@ -589,22 +592,8 @@ PROCEDURE SessionHandler (arg: ADDRESS);
         Obtain (ParamLock);
         SetTimeout (SB, MaxTime[sess.service]);
         Release (ParamLock);
-        IF NOT OpenSession (sess, SB, KeepAliveSemaphore, whitelisted, MayRelay) THEN
+        IF NOT OpenSession (sess, SB, KB^.ID, whitelisted, MayRelay) THEN
             LogTransactionL (sess.LogID, "Client rejected by filter");
-            AbandonSession;
-        END (*IF*);
-
-        (* Create an instance of the TimeoutChecker task. *)
-
-        NEW (KA);
-        WITH KA^ DO
-            SocketOpen := TRUE;  socket := S;  dying := FALSE;
-            service := sess.service;
-            sem := KeepAliveSemaphore;
-            TimedOut := FALSE;
-        END (*WITH*);
-        IF NOT CreateTask1 (TimeoutChecker, 3, "weasel timeout", KA) THEN
-            LogTransactionL (sess.LogID, "Thread limit exceeded");
             AbandonSession;
         END (*IF*);
 
@@ -622,9 +611,11 @@ PROCEDURE SessionHandler (arg: ADDRESS);
             Strings.Append (' ', pCmdBuffer^);
             POPCommands.AppendTimeStamp (sess.SP, pCmdBuffer^);
         END (*IF*);
-        Strings.Assign ("> ", LogMessage);
-        Strings.Append (pCmdBuffer^, LogMessage);
-        LogTransaction (sess.LogID, LogMessage);
+        IF (sess.service <> POP) OR DoPOPlogging THEN
+            Strings.Assign ("> ", LogMessage);
+            Strings.Append (pCmdBuffer^, LogMessage);
+            LogTransaction (sess.LogID, LogMessage);
+        END (*IF*);
         size := AddEOL (pCmdBuffer^);
         Quit := send (S, pCmdBuffer^, size, 0) = MAX(CARDINAL);
         ServerAbort := FALSE;
@@ -632,12 +623,13 @@ PROCEDURE SessionHandler (arg: ADDRESS);
         (* Here's the main command processing loop.  We leave it when the client  *)
         (* issues a QUIT command, or when socket communications are lost, or      *)
         (* when we deliberately abort the session (via a spam filter, etc.), or   *)
-        (* when we get a timeout on the KeepAlive semaphore.                      *)
+        (* when the watchdog declares a timeout.                                  *)
 
         LOOP
-            IF Quit OR ServerAbort THEN EXIT(*LOOP*) END(*IF*);
+            IF Quit OR ServerAbort OR KB^.TimedOut THEN EXIT(*LOOP*) END(*IF*);
             IF GetLine (SB, pCmdBuffer^) THEN
-                Signal (KeepAliveSemaphore);
+                IF KB^.TimedOut THEN EXIT(*LOOP*) END(*IF*);
+                KickWatchdog (KB^.ID);
                 HandleCommand (sess, pCmdBuffer^, Quit, ServerAbort);
                 Synch (S);
             ELSE
@@ -649,11 +641,10 @@ PROCEDURE SessionHandler (arg: ADDRESS);
         (* or a communications failure.  In the QUIT case only, renew the       *)
         (* POP-before-SMTP authorisation if we had it.                          *)
 
+        RemoveFromWatches (KB^.ID, TRUE);
+
         DEALLOCATE (pCmdBuffer, CmdBufferSize);
-        IF KA^.TimedOut THEN
-            IF sess.service = IMAP THEN
-                (*EVAL(SendLineL (SB, "* BYE Autologout; idle for too long"));*)
-            END (*IF*);
+        IF KB^.TimedOut THEN
             LogTransactionL (sess.LogID, "Timed out");
         ELSIF ServerAbort THEN
             LogTransactionL (sess.LogID, "Session aborted by server");
@@ -667,9 +658,8 @@ PROCEDURE SessionHandler (arg: ADDRESS);
         LogTransactionL (sess.LogID, "End of session");
 
         CloseSession (sess);
-        KA^.dying := TRUE;  Signal (KA^.sem);
         CloseSBuffer (SB);
-        KA^.SocketOpen := FALSE;
+        DISPOSE (KB);
         EVAL (UpdateCount (sess.service, -1));
 
         TaskExit;
@@ -728,23 +718,21 @@ VAR s: ServiceType;
 BEGIN
     CreateLock (ParamLock);
     Obtain (ParamLock);
-    SuppressPOPlogging := FALSE;
     MaxUsers := CardArray {many, many, many, many};
     MaxTime := CardArray {FifteenMinutes, FifteenMinutes, 2*FifteenMinutes,
                           FifteenMinutes};
     UserCount := CardArray {0, 0, 0, 0};
     ScreenLoggingEnabled := TRUE;
+    DoPOPlogging := TRUE;
     Release (ParamLock);
     FOR s := MIN(ServiceType) TO MAX(ServiceType) DO
         CreateLock (ThreadCreationLock[s]);
     END (*FOR*);
+    WriteStringAt (0, 54, "Users:              ");
 FINALLY
     FOR s := MIN(ServiceType) TO MAX(ServiceType) DO
         DestroyLock (ThreadCreationLock[s]);
     END (*FOR*);
-
-    (* Let's not destroy ParamLock, because there could still   *)
-    (* be one or more instances of TimeoutChecker running.      *)
-
+    DestroyLock (ParamLock);
 END WSession.
 

@@ -1,0 +1,72 @@
+(**************************************************************************)
+(*                                                                        *)
+(*  Part of encryption software                                           *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*                                                                        *)
+(*  This program is free software: you can redistribute it and/or modify  *)
+(*  it under the terms of the GNU General Public License as published by  *)
+(*  the Free Software Foundation, either version 3 of the License, or     *)
+(*  (at your option) any later version.                                   *)
+(*                                                                        *)
+(*  This program is distributed in the hope that it will be useful,       *)
+(*  but WITHOUT ANY WARRANTY; without even the implied warranty of        *)
+(*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *)
+(*  GNU General Public License for more details.                          *)
+(*                                                                        *)
+(*  You should have received a copy of the GNU General Public License     *)
+(*  along with this program.  If not, see <http://www.gnu.org/licenses/>. *)
+(*                                                                        *)
+(*  To contact author:   http://www.pmoylan.org   peter@pmoylan.org       *)
+(*                                                                        *)
+(**************************************************************************)
+
+DEFINITION MODULE BEDigests;
+
+        (********************************************************)
+        (*                                                      *)
+        (*  Converting a message digest to a hexidecimal string *)
+        (*  for the case where big-endian notation is needed,   *)
+        (*  e.g. the SHA class of algorithms.  This module      *)
+        (*  deals with the fact that we're executing a          *)
+        (*  big-endian algorithm on little-endian hardware.     *)
+        (*                                                      *)
+        (*  Common code for a variety of encryption procedures. *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            29 September 2017               *)
+        (*  Last edited:        28 January 2018                 *)
+        (*  Status:             OK                              *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM SYSTEM IMPORT CARD32;
+FROM Arith64 IMPORT CARD64;
+
+PROCEDURE ConvertHex8 (value: CARD32;  VAR (*INOUT*) string: ARRAY OF CHAR;
+                                         VAR (*INOUT*) pos: CARDINAL);
+
+    (* Converts an eight-digit hex number to string, starting at string[pos]. *)
+
+PROCEDURE BEDigestToString (N: CARDINAL;  VAR (*IN*) digest: ARRAY OF CARD32;
+                             VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Converts the digest to a 8*N-character string.  If there is not enough   *)
+    (* space for the result, produces a leading substring of the full result.   *)
+
+    (* The value you need for N is:         *)
+    (*      4   for MD5                     *)
+    (*      5   for SHA1                    *)
+    (*      7   for SHA-224                 *)
+    (*      8   for SHA-256                 *)
+    (*     12   for SHA-384                 *)
+    (*     16   for SHA-512                 *)
+
+PROCEDURE BEDigest64ToString (N: CARDINAL;  VAR (*IN*) digest: ARRAY OF CARD64;
+                             VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Converts the digest to a 8*N-character string.  If there is not enough   *)
+    (* space for the result, produces a leading substring of the full result.   *)
+
+END BEDigests.
+

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -27,7 +27,7 @@ MODULE Setup;
         (*                    PM Setup for Weasel                   *)
         (*                                                          *)
         (*    Started:        25 June 1999                          *)
-        (*    Last edited:    22 July 2017                          *)
+        (*    Last edited:    25 November 2018                      *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
@@ -42,7 +42,7 @@ FROM PMInit IMPORT
     (* proc *)  OurHab;
 
 FROM RINIData IMPORT
-    (* proc *)  ChooseDefaultINI;
+    (* proc *)  ChooseDefaultINI, CommitTNIDecision;
 
 FROM WSUINI IMPORT
     (* proc *)  SetTNIMode;
@@ -57,7 +57,8 @@ VAR hab: OS2.HAB;            (* anchor block handle *)
 (********************************************************************************)
 
 PROCEDURE GetParameters (VAR (*OUT*) LocalRemote: CARDINAL;
-                         VAR (*INOUT*) UseTNI: BOOLEAN);
+                               VAR (*INOUT*) UseTNI: BOOLEAN;
+                                    VAR (*OUT*) explicit: BOOLEAN);
 
     (* Picks up program arguments from the command line. *)
     (* The meaning of LocalRemote is:                                   *)
@@ -65,6 +66,8 @@ PROCEDURE GetParameters (VAR (*OUT*) LocalRemote: CARDINAL;
     (*         1   force local setup                   (option -L)      *)
     (*         2   force remote setup                  (option -R)      *)
     (*         3   force whichever was used last time  (option -G)      *)
+    (* explicit is true iff the UseTNI value has been set by a -T or    *)
+    (* -I specifier.                                                    *)
 
     TYPE CharNumber = [0..79];
 
@@ -90,6 +93,7 @@ PROCEDURE GetParameters (VAR (*OUT*) LocalRemote: CARDINAL;
     (****************************************************************************)
 
     BEGIN
+        explicit := FALSE;
         LocalRemote := 0;
         args := ArgChan();
         IF IsArgPresent() THEN
@@ -104,7 +108,9 @@ PROCEDURE GetParameters (VAR (*OUT*) LocalRemote: CARDINAL;
                               END (*IF*);
                   | 'R':      LocalRemote := 2;
                   | 'I':      UseTNI := FALSE;
+                              explicit := TRUE;
                   | 'T':      UseTNI := TRUE;
+                              explicit := TRUE;
                 ELSE
                               (* do nothing *)
                 END (*CASE*);
@@ -118,7 +124,7 @@ PROCEDURE GetParameters (VAR (*OUT*) LocalRemote: CARDINAL;
 (*              MAIN PROGRAM: INITIALISATION AND MESSAGE DISPATCHING            *)
 (********************************************************************************)
 
-VAR LocalRemote: CARDINAL;  UseTNI: BOOLEAN;
+VAR LocalRemote: CARDINAL;  UseTNI, explicit: BOOLEAN;
 
 BEGIN
     hab := OurHab();
@@ -127,15 +133,16 @@ BEGIN
     (* Since signal exceptions are not handled by RTS yet, using module   *)
     (* finalization for clean up is incorrect.                            *)
 
-    IF NOT ChooseDefaultINI ("weasel", UseTNI) THEN
+    GetParameters (LocalRemote, UseTNI, explicit);
+    IF explicit THEN
+        CommitTNIDecision ("weasel", UseTNI);
+    ELSIF NOT ChooseDefaultINI ("weasel", UseTNI) THEN
         UseTNI := FALSE;
     END (*IF*);
 
-    (* The value of UseTNI set above can be overriden by user parameters. *)
-
-    GetParameters (LocalRemote, UseTNI);
         (*UseTNI := TRUE;*)    (* Enable this line for testing TNI mode *)
         (*LocalRemote := 1;*)  (* Enable this line for testing Local option *)
+
     SetTNIMode (UseTNI);
     OpeningDialogue.CreateMainDialogue (LocalRemote, UseTNI);
 

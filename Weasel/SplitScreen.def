@@ -5,7 +5,7 @@ DEFINITION MODULE SplitScreen;
         (*           Simple screen output routines.             *)
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
-        (*  Last edited:        14 November 2012                *)
+        (*  Last edited:        7 January 2018                  *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (*  This module supports a specialised form of split    *)
@@ -20,6 +20,10 @@ PROCEDURE NotDetached(): BOOLEAN;
 
     (* Returns TRUE unless called by a process running detached.        *)
     (* (A detached process may not do keyboard, screen, or mouse I/O.)  *)
+
+    (* This duplicates a procedure in module TaskControl, so it should  *)
+    (* by preference only be called by applications that don't use      *)
+    (* TaskControl.                                                     *)
 
 PROCEDURE LockScreen;
 

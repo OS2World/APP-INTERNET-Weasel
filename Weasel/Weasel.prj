@@ -17,6 +17,7 @@
 -link    = "xlink /MAP @%s",mkfname#mkfext;
 
 -TRACKTNIUSAGE:-
+-WATCHTEST:-
 
 !module Weasel
 !module SO32DLL.lib

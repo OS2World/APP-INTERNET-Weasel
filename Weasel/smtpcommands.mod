@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SMTPCommands;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 April 1998                   *)
-        (*  Last edited:        14 July 2017                    *)
+        (*  Last edited:        25 November 2018                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -46,13 +46,13 @@ IMPLEMENTATION MODULE SMTPCommands;
 (*                                                                              *)
 (* The optional commands that are implemented are:                              *)
 (*                                                                              *)
-(*      AUTH (RFC2554), BDAT (RFC3030), EHLO (RFC1869), EXPN (RFC821)           *)
+(* AUTH (RFC2554), BDAT (RFC3030), EHLO (RFC1869), EXPN (RFC821), ETRN (RFC1985)*)
 (*                                                                              *)
 (* We also support the SIZE and BODY parameters in MAIL (RFC1870, RFC6152).     *)
 (*                                                                              *)
 (********************************************************************************)
 
-IMPORT Strings, Delivery;
+IMPORT SYSTEM, Strings, Delivery;
 
 FROM Heap IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE(*, SayHeapCount*);
@@ -68,12 +68,12 @@ FROM TaskControl IMPORT
     (* type *)  Lock,
     (* proc *)  CreateLock, Obtain, Release;
 
-FROM Semaphores IMPORT
-    (* type *)  Semaphore,
-    (* proc *)  Signal;
-
 FROM Timer IMPORT
     (* proc *)  Sleep;
+
+FROM Watchdog IMPORT
+    (* type *)  WatchdogID,
+    (* proc *)  KickWatchdog;
 
 FROM MiscFuncs IMPORT
     (* proc *)  SplitArg, ToLower, StringMatch, HeadMatch, GetNum,
@@ -90,13 +90,16 @@ FROM Domains IMPORT
     (* proc *)  NameOfDomain, DomainIsLocal, IsValidUsername, SMTPAuthAllowed;
 
 FROM Hosts IMPORT
-    (* proc *)  AcceptableRelayDestination;
+    (* proc *)  AcceptableRelayDestination, NoChunkingHost;
 
 FROM Authentication IMPORT
     (* type *)  AuthenticationState,
     (* proc *)  StartAuthentication, AuthenticationIncomplete,
                 CreateNextChallenge, CheckResponse, GetAuthNames,
                 AuthenticationDone, SetAuthMethods;
+
+FROM HammerCheck IMPORT
+    (* proc *)  NotePasswordError;
 
 FROM SMTPData IMPORT
     (* type *)  ItemDescriptor,
@@ -106,6 +109,9 @@ FROM SMTPData IMPORT
                 RunFilter03, (*RunFinalFilter, DistributeMessage,*) FilterAndDistribute,
                 SenderNotSpecified, NoRecipients, NoChunksYet, IgnoreChunk,
                 ProcessRCPTAddress, FromAddressAcceptable;
+
+FROM Delivery IMPORT
+    (* proc *)  PromoteRetryJobs;
 
 FROM Extra IMPORT
     (* proc *)  UserAndDomain;
@@ -127,9 +133,11 @@ TYPE
 
     (* The session record.  The fields are:                             *)
     (*     ID          session ID for transaction logging               *)
+    (*     watchID     watchdog ID for this session                     *)
     (*     sbuffer     The socket buffer                                *)
     (*     state       To track whether the user is currently logged in *)
     (*     HostAddr    Our IP address                                   *)
+    (*     ClientAddr  Client IP address                                *)
     (*     desc        Information about the next item to be delivered  *)
     (*     BadCommandCount  number of unknown commands we've received   *)
     (*                      since last good command                     *)
@@ -139,15 +147,15 @@ TYPE
     (*                      be relayed                                  *)
     (*     StrictAUTH  TRUE iff we are applying stronger checks on      *)
     (*                  whether relay mail should be accepted.          *)
-    (*     watchdog    Semaphore that times out if we don't kick it     *)
-    (*                  now and then                                    *)
 
     Session = POINTER TO SessionRecord;
     SessionRecord = RECORD
                         ID: TransactionLogID;
+                        watchID: WatchdogID;
                         sbuffer: SBuffer;
                         state: ClientState;
                         HostAddr: CARDINAL;
+                        ClientAddr: CARDINAL;
                         desc: ItemDescriptor;
                         BadCommandCount: CARDINAL;
                         BadAUTHCount: CARDINAL;
@@ -155,7 +163,6 @@ TYPE
                         whitelisted: BOOLEAN;
                         AcceptRelayMail: BOOLEAN;
                         StrictAUTH: BOOLEAN;
-                        watchdog: Semaphore;
                     END (*RECORD*);
 
 VAR
@@ -254,11 +261,13 @@ PROCEDURE Reply (session: Session;  message: ARRAY OF CHAR);
 (********************************************************************************)
 
 PROCEDURE OpenSession (SB: SBuffer;  HostIPAddress, ClientIPAddress: CARDINAL;
-                       KeepAlive: Semaphore; LogID: TransactionLogID;
+                       WID: WatchdogID;  LogID: TransactionLogID;
                        OnWhitelist, MayRelay, MSAsession: BOOLEAN;
                        VAR (*OUT*) success: BOOLEAN): Session;
 
     (* Creates a new session state record. *)
+
+    CONST NILdescriptor = SYSTEM.CAST(ItemDescriptor, NIL);
 
     VAR result: Session;
         FailureReason: ARRAY [0..127] OF CHAR;
@@ -266,19 +275,25 @@ PROCEDURE OpenSession (SB: SBuffer;  HostIPAddress, ClientIPAddress: CARDINAL;
     BEGIN
         NEW (result);
         WITH result^ DO
+            watchID := WID;
             ID := LogID;
             sbuffer := SB;
             HostAddr := HostIPAddress;
+            ClientAddr := ClientIPAddress;
             state := Idle;
             whitelisted := OnWhitelist;
             AcceptRelayMail := MayRelay;
             authenticated := FALSE;
             StrictAUTH := MSAsession;
-            watchdog := KeepAlive;
-            desc := CreateItemDescriptor (SB, ClientIPAddress, LogID, MayRelay, OnWhitelist);
             BadCommandCount := 0;
             BadAUTHCount := 0;
-            success := RunFilter03 (0, desc, FailureReason) < 3;
+            desc := CreateItemDescriptor (SB, ClientIPAddress, LogID, WID, MayRelay, OnWhitelist);
+            IF desc = NILdescriptor THEN
+                success := FALSE;
+                FailureReason := "421 rDNS failure";
+            ELSE
+                success := RunFilter03 (0, desc, FailureReason) < 3;
+            END (*IF*);
         END (*WITH*);
         IF NOT success THEN
             Reply (result, FailureReason);
@@ -392,6 +407,7 @@ PROCEDURE AUTH (session: Session;  VAR (*IN*) args: ARRAY OF CHAR);
                     session^.authenticated := session^.authenticated AND working;
                     IF NOT session^.authenticated THEN
                         Sleep (3000);
+                        NotePasswordError (session^.ClientAddr);
                         INC (session^.BadAUTHCount);
                         IF session^.BadAUTHCount >= BadAUTHLimit THEN
                             Reply (session, "535 too many retries, disconnecting");
@@ -465,11 +481,12 @@ PROCEDURE BDAT (session: Session;  VAR (*IN*) params: ARRAY OF CHAR);
 
         lastchunk := HeadMatch (params, "LAST");
 
+        (*
         IF chunksize > chunksizelimit THEN
             FailureReason := "552 Chunk size too large (limit 5 MB)";
             success := FALSE;
 
-        ELSIF NoChunksYet(session^.desc) THEN
+        ELS*)IF NoChunksYet(session^.desc) THEN
 
             (* Pre-reception filtering. *)
 
@@ -485,7 +502,7 @@ PROCEDURE BDAT (session: Session;  VAR (*IN*) params: ARRAY OF CHAR);
         IF success THEN
 
             WITH session^ DO
-                IF AcceptChunk (sbuffer, desc, watchdog, chunksize, lastchunk, FailureReason) THEN
+                IF AcceptChunk (sbuffer, desc, chunksize, lastchunk, FailureReason) THEN
 
                     IF lastchunk THEN
                         Reply (session, "250 final chunk received");
@@ -538,7 +555,7 @@ PROCEDURE DATA (session: Session;  VAR (*IN*) dummy: ARRAY OF CHAR);
             ELSE
                 Reply (session, "354 Socket to me");
                 WITH session^ DO
-                    IF AcceptMessage (sbuffer, desc, watchdog, FailureReason) THEN
+                    IF AcceptMessage (sbuffer, desc, FailureReason) THEN
 
                         (* Post-reception filtering and delivery. *)
 
@@ -561,13 +578,14 @@ PROCEDURE DATA (session: Session;  VAR (*IN*) dummy: ARRAY OF CHAR);
 
 PROCEDURE EHLO (session: Session;  VAR (*IN*) name: ARRAY OF CHAR);
 
-    VAR host: HostName;  pos: CARDINAL;
+    VAR host: HostName;  pos: CARDINAL;  allowchunking: BOOLEAN;
         FailureReason, buffer: ARRAY [0..127] OF CHAR;
 
     BEGIN
         ResetItemDescriptor (session^.desc, "");
         ResetReturnPath (session^.desc);
         Strings.Assign (name, host);
+        allowchunking := (*NOT NoChunkingHost (host)*) TRUE;
         IF NOT SetClaimedSendingHost (session^.desc, host) THEN
             Reply (session, "550 Access denied");
             session^.state := MustAbort;
@@ -588,8 +606,11 @@ PROCEDURE EHLO (session: Session;  VAR (*IN*) name: ARRAY OF CHAR);
             ConvertCard (MaxMessageSize, buffer, pos);
             buffer[pos] := Nul;
             Reply (session, buffer);
-            Reply (session, "250-CHUNKING");
+            IF allowchunking THEN
+                Reply (session, "250-CHUNKING");
+            END (*IF*);
             Reply (session, "250-EXPN");
+            Reply (session, "250-ETRN");
             Reply (session, "250 8BITMIME");
 
             (* N.B. No continuation marker on last line. *)
@@ -599,6 +620,24 @@ PROCEDURE EHLO (session: Session;  VAR (*IN*) name: ARRAY OF CHAR);
             session^.state := MustAbort;
         END (*IF*);
     END EHLO;
+
+(********************************************************************************)
+
+PROCEDURE ETRN (session: Session;  VAR (*IN*) node: ARRAY OF CHAR);
+
+    VAR option: CHAR;
+
+    BEGIN
+        option := node[0];
+        IF option = Nul THEN
+            Reply (session, "501 missing parameter");
+        ELSIF (option = '@') OR (option = '#') THEN
+            Reply (session, "501 That option is not supported");
+        ELSE
+            PromoteRetryJobs (node);
+            Reply3 (session, "250 OK, queuing for node ", node, " started");
+        END (*IF*);
+    END ETRN;
 
 (********************************************************************************)
 
@@ -712,7 +751,7 @@ PROCEDURE MAIL (session: Session;  VAR (*IN*) from: ARRAY OF CHAR);
             IF session^.whitelisted
                    OR FromAddressAcceptable (session^.desc,
                                 SocketOf(session^.sbuffer),
-                                session^.watchdog, TempFailure) THEN
+                                TempFailure) THEN
                 Reply (session, "250 Sender accepted");
             ELSIF TempFailure THEN
                 Reply (session, "451 Postmaster check failed, try again later");
@@ -857,18 +896,19 @@ PROCEDURE VRFY (session: Session;  VAR (*IN*) username: ARRAY OF CHAR);
 (********************************************************************************)
 
 TYPE
-    KeywordNumber = [0..11];
+    KeywordNumber = [0..12];
     HandlerProc = PROCEDURE (Session, VAR (*IN*) ARRAY OF CHAR);
     HandlerArray = ARRAY KeywordNumber OF HandlerProc;
     KeywordArray = ARRAY KeywordNumber OF FourChar;
 
 CONST
-    KeywordList = KeywordArray {'AUTH', 'BDAT', 'DATA', 'EHLO', 'EXPN', 'HELO',
-                                'MAIL', 'NOOP', 'QUIT', 'RCPT', 'RSET', 'VRFY'};
+    KeywordList = KeywordArray {'AUTH', 'BDAT', 'DATA', 'EHLO', 'ETRN', 'EXPN',
+                                'HELO', 'MAIL', 'NOOP', 'QUIT', 'RCPT', 'RSET',
+                                'VRFY'};
 
 CONST
-    HandlerList = HandlerArray {AUTH, BDAT, DATA, EHLO, EXPN, HELO, MAIL, NOOP,
-                                QUIT, RCPT, RSET, VRFY};
+    HandlerList = HandlerArray {AUTH, BDAT, DATA, EHLO, ETRN, EXPN,
+                                HELO, MAIL, NOOP, QUIT, RCPT, RSET, VRFY};
 
 (********************************************************************************)
 
@@ -971,7 +1011,7 @@ PROCEDURE HandleCommand (S: Session;  VAR (*IN*) Command: ARRAY OF CHAR;
 
         (* Call the handler. *);
 
-        Signal (S^.watchdog);
+        KickWatchdog (S^.watchID);
         Handler (S, Command);
         ServerAbort := S^.state = MustAbort;
         IF ServerAbort THEN

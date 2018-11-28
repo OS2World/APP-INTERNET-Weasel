@@ -1,0 +1,101 @@
+(**************************************************************************)
+(*                                                                        *)
+(*  SHA512 digest                                                         *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*                                                                        *)
+(*  This program is free software: you can redistribute it and/or modify  *)
+(*  it under the terms of the GNU General Public License as published by  *)
+(*  the Free Software Foundation, either version 3 of the License, or     *)
+(*  (at your option) any later version.                                   *)
+(*                                                                        *)
+(*  This program is distributed in the hope that it will be useful,       *)
+(*  but WITHOUT ANY WARRANTY; without even the implied warranty of        *)
+(*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *)
+(*  GNU General Public License for more details.                          *)
+(*                                                                        *)
+(*  You should have received a copy of the GNU General Public License     *)
+(*  along with this program.  If not, see <http://www.gnu.org/licenses/>. *)
+(*                                                                        *)
+(*  To contact author:   http://www.pmoylan.org   peter@pmoylan.org       *)
+(*                                                                        *)
+(**************************************************************************)
+
+DEFINITION MODULE SHA512;
+
+        (********************************************************)
+        (*                                                      *)
+        (*              SHA-384 and SHA-512 digest              *)
+        (*                                                      *)
+        (*  Processes a data sequence of arbitrary length,      *)
+        (*  producing a 48-byte or 64-byte "digest" (96 or 128  *)
+        (*  hex characters) as a secure signature of this data  *)
+        (*  sequence.  The "512" in the nomenclature denotes    *)
+        (*  the number of bits in the algorithm state.          *)
+        (*                                                      *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            1 October 2017                  *)
+        (*  Last edited:        28 January 2018                 *)
+        (*  Status:             Working                         *)
+        (*                                                      *)
+        (*  The standard governing this code is Federal         *)
+        (*  Information Processing Standards (FIPS) PUB 180-4,  *)
+        (*  available from http://csrc.nist.gov                 *)
+        (*                                                      *)
+        (********************************************************)
+
+
+FROM SYSTEM IMPORT CARD32, LOC;
+
+FROM Arith64 IMPORT CARD64;
+
+TYPE
+    SHA512_CTX;    (* is private *)
+    SHA512_DigestType = ARRAY [0..7] OF CARD64;
+
+(* Note that the variants implemented here (384 vs 512) have separate   *)
+(* "Init" and "DigestToString" procedures, but they have common code    *)
+(* for the "Update" and "Final" and "FinalDigest" operations.           *)
+
+PROCEDURE SHA384Init(): SHA512_CTX;
+
+    (* SHA-384 initialization. Begins a SHA-384 operation, creating *)
+    (* a new context.                                               *)
+
+PROCEDURE SHA512Init(): SHA512_CTX;
+
+    (* SHA-512 initialization. Begins the operation, creating a new context. *)
+
+PROCEDURE SHA512Update (context: SHA512_CTX;  data: ARRAY OF LOC;  length: CARDINAL);
+
+    (* SHA-384 and SHA-516 block update operation. Continues a          *)
+    (* message-digest operation, adding more data to what has already   *)
+    (* been processed for this context.                                 *)
+
+PROCEDURE SHA512Final (VAR (*INOUT*) context: SHA512_CTX;
+                     VAR (*OUT*) digest: SHA512_DigestType);
+
+    (* SHA-384 or SHA-512 finalization. Ends the message-digest     *)
+    (* operation, returning the digest and discarding the context.  *)
+
+PROCEDURE SHA384DigestToString (VAR (*IN*) digest: SHA512_DigestType;
+                             VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Converts the digest to a 96-character string.  If there is not enough    *)
+    (* space for 96 characters, produces a leading substring of the full result.*)
+
+PROCEDURE SHA512DigestToString (VAR (*IN*) digest: SHA512_DigestType;
+                             VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* Converts the digest to a 128-character string.  If there is not enough    *)
+    (* space for 128 characters, produces a leading substring of the full result.*)
+
+PROCEDURE SHA512FinalDigest (VAR (*INOUT*) context: SHA512_CTX;
+                             VAR (*OUT*) result: ARRAY OF CHAR);
+
+    (* SHA-384 or SHA-512 finalization. Ends the message-digest operation,      *)
+    (* returning the digest and discarding the context.  This is equivalent to  *)
+    (* SHA2Final followed by converting the digest to a string, for callers     *)
+    (* who don't need to know the actual digest value.                          *)
+
+END SHA512.
+

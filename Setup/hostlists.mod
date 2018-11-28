@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE HostLists;
         (*               Host list pages of the notebook                *)
         (*                                                              *)
         (*        Started:        8 July 1999                           *)
-        (*        Last edited:    22 May 2017                           *)
+        (*        Last edited:    27 November 2018                      *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -52,13 +52,14 @@ FROM RINIData IMPORT
 
 FROM MiscFuncs IMPORT
     (* type *)  CharArrayPointer,
-    (* proc *)  EVAL;
+    (* proc *)  EVAL, StringMatch;
 
 FROM Inet2Misc IMPORT
     (* proc *)  IPToString, NameIsNumeric, StringToIP;
 
 FROM Misc IMPORT
-    (* type *)  HostCategory;
+    (* type *)  HostCategory,
+    (* proc *)  WinSetDlgItemCard, WinQueryDlgItemCard;
 
 FROM Sockets IMPORT
     (* const*)  AF_INET, SOCK_RAW, SOCK_DGRAM, AF_UNSPEC, SIOSTATAT,
@@ -97,8 +98,10 @@ TYPE
 CONST
     INILabel = Label {"Local", "Whitelisted", "MayRelay", "RelayDest", "Banned"};
     PageName = Label {"Local", "Whitelist", "Trusted", "GateFor", "Banned"};
-    DialogueID = IDarray {DID.LocalHostNames, DID.WhitelistPage, DID.RelaySources, DID.RelayDest, DID.BannedHosts};
-    HostList = IDarray {DID.localhostlist, DID.whitelist, DID.mayrelaylist, DID.relaydestlist, DID.bannedlist};
+    DialogueID = IDarray {DID.LocalHostNames, DID.WhitelistPage, DID.RelaySources,
+                                    DID.RelayDest, DID.BannedHosts};
+    HostList = IDarray {DID.localhostlist, DID.whitelist, DID.mayrelaylist, DID.relaydestlist,
+                                                            DID.bannedlist};
     HLLabel = IDarray {DID.locallistlabel, DID.whitelistlabel, DID.mayrelaylistlabel,
                                  DID.relaydestlistlabel, DID.bannedlistlabel};
     HLExplain = IDarray {DID.locallistexplain, DID.whitelistexplain, DID.mayrelaylistexplain,
@@ -158,11 +161,15 @@ PROCEDURE SetLanguage (lang: LangHandle);
             END (*IF*);
         END (*FOR*);
 
+        (* Special cases for the Local page. *)
+
         StrToBuffer (lang, "Local.AddAll", stringval);
         OS2.WinSetDlgItemText (Handle[local], DID.AddLocalAddresses, stringval);
 
         StrToBuffer (lang, "Local.StrictChecking", stringval);
         OS2.WinSetDlgItemText (Handle[local], DID.StrictChecking, stringval);
+
+        (* Buttons. *)
 
         StrToBuffer (lang, "Buttons.Add", stringval);
         FOR c := MIN(HostCategory) TO MAX(HostCategory) DO
@@ -195,6 +202,56 @@ PROCEDURE SetLanguage (lang: LangHandle);
     END SetLanguage;
 
 (************************************************************************)
+(*                    CHECKING ENTRIES FOR DUPLICATES                   *)
+(************************************************************************)
+
+PROCEDURE IsDuplicate (VAR (*IN*) name: ARRAY OF CHAR;
+                                     bufptr: CharArrayPointer): BOOLEAN;
+
+    (* bufptr points to a string of strings.  We return TRUE iff name   *)
+    (* duplicates one of those strings.                                 *)
+
+    VAR entry: ARRAY [0..NameLength] OF CHAR;
+        j, k, nameval: CARDINAL;  ch: CHAR;
+        nameisnumeric: BOOLEAN;
+
+    BEGIN
+        nameisnumeric := NameIsNumeric (name);
+        nameval := 0;       (* to avoid a compiler warning *)
+        IF nameisnumeric THEN
+            nameval := StringToIP (name);
+        END (*IF*);
+
+        j := 0;
+        WHILE bufptr^[j] <> Nul DO
+
+            (* Pick up next entry. *)
+
+            k := 0;
+            REPEAT
+                ch := bufptr^[j];
+                entry[k] := ch;
+                INC (j);  INC (k);
+            UNTIL ch = Nul;
+
+            (* Do the comparison. *)
+
+            IF NameIsNumeric(entry) = nameisnumeric THEN
+                IF nameisnumeric THEN
+                    IF StringToIP(entry) = nameval THEN
+                        RETURN TRUE;
+                    END (*IF*);
+                ELSIF StringMatch (name, entry) THEN
+                    RETURN TRUE;
+                END (*IF*);
+            END (*IF*);
+        END (*WHILE*);
+
+        RETURN FALSE;
+
+    END IsDuplicate;
+
+(************************************************************************)
 (*                 MOVING DATA TO AND FROM THE INI FILE                 *)
 (************************************************************************)
 
@@ -205,7 +262,7 @@ PROCEDURE StoreList (category: HostCategory;  hwnd: OS2.HWND);
     (* open.                                                            *)
 
     VAR bufptr: CharArrayPointer;
-        BufferSize: CARDINAL;
+        BufferSize, ActualSize: CARDINAL;
         j, k, count, index: CARDINAL;
         name: ARRAY [0..NameLength-1] OF CHAR;
 
@@ -230,6 +287,7 @@ PROCEDURE StoreList (category: HostCategory;  hwnd: OS2.HWND);
             INC (BufferSize);
             ALLOCATE (bufptr, BufferSize);
         END (*IF*);
+        ActualSize := BufferSize;
 
         (* Store all the strings into the buffer. *)
 
@@ -238,16 +296,23 @@ PROCEDURE StoreList (category: HostCategory;  hwnd: OS2.HWND);
             FOR index := 0 TO count-1 DO
                 OS2.WinSendMsg (hwnd, OS2.LM_QUERYITEMTEXT,
                                 OS2.MPFROM2USHORT(index, NameLength), ADR(name));
-                k := 0;
-                REPEAT
-                    bufptr^[j] := name[k];
-                    INC (k);  INC (j);
-                UNTIL (name[k] = Nul) OR (k = NameLength);
-                bufptr^[j] := Nul;
-                INC (j);
-            END (*FOR*);
+                IF IsDuplicate (name, bufptr) THEN
+                    DEC (ActualSize, Strings.Length(name)+1);
+                ELSE
+                    k := 0;
+                    REPEAT
+                        bufptr^[j] := name[k];
+                        INC (k);  INC (j);
+                    UNTIL (name[k] = Nul) OR (k = NameLength);
+                    bufptr^[j] := Nul;
+                    INC (j);
+                    bufptr^[j] := Nul;
 
-            bufptr^[j] := Nul;
+                    (* That last Nul will be overwritten by the next    *)
+                    (* entry, except when there isn't a next one.       *)
+
+                END (*IF*);
+            END (*FOR*);
 
         END (*IF*);
 
@@ -256,7 +321,7 @@ PROCEDURE StoreList (category: HostCategory;  hwnd: OS2.HWND);
         IF BufferSize = 0 THEN
             INIPutBinary ("$SYS", INILabel[category], j, 0);
         ELSE
-            INIPutBinary ("$SYS", INILabel[category], bufptr^, BufferSize);
+            INIPutBinary ("$SYS", INILabel[category], bufptr^, ActualSize);
         END (*IF*);
 
         (* Deallocate the buffer space. *)
@@ -275,9 +340,15 @@ PROCEDURE LoadValues (category: HostCategory;  hwnd: OS2.HWND);
     (* INI file, or loads default values if they're not in the INI file.*)
 
     VAR name: ARRAY [0..NameLength-1] OF CHAR;
-        state: StringReadState;  val: BOOLEAN;
+        state: StringReadState;  flag: BOOLEAN;
 
     BEGIN
+
+        (* TEMPORARY ARRANGEMENT: SET THE "Changed" FLAG    *)
+        (* UNCONDITIONALLY.                                 *)
+
+                    Changed[category] := TRUE;
+
         OpenINIFile;
 
         (* Load a hostname list from the INI file. *)
@@ -303,14 +374,14 @@ PROCEDURE LoadValues (category: HostCategory;  hwnd: OS2.HWND);
         UNTIL name[0] = Nul;
         CloseStringList (state);
 
-        (* The local "strict checking" checkbox. *)
+        (* The local "strict checking" checkbox, and the chunking special field. *)
 
         IF category = local THEN
-            IF NOT INIFetch ("$SYS", "StrictChecking", val) THEN
-                val := FALSE;
+            IF NOT INIFetch ("$SYS", "StrictChecking", flag) THEN
+                flag := FALSE;
             END (*IF*);
             OS2.WinSendDlgItemMsg (hwnd, DID.StrictChecking, OS2.BM_SETCHECK,
-                                     OS2.MPFROMSHORT(ORD(val)), NIL);
+                                     OS2.MPFROMSHORT(ORD(flag)), NIL);
         END (*IF*);
 
         CloseINIFile;

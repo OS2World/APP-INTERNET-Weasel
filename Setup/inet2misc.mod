@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Inet2Misc;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            17 January 2002                 *)
-        (*  Last edited:        22 May 2017                     *)
+        (*  Last edited:        24 November 2018                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -60,7 +60,7 @@ FROM Sockets IMPORT
     (* proc *)  select, setsockopt, send;
 
 FROM LowLevel IMPORT
-    (* proc *)  SwapIt;
+    (* proc *)  SwapIt, IAND;
 
 (********************************************************************************)
 
@@ -135,9 +135,11 @@ PROCEDURE IPToString (IP: ARRAY OF LOC;  EncloseInBrackets: BOOLEAN;
 (************************************************************************)
 
 PROCEDURE AddressToHostName (address: CARDINAL;
-                             VAR (*OUT*) Name: HostName);
+                             VAR (*OUT*) Name: HostName): BOOLEAN;
 
-    (* Converts a numeric IP address to a name.  *)
+    (* Converts a numeric IP address to a name.  The result is TRUE if  *)
+    (* we got a genuine name.  If the result is FALSE, then Name is     *)
+    (* just a dotted quad form of the address.                          *)
 
     VAR HostInfo: HostEntPtr;
 
@@ -158,7 +160,10 @@ PROCEDURE AddressToHostName (address: CARDINAL;
 
         IF Name[0] = Nul THEN
             IPToString (address, TRUE, Name);
+            RETURN FALSE;
         END (*IF*);
+
+        RETURN TRUE;
 
     END AddressToHostName;
 
@@ -315,7 +320,14 @@ PROCEDURE StringToIP (name: ARRAY OF CHAR): CARDINAL;
         pos: CARDINAL;
 
     BEGIN
-        pos := 0;  k := 0;
+        pos := 0;
+        IF name[0] = '[' THEN
+            pos := 1;
+        END (*IF*);
+
+        (* Now the conversion. *)
+
+        k := 0;
         val := CAST(Arr4, VAL(CARDINAL,0));
         LOOP
             val[k] := GetNum(name, pos);
@@ -327,6 +339,25 @@ PROCEDURE StringToIP (name: ARRAY OF CHAR): CARDINAL;
         END (*LOOP*);
         RETURN CAST(CARDINAL, val);
     END StringToIP;
+
+(************************************************************************)
+
+PROCEDURE NonRouteable (address: CARDINAL): BOOLEAN;
+
+    (* Returns TRUE iff address (in network byte order) is one of the   *)
+    (* addresses reserved for internal LAN use.  These are:             *)
+    (*     (Class A) 10.*.*.*                                           *)
+    (*     (Class B) 172.16.*.* through 172.31.*.*                      *)
+    (*     (Class C) 192.168.*.*                                        *)
+    (* Note that the addresses are stored in bigendian order but the    *)
+    (* processor does its calculations in littleendian order.  That is  *)
+    (* why the numbers below appear to be back to front.                *)
+
+    BEGIN
+        RETURN (IAND(address, 0FFH) = 10)
+             OR (IAND(address, 010FFH) = 172 + 256*16)
+             OR (IAND(address, 0FFFFH) = 192 + 256*168);
+    END NonRouteable;
 
 (************************************************************************)
 

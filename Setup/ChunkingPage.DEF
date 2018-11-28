@@ -1,0 +1,37 @@
+DEFINITION MODULE ChunkingPage;
+
+        (****************************************************************)
+        (*                                                              *)
+        (*                      PM Setup for Weasel                     *)
+        (*               The chunking page of the notebook              *)
+        (*                                                              *)
+        (*        Started:        10 August 2018                        *)
+        (*        Last edited:    10 August 2018                        *)
+        (*        Status:         OK                                    *)
+        (*                                                              *)
+        (****************************************************************)
+
+
+FROM OS2 IMPORT HWND;
+FROM CommonSettings IMPORT FontName;
+FROM Languages IMPORT LangHandle;
+
+
+PROCEDURE CreatePage (notebook: HWND;  VAR (*OUT*) pageID: CARDINAL);
+
+    (* Creates the chunking page and adds it to the notebook. *)
+
+PROCEDURE SetLanguage (lang: LangHandle);
+
+    (* Relabels the page in the new language. *)
+
+PROCEDURE SetFont (VAR (*IN*) name: FontName);
+
+    (* Sets the font of the text on this page. *)
+
+PROCEDURE StoreData;
+
+    (* Stores the data for this page. *)
+
+END ChunkingPage.
+

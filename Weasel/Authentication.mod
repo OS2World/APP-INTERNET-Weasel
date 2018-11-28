@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2018   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Authentication;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            31 January 2003                 *)
-        (*  Last edited:        1 April 2017                    *)
+        (*  Last edited:        24 November 2018                *)
         (*  Status:             CHEAT,PLAIN,LOGIN,CRAM-MD5:     *)
         (*                             working                  *)
         (*                                                      *)
@@ -57,6 +57,9 @@ FROM HMAC IMPORT
 FROM Inet2Misc IMPORT
     (* proc *)  AddressToHostName;
 
+FROM LowLevel IMPORT
+    (* proc *)  EVAL;
+
 FROM TransLog IMPORT
     (* type *)  LogContext, TransactionLogID,
     (* proc *)  OpenLogContext, CloseLogContext, CreateLogID, DiscardLogID;
@@ -80,7 +83,8 @@ FROM Heap IMPORT
 (* SASL is described in RFC 2222, with applications to IMAP and with    *)
 (* definitions of some mechanisms.  Its application to SMTP is defined  *)
 (* in RFC2554.  Because we are using this module only for SMTP and      *)
-(* IMAP4, we assume that challenge/response strings are Base64 encoded. *)
+(* POP3 and IMAP4, we assume that challenge/response strings are        *)
+(* Base64 encoded.                                                      *)
 (*                                                                      *)
 (************************************************************************)
 
@@ -287,7 +291,7 @@ PROCEDURE ChCramMD5 (state: AuthenticationState;
     BEGIN
         ctx := OpenLogContext();
         ID := CreateLogID (ctx, "CRAM-MD5");
-        AddressToHostName (state^.OurIPAddress, LocalHostName);
+        EVAL (AddressToHostName (state^.OurIPAddress, LocalHostName));
         CreateTimeStamp (ID, LocalHostName, TimeStamp);
         Strings.Assign (TimeStamp, challenge);
         Strings.Assign (TimeStamp, state^.cache);
@@ -325,8 +329,8 @@ PROCEDURE RcCramMD5 (state: AuthenticationState;
                 (* Compute the digest with this password, and see    *)
                 (* whether the result matches.                       *)
 
-                HMAC_MD5 (state^.cache, LENGTH(state^.cache),
-                          pass, LENGTH(pass), digest);
+                HMAC_MD5 (pass, LENGTH(pass),
+                          state^.cache, LENGTH(state^.cache), digest);
                 MD5DigestToString (digest, digeststr);
                 state^.success := Strings.Equal (digeststr, txtdigest);
 
