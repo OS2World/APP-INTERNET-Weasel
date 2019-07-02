@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -29,7 +29,7 @@ IMPLEMENTATION MODULE Languages;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            9 November 2003                 *)
-        (*  Last edited:        23 July 2012                    *)
+        (*  Last edited:        4 May 2019                      *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -57,7 +57,7 @@ FROM TaskControl IMPORT
     (* type *)  Lock,
     (* proc *)  CreateLock, DestroyLock, Obtain, Release;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 FROM LowLevel IMPORT

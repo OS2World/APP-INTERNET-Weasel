@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  PMOS/2 software library                                               *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -34,7 +34,7 @@ IMPLEMENTATION MODULE TaskControl;
         (*                  related procedures.                         *)
         (*                                                              *)
         (*      Programmer:     P. Moylan                               *)
-        (*      Last edited:    8 January 2018                          *)
+        (*      Last edited:    8 June 2019                             *)
         (*      Status:         OK                                      *)
         (*                                                              *)
         (*    Note that most of the PMOS kernel is missing from this    *)
@@ -54,6 +54,10 @@ FROM SYSTEM IMPORT
 
 IMPORT OS2, Processes;
 
+FROM OS2Sem IMPORT
+    (* type *)  SemKind,
+    (* proc *)  WaitOnSemaphore, TimedWaitOnSemaphore, SemError;
+
 FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
@@ -65,13 +69,7 @@ FROM Exceptq IMPORT
 
 FROM SplitScreen IMPORT
     (* proc *)  LockScreen, UnlockScreen,
-                WriteChar, WriteString, WriteLn;
-
-(*
-FROM TCdebug IMPORT
-    (* type *)  SemOpKind, ThrOpKind,
-    (* proc *)  StartDebugLogging, NoteSemOperation, NoteThreadOperation;
-*)
+                WriteString, WriteLn;
 
 (************************************************************************)
 
@@ -87,8 +85,6 @@ TYPE
     (*                list                                              *)
     (*   exRegRec    for use by exceptq                                 *)
     (*   eqValid     TRUE iff the exRegRec component is meaningful      *)
-    (*   active      FALSE iff this task is blocked on WakeUp.          *)
-    (*                    (debugging aid, now obsolete)                 *)
     (*   name        identifier for testing purposes                    *)
     (*   WakeUp      event semaphore used in blocking a task            *)
     (*   threadnum   thread identifier                                  *)
@@ -104,7 +100,6 @@ TYPE
                RECORD
                    next: Task;
                    exRegPtr: POINTER TO OS2.EXCEPTIONREGISTRATIONRECORD;
-                   (*active: BOOLEAN;*)
                    eqValid: BOOLEAN;
                    name: NameString;
                    WakeUp: OS2.HEV;
@@ -128,14 +123,6 @@ VAR
 
     TaskListAccess: OS2.HMTX;
 
-    (* A copy of the last TaskID <-> Task match made by DescriptorOf.   *)
-    (* This sometimes speeds up task identification.                    *)
-
-    (*
-    lastthread: TaskID;
-    lastTask: Task;
-    *)
-
     (* Flag that indicates that this process is running full-screen. *)
 
     FullScreen: BOOLEAN;
@@ -153,7 +140,7 @@ VAR
 (************************************************************************)
 
 TYPE CardPtr = POINTER TO CARDINAL;
-CONST PtrTo0 = CAST(CardPtr, 0);
+CONST NilPtr = CAST(CardPtr, 0);
 
 PROCEDURE Crash (message: ARRAY OF CHAR);
 
@@ -163,44 +150,8 @@ PROCEDURE Crash (message: ARRAY OF CHAR);
         LockScreen;
         WriteString (message);  WriteLn;
         UnlockScreen;
-        PtrTo0^ := 0;
+        NilPtr^ := 0;
     END Crash;
-
-(************************************************************************)
-
-PROCEDURE WriteCard (N: CARDINAL);
-
-    (* Writes unsigned integer to standard output. *)
-
-    BEGIN
-        IF N > 9 THEN
-            WriteCard (N DIV 10);
-            N := N MOD 10;
-        END (*IF*);
-        WriteChar (CHR(ORD('0')+N));
-    END WriteCard;
-
-(************************************************************************)
-
-TYPE SemKind = (mutexsem, eventsem);
-
-PROCEDURE SemError (kind: SemKind;  errornum: CARDINAL);
-
-    BEGIN
-        LockScreen;
-        CASE kind OF
-            mutexsem: WriteString ("Mutex");
-          |
-            eventsem: WriteString ("Event");
-        ELSE
-                      WriteString ("Unknown");
-        END (*CASE*);
-        WriteString (" semaphore error ");
-        WriteCard (errornum);
-        WriteLn;
-        UnlockScreen;
-        PtrTo0^ := 0;
-    END SemError;
 
 (************************************************************************)
 (*                 KERNEL CRITICAL SECTION PROTECTION                   *)
@@ -208,13 +159,8 @@ PROCEDURE SemError (kind: SemKind;  errornum: CARDINAL);
 
 PROCEDURE LockTaskList;
 
-    VAR errno: CARDINAL;
-
     BEGIN
-        errno := OS2.DosRequestMutexSem (TaskListAccess, OS2.SEM_INDEFINITE_WAIT);
-        IF errno <> 0 THEN
-            SemError (mutexsem, errno);
-        END (*IF*);
+        WaitOnSemaphore (mutex, TaskListAccess);
     END LockTaskList;
 
 (************************************************************************)
@@ -226,7 +172,7 @@ PROCEDURE UnlockTaskList;
     BEGIN
         errno := OS2.DosReleaseMutexSem (TaskListAccess);
         IF errno <> 0 THEN
-            SemError (mutexsem, errno);
+            SemError (mutex, errno);
         END (*IF*);
     END UnlockTaskList;
 
@@ -334,7 +280,7 @@ PROCEDURE Dummy1 (param: ADDRESS);
 
 PROCEDURE TaskWrapper;
 
-    (* This is the task that runs the user's task code. *)
+    (* This is the thread that runs the user's task code. *)
 
     VAR StartInfo: TaskStartInfo;
         T: Task;
@@ -416,11 +362,10 @@ PROCEDURE TaskWrapper;
 
         LockTaskList;
         T^.threadnum := CurrentTaskID();
-        (*NoteThreadOperation (thr_start, T^.threadnum, T^.name);*)
         errno := OS2.DosCreateEventSem (NIL, T^.WakeUp, 0, FALSE);
         (*NoteSemOperation (sem_creat, T^.WakeUp, T^.threadnum, errno);*)
         IF errno <> 0 THEN
-            SemError (eventsem, errno);
+            SemError (event, errno);
         END (*IF*);
 
         (* Enable exceptq tracking for this thread.  The corresponding  *)
@@ -554,7 +499,6 @@ PROCEDURE TaskExit;
         END (*WHILE*);
         IF current <> NIL THEN
 
-            (*current^.active := FALSE;*)
             IF current^.eqValid THEN
                 UninstallExceptq (current^.exRegPtr^);
             END (*IF*);
@@ -583,7 +527,7 @@ PROCEDURE TaskExit;
             errno := OS2.DosResetEventSem (current^.WakeUp, postcount);
             (*NoteSemOperation (sem_reset, current^.WakeUp, MyID, errno);*)
             IF (errno <> 0) AND (errno <> OS2.ERROR_ALREADY_RESET) THEN
-                SemError (eventsem, errno);
+                SemError (event, errno);
             END (*IF*);
             errno := OS2.DosCloseEventSem (current^.WakeUp);
             (*NoteSemOperation (sem_close, current^.WakeUp, MyID, errno);*)
@@ -591,21 +535,25 @@ PROCEDURE TaskExit;
             (* The retry in the statement below doesn't seem to do      *)
             (* anything to solve the problem.                           *)
 
+            (* The ERROR_SEM_BUSY error should only arise if there is a *)
+            (* thread still blocked on that semaphore.  By design,      *)
+            (* however, the only thread that can be blocked on          *)
+            (* current^.WakeUp is the current thread, and the current   *)
+            (* thread is obviously not blocked because it is executing  *)
+            (* this exit code.  Thus, I am puzzled by the fact that I   *)
+            (* ever needed to check this condition.  Most likely it is  *)
+            (* because of a bug that I have since fixed, so the         *)
+            (* following code is probably redundant.                    *)
+
             IF errno = OS2.ERROR_SEM_BUSY THEN
                 (* Try again. *)
                 errno := OS2.DosCloseEventSem (current^.WakeUp);
                 (*NoteSemOperation (sem_close, current^.WakeUp, MyID, errno);*)
             END (*IF*);
             IF errno <> 0 THEN
-                SemError (eventsem, errno);
+                SemError (event, errno);
             END (*IF*);
 
-            (*
-            IF current = lastTask THEN
-               lastthread := 0;  lastTask := NIL;
-            END (*IF*);
-            *)
-            (*NoteThreadOperation (thr_exit, current^.threadnum, current^.name);*)
             DISPOSE (current);
 
         END (*IF*);
@@ -642,20 +590,10 @@ PROCEDURE DescriptorOf (thread: TaskID): Task;
 
     BEGIN
         LockTaskList;
-        (*
-        IF thread = lastthread THEN
-            result := lastTask;
-        ELSE
-        *)
-            result := MasterTaskList;
-            WHILE (result <> NIL) AND (result^.threadnum <> thread) DO
-                result := result^.next;
-            END (*WHILE*);
-            (*
-            lastthread := thread;
-            lastTask := result;
-        END (*IF*);
-        *)
+        result := MasterTaskList;
+        WHILE (result <> NIL) AND (result^.threadnum <> thread) DO
+            result := result^.next;
+        END (*WHILE*);
         UnlockTaskList;
         RETURN result;
     END DescriptorOf;
@@ -673,7 +611,7 @@ PROCEDURE CreateLock (VAR (*OUT*) L: Lock);
     BEGIN
         errno := OS2.DosCreateMutexSem (NIL, L, 0, FALSE);
         IF errno <> 0 THEN
-            SemError (mutexsem, errno);
+            SemError (mutex, errno);
         END (*IF*);
     END CreateLock;
 
@@ -688,7 +626,7 @@ PROCEDURE DestroyLock (VAR (*INOUT*) L: Lock);
     BEGIN
         errno := OS2.DosCloseMutexSem (L);
         IF errno <> 0 THEN
-            SemError (mutexsem, errno);
+            SemError (mutex, errno);
         END (*IF*);
     END DestroyLock;
 
@@ -698,13 +636,8 @@ PROCEDURE Obtain (L: Lock);
 
     (* Obtains lock L, waiting if necessary. *)
 
-    VAR errno: CARDINAL;
-
     BEGIN
-        errno := OS2.DosRequestMutexSem (L, OS2.SEM_INDEFINITE_WAIT);
-        IF errno <> 0 THEN
-            SemError (mutexsem, errno);
-        END (*IF*);
+        WaitOnSemaphore (mutex, L);
     END Obtain;
 
 (************************************************************************)
@@ -718,7 +651,7 @@ PROCEDURE Release (L: Lock);
     BEGIN
         errno := OS2.DosReleaseMutexSem (L);
         IF errno <> 0 THEN
-            SemError (mutexsem, errno);
+            SemError (mutex, errno);
         END (*IF*);
     END Release;
 
@@ -726,134 +659,21 @@ PROCEDURE Release (L: Lock);
 (*                  SUSPENDING AND RESUMING A TASK                      *)
 (************************************************************************)
 
-PROCEDURE OldSuspendMe (id: TaskID;  TimeLimit: CARDINAL): BOOLEAN;
-
-    (* Suspends the caller.  A TRUE result indicates that the time      *)
-    (* limit expired without the task being woken up.                   *)
-
-    VAR T: Task;  status: CARDINAL;
-        TimedOut: BOOLEAN;
-
-    BEGIN
-        T := DescriptorOf (id);
-        IF T = NIL THEN
-            TimedOut := FALSE;
-            Processes.StopMe;
-        ELSE
-            (*T^.active := FALSE;*)
-            (*NoteSemOperation (sem_wait, T^.WakeUp, T^.threadnum, 0);*)
-
-            status := OS2.DosWaitEventSem (T^.WakeUp, TimeLimit);
-
-            (*NoteThreadOperation (thr_awake, T^.threadnum, T^.name);*)
-            (*T^.active := TRUE;*)
-
-            (* The ERROR_INTERRUPT condition usually means in this case *)
-            (* that a signal (probably Ctrl/C, in my applications)      *)
-            (* occurred while we were waiting, and the system can no    *)
-            (* longer tell why we woke up. In some situations this      *)
-            (* means that the interrupted operation should be retried,  *)
-            (* but that turns out to be a bad idea in the case of a     *)
-            (* semaphore wait.  Accordingly, I have disabled the test   *)
-            (* below.  In effect, I am now treating an ERROR_INTERRUPT  *)
-            (* reply as equivalent to waking up without timing out.     *)
-            (* That might not be the correct decision in all cases, but *)
-            (* it is the best compromise I can make.                    *)
-
-            (*
-            IF status = OS2.ERROR_INTERRUPT THEN
-                (* Interrupt during the wait. Apparently this means     *)
-                (* that the wait didn't happen, and we should retry     *)
-                (* the operation.                                       *)
-
-                status := OS2.DosWaitEventSem (T^.WakeUp, TimeLimit);
-            END (*IF*);
-            *)
-
-            TimedOut := status = OS2.ERROR_TIMEOUT;
-            IF NOT TimedOut THEN
-
-                IF status = OS2.ERROR_INTERRUPT THEN
-                    (* Interrupt during the wait. This is not an error, *)
-                    (* just an indication that the value of TimedOut is *)
-                    (* not completely trustworthy.                      *)
-
-                    status := 0;
-                END (*IF*);
-
-                IF status <> 0 THEN
-                    SemError (eventsem, status);
-                END (*IF*);
-
-            END (*IF*);
-        END (*IF*);
-        RETURN TimedOut;
-    END OldSuspendMe;
-
-(************************************************************************)
-
 PROCEDURE SuspendMe (id: TaskID;  TimeLimit: CARDINAL): BOOLEAN;
 
     (* Suspends the caller.  A TRUE result indicates that the time      *)
     (* limit expired without the task being woken up.                   *)
 
-    VAR T: Task;  status, t1, t2, diff: CARDINAL;
-        TimedOut, done: BOOLEAN;
+    VAR T: Task;
 
     BEGIN
-        done := FALSE;  TimedOut := FALSE;
-        t1 := 0;  t2 := 0;
         T := DescriptorOf (id);
         IF T = NIL THEN
             Processes.StopMe;
+            RETURN TRUE;
         ELSE
-            (* Remember the starting time, in case we need it. *)
-
-            OS2.DosQuerySysInfo (OS2.QSV_MS_COUNT, OS2.QSV_MS_COUNT,
-                                                    ADR(t1), SIZE(t1));
-
-            (* The following is in a loop to allow for the rare case    *)
-            (* of an ERROR_INTERRUPT result.  Most of the time we will  *)
-            (* execute the loop body only once.                         *)
-
-            REPEAT
-                status := OS2.DosWaitEventSem (T^.WakeUp, TimeLimit);
-                IF status = OS2.ERROR_TIMEOUT THEN
-                    TimedOut := TRUE;
-                ELSIF status = OS2.NO_ERROR THEN
-                    done := TRUE;
-                ELSIF status = OS2.ERROR_INTERRUPT THEN
-
-                    (* This is the tricky case.  We are apparently      *)
-                    (* partway through the wait, so we have to adjust   *)
-                    (* the time limit and wait again.                   *)
-
-                    OS2.DosQuerySysInfo (OS2.QSV_MS_COUNT,
-                                     OS2.QSV_MS_COUNT, ADR(t2), SIZE(t2));
-
-                    (* Calculate t2 - t1, allowing for possible wrap.   *)
-
-                    IF t2 >= t1 THEN
-                        diff := t2 - t1;
-                    ELSE
-                        diff := MAX(CARDINAL) - t1 + t2 + 1;
-                    END (*IF*);
-                    t1 := t2;
-                    IF diff >= TimeLimit THEN
-                        TimedOut := TRUE;
-                    ELSIF diff <> 0 THEN
-                        DEC (TimeLimit, diff);
-                    END (*IF*);
-                ELSE
-                    (* Fatal error - SemError will not return. *)
-                    SemError (eventsem, status);
-                END (*IF*);
-            UNTIL TimedOut OR done;
-
+            RETURN TimedWaitOnSemaphore (event, T^.WakeUp, TimeLimit);
         END (*IF*);
-
-        RETURN TimedOut;
-
     END SuspendMe;
 
 (************************************************************************)
@@ -864,33 +684,20 @@ PROCEDURE ResumeTask (id: TaskID): BOOLEAN;
     (* The function result is normally TRUE, but is FALSE if the task   *)
     (* couldn't be resumed (usually because that task no longer exists).*)
 
-    VAR T: Task;  (*Me: CARDINAL;*)  status, PostCount: CARDINAL;
+    VAR T: Task;  status: CARDINAL;
 
     BEGIN
         LockTaskList;
         T := DescriptorOf (id);
-        (*Me := CurrentTaskID();*)
         IF T = NIL THEN
             UnlockTaskList;
             RETURN FALSE;
-
         END (*IF*);
         status := OS2.DosPostEventSem (T^.WakeUp);
         (*NoteSemOperation (sem_post, T^.WakeUp, Me, status);*)
-        IF status <> 0 THEN
-            SemError (eventsem, status);
+        IF (status <> OS2.NO_ERROR) AND (status <> OS2.ERROR_ALREADY_POSTED) THEN
+            SemError (event, status);
         END (*IF*);
-        status := OS2.DosResetEventSem (T^.WakeUp, PostCount);
-        (*NoteSemOperation (sem_reset, T^.WakeUp, Me, status);*)
-        IF status = OS2.ERROR_ALREADY_RESET THEN
-            PostCount := 0;
-            status := 0;
-        END (*IF*);
-
-        IF status <> 0 THEN
-            SemError (eventsem, status);
-        END (*IF*);
-
         UnlockTaskList;
         RETURN TRUE;
 
@@ -916,7 +723,7 @@ PROCEDURE CreateMainTaskDescriptor;
         errno := OS2.DosCreateEventSem (NIL, T^.WakeUp, 0, FALSE);
         (*NoteSemOperation (sem_creat, T^.WakeUp, T^.threadnum, errno);*)
         IF errno <> 0 THEN
-            SemError (eventsem, errno);
+            SemError (event, errno);
         END (*IF*);
         INC (NumberOfThreads);
         UnlockTaskList;
@@ -958,7 +765,7 @@ BEGIN
     DetachCheck;
     errno := OS2.DosCreateMutexSem (NIL, TaskListAccess, 0, FALSE);
     IF errno <> 0 THEN
-        SemError (mutexsem, errno);
+        SemError (mutex, errno);
     END (*IF*);
     SetThreadLimit;
     NumberOfThreads := 0;

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE AliasLists;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            7 July 1998                     *)
-        (*  Last edited:        14 April 2012                   *)
+        (*  Last edited:        4 May 2019                      *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -38,7 +38,7 @@ IMPORT SYSTEM, Strings;
 FROM LowLevel IMPORT
     (* proc *)  EVAL, Copy, CopyUp, AddOffset;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 FROM Keyboard IMPORT

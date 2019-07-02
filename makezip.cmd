@@ -26,6 +26,7 @@
 'xc =p ChooseTNI.prj'
 'xc =p viosetup.prj'
 'xc =p endmail.prj'
+copydbg weasel.exe
 '\apps\lxlite\lxlite *.exe'
 
 /* Generate symbol files.  */
@@ -46,7 +47,6 @@ CALL bldlvl ver
 mkdir temp
 cd temp
 mkdir tools
-'copy ..\endmail.exe tools'
 'copy ..\tools\readme tools'
 'copy ..\tools\mloadini.cmd tools'
 'copy ..\tools\mdumpini.cmd tools'
@@ -61,6 +61,7 @@ mkdir doc
 'copy ..\doc\weaselpro.inf'
 'copy ..\doc\techdata.inf'
 'copy ..\weasel.exe'
+'copy ..\weasel.dbg'
 'copy ..\weasel.fmt'
 'copy ..\weasel.map'
 'copy ..\weasel.sym'

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Authentication;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            31 January 2003                 *)
-        (*  Last edited:        24 November 2018                *)
+        (*  Last edited:        10 June 2019                    *)
         (*  Status:             CHEAT,PLAIN,LOGIN,CRAM-MD5:     *)
         (*                             working                  *)
         (*                                                      *)
@@ -57,17 +57,16 @@ FROM HMAC IMPORT
 FROM Inet2Misc IMPORT
     (* proc *)  AddressToHostName;
 
+FROM OS2 IMPORT
+    (* proc *)  DosGetInfoBlocks;
+
 FROM LowLevel IMPORT
     (* proc *)  EVAL;
-
-FROM TransLog IMPORT
-    (* type *)  LogContext, TransactionLogID,
-    (* proc *)  OpenLogContext, CloseLogContext, CreateLogID, DiscardLogID;
 
 FROM Names IMPORT
     (* type *)  UserName, HostName, FilenameString;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 (************************************************************************)
@@ -283,20 +282,19 @@ PROCEDURE ChCramMD5 (state: AuthenticationState;
 
     (* Creates the challenge, also stores it in state^.cache.   *)
 
-    VAR LocalHostName: HostName;
-        ctx: LogContext;
-        ID: TransactionLogID;
+    VAR ulrc, ID: CARDINAL;
+        pptib: OS2.PTIB;
+        pppib: OS2.PPIB;
+        LocalHostName: HostName;
         TimeStamp: FilenameString;
 
     BEGIN
-        ctx := OpenLogContext();
-        ID := CreateLogID (ctx, "CRAM-MD5");
+        ulrc := DosGetInfoBlocks(pptib, pppib);
+        ID := pptib^.tib_ptib2^.tib2_ultid;
         EVAL (AddressToHostName (state^.OurIPAddress, LocalHostName));
         CreateTimeStamp (ID, LocalHostName, TimeStamp);
         Strings.Assign (TimeStamp, challenge);
         Strings.Assign (TimeStamp, state^.cache);
-        DiscardLogID (ID);
-        CloseLogContext (ctx);
     END ChCramMD5;
 
 (************************************************************************)

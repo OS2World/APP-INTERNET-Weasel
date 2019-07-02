@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Inet2Misc;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            17 January 2002                 *)
-        (*  Last edited:        24 November 2018                *)
+        (*  Last edited:        19 December 2018                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -308,21 +308,22 @@ PROCEDURE NameIsNumeric (VAR (*INOUT*) name: ARRAY OF CHAR): BOOLEAN;
 
 (********************************************************************************)
 
-PROCEDURE StringToIP (name: ARRAY OF CHAR): CARDINAL;
+PROCEDURE StringToIPAddress (VAR (*IN*) name: ARRAY OF CHAR;
+                                          VAR (*INOUT*) pos: CARDINAL): CARDINAL;
 
-    (* Converts an N.N.N.N string to an address in network byte order.  We      *)
-    (* assume that the caller has already checked that the string is in this    *)
-    (* format.                                                                  *)
+    (* Converts a string of the form N.N.N.N or [N.N.N.N], where each N is a    *)
+    (* decimal number, starting at name[pos] and updating pos.  We assume that  *)
+    (* the caller has already checked for syntactic correctness.                *)
 
     TYPE Arr4 = ARRAY [0..3] OF CARD8;
 
     VAR k: [0..3];  val: Arr4;
-        pos: CARDINAL;
+        bracketed: BOOLEAN;
 
     BEGIN
-        pos := 0;
-        IF name[0] = '[' THEN
-            pos := 1;
+        bracketed := name[pos] = '[';
+        IF bracketed THEN
+            INC (pos);
         END (*IF*);
 
         (* Now the conversion. *)
@@ -337,7 +338,25 @@ PROCEDURE StringToIP (name: ARRAY OF CHAR): CARDINAL;
             INC (pos);
             INC (k);
         END (*LOOP*);
+        IF bracketed AND (name[pos] = ']') THEN
+            INC (pos);
+        END (*IF*);
         RETURN CAST(CARDINAL, val);
+    END StringToIPAddress;
+
+(************************************************************************)
+
+PROCEDURE StringToIP (name: ARRAY OF CHAR): CARDINAL;
+
+    (* Converts an N.N.N.N string to an address in network byte order.  We      *)
+    (* assume that the caller has already checked that the string is in this    *)
+    (* format.                                                                  *)
+
+    VAR pos: CARDINAL;
+
+    BEGIN
+        pos := 0;
+        RETURN StringToIPAddress (name, pos);
     END StringToIP;
 
 (************************************************************************)

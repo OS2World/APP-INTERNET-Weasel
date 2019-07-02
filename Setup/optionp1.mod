@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE OptionP1;
         (*                 Option page 1 of the notebook                *)
         (*                                                              *)
         (*        Started:        30 June 1999                          *)
-        (*        Last edited:    25 November 2018                      *)
+        (*        Last edited:    13 April 2019                         *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -135,10 +135,12 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
         VAR val: BOOLEAN;
 
         BEGIN
-            IF NOT INIFetch ('$SYS', INIlabel, val) THEN
+            IF INIFetch ('$SYS', INIlabel, val) THEN
+                oldval := val;
+            ELSE
                 val := default;
+                oldval := NOT default;
             END (*IF*);
-            oldval := val;
             OS2.WinSendDlgItemMsg (hwnd, boxid, OS2.BM_SETCHECK,
                                      OS2.MPFROMSHORT(ORD(val)), NIL);
         END LoadCheckbox;
@@ -182,7 +184,7 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
 
         (* Enable SPF check. *)
 
-        LoadCheckbox (DID.SPFenabled, TRUE, OldSPFenabled, 'SPFenabled');
+        LoadCheckbox (DID.SPFenabled, FALSE, OldSPFenabled, 'SPFenabled');
 
         (* POP-before-SMTP authentication. *)
 

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Domains;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 July 2002                    *)
-        (*  Last edited:        17 September 2018               *)
+        (*  Last edited:        9 June 2019                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -37,7 +37,8 @@ IMPLEMENTATION MODULE Domains;
 IMPORT OS2, Strings, FileSys, INIData;
 
 FROM SYSTEM IMPORT
-    (* type *)  ADR, CARD8;
+    (* type *)  ADR, CARD8,
+    (* proc *)  CAST;
 
 FROM HostLists IMPORT
     (* type *)  HostList,
@@ -81,8 +82,7 @@ FROM LogCtx IMPORT
 
 FROM TransLog IMPORT
     (* type *)  LogContext, TransactionLogID,
-    (* proc *)  OpenLogContext, CloseLogContext,
-                CreateLogID, DiscardLogID, LogTransaction, LogTransactionL;
+    (* proc *)  CreateLogID, DiscardLogID, LogTransaction, LogTransactionL;
 
 FROM Timer IMPORT
     (* proc *)  Sleep;
@@ -98,7 +98,7 @@ FROM Names IMPORT
 FROM LowLevel IMPORT
     (* proc *)  AddOffset, IAND;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 (************************************************************************)
@@ -175,7 +175,7 @@ VAR
     (* zero, that means it has not been specified manually, and so we   *)
     (* have to calculate a suitable address in this module.             *)
 
-    BindAddress, DisplayAddress: CARDINAL;
+    OurMainAddress: CARDINAL;
 
     (* The map from IP addresses to domains. *)
 
@@ -194,13 +194,13 @@ VAR
 
     ExtraLogging: BOOLEAN;
 
+    (* Use TNI rather than INI file. *)
+
+    UseTNI: BOOLEAN;
+
     (* A flag saying that the "ExtraLogging" task is running. *)
 
     LogTaskRunning: BOOLEAN;
-
-    (* A flag to say that we will use TNI rather than INI files. *)
-
-    UseTNI: BOOLEAN;
 
     (* Log ID for transaction logging. *)
 
@@ -208,9 +208,7 @@ VAR
 
     (* Variables for debugging. *)
 
-    Debugging: BOOLEAN;
     CountLock: Lock;
-
     DomainCount, DRecordCount, SRecordCount: CARDINAL;
 
 (************************************************************************)
@@ -438,33 +436,15 @@ PROCEDURE MatchingDomains (VAR (*IN*) user: ARRAY OF CHAR;  domain: DomainName;
 
     VAR previous, current, result: DomainList;
         nodomain: BOOLEAN;
-        message: ARRAY [0..127] OF CHAR;
-        INIFileName: FilenameString;
-        name: HostName;
         D: Domain;
 
     BEGIN
         nodomain := domain[0] = Nul;
         previous := NIL;  result := NIL;
         WHILE DL <> NIL DO
-            IF Debugging THEN
-                Strings.Assign ("Domain ", message);
-                NameOfDomain (DL^.this, name);
-                Strings.Append (name, message);
-                Strings.Append (", INI file name is ", message);
-                GetININame (DL^.this, INIFileName);
-                Strings.Append (INIFileName, message);
-                LogTransaction (LogID, message);
-            END (*IF*);
             IF (nodomain OR IsInDomain(DL^.this, domain)) THEN
-                IF Debugging THEN
-                    LogTransactionL (LogID, " - domain name matches");
-                END (*IF*);
                 D := DL^.this;
                 IF IsValidUsername (user, D, LogID) THEN
-                    IF Debugging THEN
-                        LogTransactionL (LogID, " - username found");
-                    END (*IF*);
                     NEW (current);
                     current^.this := DL^.this;
                     current^.next := NIL;
@@ -474,14 +454,6 @@ PROCEDURE MatchingDomains (VAR (*IN*) user: ARRAY OF CHAR;  domain: DomainName;
                         previous^.next := current;
                     END (*IF*);
                     previous := current;
-                ELSE
-                    IF Debugging THEN
-                        LogTransactionL (LogID, " - username not found");
-                    END (*IF*);
-                END (*IF*);
-            ELSE
-                IF Debugging THEN
-                    LogTransactionL (LogID, " - no match on domain name");
                 END (*IF*);
             END (*IF*);
             DL := DL^.next;
@@ -532,21 +504,7 @@ PROCEDURE StartDomainSearch (VAR (*IN*) user: ARRAY OF CHAR;
         (*message: ARRAY [0..127] OF CHAR;*)
 
     BEGIN
-        (*
-        IF Debugging THEN
-            Strings.Assign ("Master INI file name is ", message);
-            Strings.Append (MasterINIFileName, message);
-            LogTransaction (LogID, message);
-        END (*IF*);
-        *)
         IF MultidomainMode THEN
-            (*
-            IF Debugging THEN
-                Strings.Assign ("Multidomain mode, looking for username ", message);
-                Strings.Append (user, message);
-                LogTransaction (LogID, message);
-            END (*IF*);
-            *)
             state := NIL;
             j := 0;  count := 0;
             Obtain (OurIPAddressesLock);
@@ -554,37 +512,7 @@ PROCEDURE StartDomainSearch (VAR (*IN*) user: ARRAY OF CHAR;
                          AND (OurIPAddresses[j] <> 0) DO
                 IF OurIPAddresses[j] = IPaddr THEN
 
-                    (* DEBUGGING STUFF *)
-
-                    (*
-                    IF Debugging THEN
-                        lsize := 0;
-                        p := AddressMap[j];
-                        WHILE p <> NIL DO
-                            INC (lsize);   p := p^.next;
-                        END (*WHILE*);
-                        IF lsize = 0 THEN
-                            Strings.Assign ("No domains match", message);
-                        ELSIF lsize = 1 THEN
-                            Strings.Assign ("One domain matches", message);
-                        ELSE
-                            pos := 0;
-                            ConvertCard (lsize, message, pos);
-                            message[pos] := Nul;
-                            Strings.Append (" domains match", message);
-                        END (*IF*);
-                        Strings.Append (" IP address ", message);
-                        IPToString (IPaddr, FALSE, IPbuff);
-                        Strings.Append (IPbuff, message);
-                        LogTransactionL (LogID, message);
-                    END (*IF*);
-
-                    (* END OF DEBUGGING STUFF *)
-                    *)
-
-                    (*LogTransactionL (LogID, "About to call MatchingDomains");*)
                     list := MatchingDomains (user, domainstring, AddressMap[j]);
-                    (*LogTransactionL (LogID, "Returned from MatchingDomains");*)
                     IF list <> NIL THEN
                         INC (count);
                         NEW (state);
@@ -605,13 +533,6 @@ PROCEDURE StartDomainSearch (VAR (*IN*) user: ARRAY OF CHAR;
             state^.pos := NIL;
             Strings.Assign (user, state^.username);
             state^.domainname := domainstring;
-            (*
-            IF Debugging THEN
-                Strings.Assign ("Single domain ", message);
-                Strings.Append (domainstring, message);
-                LogTransaction (LogID, message);
-            END (*IF*);
-            *)
         END (*IF*);
 
         IF count > 0 THEN
@@ -1083,12 +1004,11 @@ PROCEDURE RefreshOurIPAddresses(): BOOLEAN;
         (* Work out which of the addresses we are going to call *)
         (* our principal interface.                             *)
 
-        DisplayAddress := BindAddress;
-        IF DisplayAddress = 0 THEN
+        IF OurMainAddress = 0 THEN
             FOR ifkind := loopback TO dialup DO
                 ThisAddress := PrimaryAddress[ifkind];
                 IF ThisAddress <> 0 THEN
-                    DisplayAddress := ThisAddress;
+                    OurMainAddress := ThisAddress;
                 END (*IF*);
             END (*FOR*);
         END (*IF*);
@@ -1118,7 +1038,7 @@ PROCEDURE RecomputeLocalDomainNames (VAR (*OUT*) IPAddress: CARDINAL;
             LogTransactionL (LogID, "Finished refreshing the master domain list");
         END (*IF*);
         Obtain (OurIPAddressesLock);
-        IPAddress := DisplayAddress;
+        IPAddress := OurMainAddress;
         Release (OurIPAddressesLock);
     END RecomputeLocalDomainNames;
 
@@ -1316,16 +1236,15 @@ PROCEDURE SetPrincipalIPAddress (address: CARDINAL);
 
     BEGIN
         Obtain (OurIPAddressesLock);
-        BindAddress := address;
-        DisplayAddress := address;
+        OurMainAddress := address;
         Release (OurIPAddressesLock);
     END SetPrincipalIPAddress;
 
 (************************************************************************)
 
-PROCEDURE CheckRegistration (TNImode: BOOLEAN);
+PROCEDURE DomainsSetTNImode (TNImode: BOOLEAN);
 
-    (* Sets TNI mode. This procedure no longer checks registration. *)
+    (* Sets TNI mode. *)
 
     BEGIN
         UseTNI := TNImode;
@@ -1334,7 +1253,7 @@ PROCEDURE CheckRegistration (TNImode: BOOLEAN);
         ELSE
             MasterINIFileName := "Weasel.INI";
         END (*IF*);
-    END CheckRegistration;
+    END DomainsSetTNImode;
 
 (************************************************************************)
 
@@ -1381,6 +1300,10 @@ PROCEDURE ClearMailboxLocks;
     END ClearMailboxLocks;
 
 (************************************************************************)
+(*                              EXTRA LOGGING                           *)
+(************************************************************************)
+
+CONST NILID = CAST(TransactionLogID, NIL);
 
 PROCEDURE EnableDomainExtraLogging (enable: BOOLEAN);
 
@@ -1388,6 +1311,9 @@ PROCEDURE EnableDomainExtraLogging (enable: BOOLEAN);
 
     BEGIN
         IF enable <> ExtraLogging THEN
+            IF LogID = NILID THEN
+                LogID := CreateLogID (WCtx, "Domains");
+            END (*IF*);
             ExtraLogging := enable;
             IF ExtraLogging THEN
                 LogTransactionL (LogID, "Extra logging is enabled");
@@ -1401,29 +1327,14 @@ PROCEDURE EnableDomainExtraLogging (enable: BOOLEAN);
     END EnableDomainExtraLogging;
 
 (************************************************************************)
-(*                         LOGGING FOR DEBUGGING                        *)
-(************************************************************************)
-
-PROCEDURE StartDebugLogging (ctx: LogContext);
-
-    (* Temporary code for debugging the Domains module. Starts     *)
-    (* transaction logging for this module.                        *)
-
-    BEGIN
-        LogID := CreateLogID (ctx, "Domains");
-        Debugging := TRUE;
-    END StartDebugLogging;
-
-(************************************************************************)
 
 BEGIN
-    Debugging := FALSE;
     ShutdownInProgress := FALSE;
     LogTaskRunning := FALSE;
-    (*LogID := CreateLogID (WCtx, "Domains");*)
+    LogID := NILID;
+    UseTNI := FALSE;
     ExtraLogging := FALSE;
     MasterINIFileName := "Weasel.INI";
-    UseTNI := FALSE;
     MultidomainMode := FALSE;
     RelayEverything := FALSE;
     CreateLock (CountLock);
@@ -1432,8 +1343,7 @@ BEGIN
     SRecordCount := 0;
     CreateLock (OurIPAddressesLock);
     OurIPAddresses[0] := 0;
-    BindAddress := 0;
-    DisplayAddress := 0;
+    OurMainAddress := 0;
     CreateLock (MasterListLock);
     MasterDomainList := NIL;
     SingleMatch := FALSE;
@@ -1442,6 +1352,8 @@ FINALLY
     DestroyLock (MasterListLock);
     DestroyLock (OurIPAddressesLock);
     DestroyLock (CountLock);
-    DiscardLogID (LogID);
+    IF LogID <> NILID THEN
+        DiscardLogID (LogID);
+    END (*IF*);
 END Domains.
 

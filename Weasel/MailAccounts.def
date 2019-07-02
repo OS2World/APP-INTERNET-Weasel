@@ -9,14 +9,13 @@ DEFINITION MODULE MailAccounts;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            8 March 2003                    *)
-        (*  Last edited:        13 January 2013                 *)
+        (*  Last edited:        10 June 2019                    *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
 
 
 FROM Domains  IMPORT (*type*) Domain;
-FROM TransLog IMPORT (*type*) LogContext, TransactionLogID;
 FROM Names    IMPORT (*type*) HostName, FilenameString, PassString;
 
 
@@ -120,7 +119,7 @@ PROCEDURE DiscardDomainList (VAR (*INOUT*) DL: DomainList);
 
     (* Disposes of the list of domain data. *)
 
-PROCEDURE CreateTimeStamp (ID: TransactionLogID;
+PROCEDURE CreateTimeStamp (ID: CARDINAL;
                                  VAR (*IN*) LocalHostName: HostName;
                                               VAR (*OUT*) result: FilenameString);
 
@@ -145,11 +144,6 @@ PROCEDURE NextPassword (s: PasswordSearchState;
 PROCEDURE EndPasswordSearch (VAR (*INOUT*) s: PasswordSearchState);
 
     (* Discards the data structure used for a password search.  *)
-(*
-PROCEDURE StartDebugLogging (ctx: LogContext);
 
-    (* Temporary code for debugging the MailAccounts module. Starts     *)
-    (* transaction logging for this module.                             *)
-*)
 END MailAccounts.
 

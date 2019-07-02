@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SMTPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 April 1998                   *)
-        (*  Last edited:        25 November 2018                *)
+        (*  Last edited:        2 May 2019                      *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -37,7 +37,7 @@ FROM SYSTEM IMPORT CARD8, CARD16, ADDRESS, CAST, ADR, LOC;
 
 IMPORT WV, Strings, OS2, FileSys, INIData;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 FROM LowLevel IMPORT
@@ -97,7 +97,7 @@ FROM MiscFuncs IMPORT
     (* proc *)  StringMatch;
 
 FROM Inet2Misc IMPORT
-    (* proc *)  IPToString, AddressToHostName;
+    (* proc *)  IPToString, AddressToHostName, NonRouteable;
 
 FROM SMTPLogin IMPORT
     (* proc *)  PostmasterCheck;
@@ -273,7 +273,8 @@ PROCEDURE CreateItemDescriptor (SB: SBuffer;  ClientIPAddress: CARDINAL;
 
     BEGIN
         IF (NOT AddressToHostName (ClientIPAddress, ClientName))
-                                                    AND CheckNoRDNS THEN
+                            AND CheckNoRDNS
+                             AND NOT NonRouteable (ClientIPAddress) THEN
             RETURN NIL;
         END (*IF*);
 
@@ -2459,6 +2460,10 @@ PROCEDURE UpdateINIData;
         hini := OpenINIFile (key, UseTNI);
         IF INIData.INIValid (hini) THEN
 
+            IF NOT INIGet (hini, app, "CheckNoRDNS", CheckNoRDNS) THEN
+                CheckNoRDNS := TRUE;
+            END (*IF*);
+
             Obtain (FilterProgLock);
             key := "SerialiseFilters";
             EVAL (INIGet (hini, app, key, SerialiseFilters));
@@ -2521,10 +2526,6 @@ PROCEDURE LoadSMTPINIData (TNImode: BOOLEAN);
         UseTNI := TNImode;
         hini := OpenINIFile (key, UseTNI);
         IF INIData.INIValid (hini) THEN
-
-            IF INIGet (hini, app, "CheckNoRDNS", CheckNoRDNS) THEN
-                CheckNoRDNS := FALSE;
-            END (*IF*);
 
             (* For the filters, convert from old version if necessary. *)
 

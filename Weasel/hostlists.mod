@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2016   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE HostLists;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            1 September 2002                *)
-        (*  Last edited:        19 October 2016                 *)
+        (*  Last edited:        2 May 2019                      *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -81,7 +81,7 @@ FROM TaskControl IMPORT
 FROM LowLevel IMPORT
     (* proc *)  INOTB, IORB, IANDB;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 (************************************************************************)
@@ -762,10 +762,10 @@ PROCEDURE DecodeRange (VAR (*IN*) Name: HostName;
                         VAR (*OUT*) First, Second: ARRAY OF LOC): BOOLEAN;
 
     (* Returns TRUE iff Name is a numeric IP address or a range of      *)
-    (* the form [a.b.c.d-e], in which case First and Second are set to  *)
-    (* the lower and upper limits of the range, in host byte order.     *)
-    (* (For a single address, First and Second get the same value.)     *)
-    (* We also handle CIDR-style ranges here.                           *)
+    (* the form [a.b.c.d-e] or [a.b.c-e] or [a.b-e] or [a-e], in which  *)
+    (* case First and Second are set to the lower and upper limits of   *)
+    (* the range, in host byte order.  (For a single address, First and *)
+    (* Second get the same value.)  We also handle CIDR-style ranges.   *)
 
     VAR j: CARDINAL;
 

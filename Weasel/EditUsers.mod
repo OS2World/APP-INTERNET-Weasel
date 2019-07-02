@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE EditUsers;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            24 April 1998                   *)
-        (*  Last edited:        22 May 2017                     *)
+        (*  Last edited:        4 May 2019                      *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -85,7 +85,7 @@ FROM TaskControl IMPORT
 FROM LowLevel IMPORT
     (* proc *)  EVAL;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 (************************************************************************)

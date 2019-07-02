@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -27,7 +27,7 @@ IMPLEMENTATION MODULE INIData;
         (*               Looking after our INI file data            *)
         (*                                                          *)
         (*    Started:        30 March 2000                         *)
-        (*    Last edited:    21 November 2018                      *)
+        (*    Last edited:    2 May 2019                            *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
@@ -42,7 +42,7 @@ FROM SYSTEM IMPORT
 FROM FileOps IMPORT
     (* proc *)  Exists, CreateFile;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 (**************************************************************************)

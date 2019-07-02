@@ -7,7 +7,7 @@ DEFINITION MODULE TaskControl;
         (*                  related procedures.                         *)
         (*                                                              *)
         (*      Programmer:     P. Moylan                               *)
-        (*      Last edited:    7 January 2018                          *)
+        (*      Last edited:    1 May 2019                              *)
         (*      Status:         OK                                      *)
         (*                                                              *)
         (****************************************************************)
@@ -21,7 +21,7 @@ FROM OS2 IMPORT HMTX;
 (*                                                                      *)
 (************************************************************************)
 
-CONST MaxPriority = 15;
+CONST MaxPriority = 95;
 
 TYPE
     PriorityLevel = [0..MaxPriority];
@@ -52,6 +52,16 @@ PROCEDURE CreateTask (StartAddress: PROC;  taskpriority: PriorityLevel;
     (* or simply by falling out of the bottom of its code.              *)
     (* There is no provision for tasks to kill other tasks.  Suicide    *)
     (* is legal, but murder is not.                                     *)
+
+    (* The TaskPriority value should be OS-independent, but in practice *)
+    (* it is not. For OS/2 the values are:                              *)
+    (*                                                                  *)
+    (*      taskpriority   Priority class                               *)
+    (*                                                                  *)
+    (*      -32 - -1        PRTYC_IDLETIME                              *)
+    (*        0 - 31        PRTYC_REGULAR                               *)
+    (*       32 - 63        PRTYC_TIMECRITICAL                          *)
+    (*       64 - 95        PRTYC_FOREGROUNDSERVER                      *)
 
 PROCEDURE CreateTask1 (StartAddress: PROC1;  taskpriority: PriorityLevel;
                           taskname: NameString;  param: ADDRESS): BOOLEAN;

@@ -1,0 +1,31 @@
+DEFINITION MODULE OS2Sem;
+
+        (****************************************************************)
+        (*                                                              *)
+        (*           WAIT ON MUTEX SEMAPHORE OR EVENT SEMAPHORE         *)
+        (*                                                              *)
+        (*      Programmer:     P. Moylan                               *)
+        (*      Last edited:    8 June 2019                             *)
+        (*      Status:         OK                                      *)
+        (*                                                              *)
+        (****************************************************************)
+
+
+TYPE SemKind = (mutex, event);
+
+
+PROCEDURE SemError (kind: SemKind;  errornum: CARDINAL);
+
+    (* Puts an error message to standard output, then crashes. *)
+
+PROCEDURE TimedWaitOnSemaphore (kind: SemKind;  sem, TimeLimit: CARDINAL): BOOLEAN;
+
+    (* Waits on an event semaphore or a mutex semaphore.  Returns TRUE  *)
+    (* iff the operation timed out.                                     *)
+
+PROCEDURE WaitOnSemaphore (kind: SemKind;  sem: CARDINAL);
+
+    (* Waits indefinitely on an event semaphore or a mutex semaphore. *)
+
+END OS2Sem.
+

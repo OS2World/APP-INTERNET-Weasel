@@ -29,20 +29,20 @@ IMPLEMENTATION MODULE MiscFuncs;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            21 May 2017                     *)
-        (*  Last edited:        26 January 2018                 *)
+        (*  Last edited:        13 December 2018                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
 
 
 FROM SYSTEM IMPORT
-    (* type *)  LOC, CARD8,
+    (* type *)  LOC, CARD8, CARD32,
     (* proc *)  CAST;
 
 FROM Arith64 IMPORT
-    (* const*)  Zero64,
+    (* const*)  Zero64, Max64,
     (* type *)  CARD64,
-    (* proc *)  Add64, Mul64;
+    (* proc *)  Compare64, Add64, Sub64, Mul64, ShortMul64, Div10;
 
 IMPORT Strings;
 
@@ -75,6 +75,7 @@ CONST
 
 VAR
     ScreenLock, LogFileLock: Lock;
+    Max64DIV10: CARD64;
 
 (************************************************************************)
 
@@ -328,21 +329,32 @@ PROCEDURE ConvertDecimal (VAR (*IN*) numberstring: ARRAY OF CHAR;
 
 (********************************************************************************)
 
-PROCEDURE ConvertDecimal64 (VAR (*IN*) numberstring: ARRAY OF CHAR;
+PROCEDURE ConvertDecimal64 (VAR (*IN*) string: ARRAY OF CHAR;
                                           VAR (*INOUT*) pos: CARDINAL): CARD64;
 
-    (* Like ConvertDecimal, but gives a 64-bit result.  *)
+    (* Like ConvertDecimal, except that it returns a 64-bit result.     *)
 
-    VAR result: CARD64;
+    VAR value, test: CARD64;  increment: CARD32;
 
     BEGIN
-        result := Zero64;
-        WHILE (pos <= HIGH(numberstring)) AND (numberstring[pos] IN DecimalDigits) DO
-            result := Mul64 (CARD64{10,0}, result);
-            Add64 (result, ORD(numberstring[pos]) - ORD('0'));
+        value := Zero64;
+        WHILE (pos <= HIGH(string)) AND (string[pos] IN DecimalDigits) DO
+            IF Compare64 (value, Max64DIV10) > 0 THEN
+                value := Max64;
+            ELSE
+                value := ShortMul64 (value, 10);
+            END (*IF*);
+            increment := VAL(CARD32, ORD(string[pos]) - ORD('0'));
+            test := Max64;
+            Sub64 (test, increment);
+            IF Compare64 (value, test) > 0 THEN
+                value := Max64;
+            ELSE
+                Add64 (value, increment);
+            END (*IF*);
             INC (pos);
         END (*WHILE*);
-        RETURN result;
+        RETURN value;
     END ConvertDecimal64;
 
 (********************************************************************************)
@@ -622,8 +634,11 @@ PROCEDURE CloseLogFile (id: ChanId);
 (*                           MODULE INITIALISATION                              *)
 (********************************************************************************)
 
+VAR dummy: CARDINAL;
+
 BEGIN
     CreateLock (ScreenLock);
     CreateLock (LogFileLock);
+    Div10 (Max64, Max64DIV10, dummy);
 END MiscFuncs.
 

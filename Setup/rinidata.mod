@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -35,7 +35,7 @@ IMPLEMENTATION MODULE RINIData;
         (*     a handle on every call.                              *)
         (*                                                          *)
         (*      Started:        13 January 2002                     *)
-        (*      Last edited:    21 November 2018                    *)
+        (*      Last edited:    4 May 2019                          *)
         (*      Status:         OK                                  *)
         (*                                                          *)
         (************************************************************)
@@ -45,7 +45,7 @@ IMPORT OS2, Strings, FileSys, INIData, Remote;
 FROM SYSTEM IMPORT
     (* type *)  LOC, INT16;
 
-FROM Heap IMPORT ALLOCATE, DEALLOCATE;
+FROM Storage IMPORT ALLOCATE, DEALLOCATE;
 
 FROM FileOps IMPORT
     (* type *)  FilenameString;

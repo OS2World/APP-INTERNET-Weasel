@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE POPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 April 1998                   *)
-        (*  Last edited:        13 September 2018               *)
+        (*  Last edited:        2 May 2019                      *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -37,7 +37,7 @@ FROM SYSTEM IMPORT CAST, LOC, CARD8, ADR;
 
 IMPORT Strings, FileSys, OS2, INIData;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 FROM SBuffers IMPORT

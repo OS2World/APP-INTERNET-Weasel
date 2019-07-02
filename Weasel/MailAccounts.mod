@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -31,7 +31,7 @@ IMPLEMENTATION MODULE MailAccounts;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            8 March 2003                    *)
-        (*  Last edited:        22 May 2017                     *)
+        (*  Last edited:        10 May 2019                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -45,17 +45,13 @@ FROM SYSTEM IMPORT
 FROM Domains IMPORT
     (* type *)  Domain, DomainSearchState,
     (* proc *)  StartDomainSearch, NextDomain, EndDomainSearch,
-                OpenDomainINI, MailDirectoryFor, NameOfDomain;
+                OpenDomainINI, MailDirectoryFor;
 
 FROM MyClock IMPORT
     (* proc *)  AppendTimeString, PackedCurrentDateTime;
 
 FROM Names IMPORT
     (* type *)  UserName, PassString, HostName, DomainName, FilenameString;
-
-FROM TransLog IMPORT
-    (* type *)  LogContext, TransactionLogID,
-    (* proc *)  CreateLogID, LogTransaction, LogTransactionL;
 
 FROM MiscFuncs IMPORT
     (* proc *)  ToLower, ConvertCard;
@@ -67,7 +63,7 @@ FROM TaskControl IMPORT
     (* type *)  Lock,
     (* proc *)  CreateLock, DestroyLock, Obtain, Release;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 (************************************************************************)
@@ -125,11 +121,6 @@ TYPE
 (************************************************************************)
 
 VAR
-    (* Transaction log ID and flag for debugging. *)
-
-    LogID: TransactionLogID;
-    Debugging: BOOLEAN;
-
     (* Pointer to a linear list of all current LocalUser records, and   *)
     (* a critical section protection lock for this list.                *)
 
@@ -139,8 +130,6 @@ VAR
 (************************************************************************)
 (* BUILDING THE LIST OF DOMAINS TO WHICH A GIVEN USERNAME COULD BELONG  *)
 (************************************************************************)
-
-VAR debugmes: ARRAY [0..127] OF CHAR;
 
 PROCEDURE BuildDomainList (VAR (*INOUT*) username: ARRAY OF CHAR;
                                       OurIPAddress: CARDINAL): DomainList;
@@ -154,13 +143,6 @@ PROCEDURE BuildDomainList (VAR (*INOUT*) username: ARRAY OF CHAR;
         head, this, last: DomainList;
 
     BEGIN
-        IF Debugging THEN
-            Strings.Assign ("Domain list for username ", debugmes);
-            Strings.Append (username, debugmes);
-            Strings.Append (":", debugmes);
-            LogTransaction (LogID, debugmes);
-        END (*IF*);
-
         (* Separate out the username into user@domain form.  We also    *)
         (* allow the forms user'domain and user%domain, and they take   *)
         (* precedence; i.e. if we find the ' then we don't look for %,  *)
@@ -185,9 +167,7 @@ PROCEDURE BuildDomainList (VAR (*INOUT*) username: ARRAY OF CHAR;
 
         head := NIL;
         last := NIL;
-        (*LogTransactionL (LogID, "About to call StartDomainSearch");*)
         state := StartDomainSearch (username, domainstring, OurIPAddress);
-        (*LogTransactionL (LogID, "Returned from StartDomainSearch");*)
         WHILE NextDomain (state, D, pass) DO
             NEW (this);
             this^.domain := D;
@@ -199,20 +179,8 @@ PROCEDURE BuildDomainList (VAR (*INOUT*) username: ARRAY OF CHAR;
             END (*IF*);
             this^.next := head;
             last := this;
-            IF Debugging THEN
-                Strings.Assign ("domain=", debugmes);
-                NameOfDomain (this^.domain, domainstring);
-                Strings.Append (domainstring, debugmes);
-                Strings.Append (", password=", debugmes);
-                Strings.Append (this^.pass, debugmes);
-                LogTransaction (LogID, debugmes);
-            END (*IF*);
         END (*WHILE*);
         EndDomainSearch (state);
-
-        IF Debugging THEN
-            LogTransactionL (LogID, "End of domain list");
-        END (*IF*);
 
         RETURN head;
 
@@ -414,7 +382,7 @@ PROCEDURE EndPasswordSearch (VAR (*INOUT*) s: PasswordSearchState);
 (*                         CREATING A TIMESTAMP                         *)
 (************************************************************************)
 
-PROCEDURE CreateTimeStamp (ID: TransactionLogID;
+PROCEDURE CreateTimeStamp (ID: CARDINAL;
                                   VAR (*IN*) LocalHostName: HostName;
                                               VAR (*OUT*) result: FilenameString);
 
@@ -426,7 +394,7 @@ PROCEDURE CreateTimeStamp (ID: TransactionLogID;
 
     BEGIN
         result[0] := '<';  pos := 1;
-        ConvertCard (CAST(CARDINAL, ID), result, pos);
+        ConvertCard (ID, result, pos);
         result[pos] := '.';  INC(pos);  result[pos] := Nul;
         AppendTimeString (result);
         Strings.Append ('@', result);
@@ -854,26 +822,8 @@ PROCEDURE NewMessageFilename (U: LocalUser;
     END NewMessageFilename;
 
 (************************************************************************)
-(*                         LOGGING FOR DEBUGGING                        *)
-(************************************************************************)
-
-(*
-PROCEDURE StartDebugLogging (ctx: LogContext);
-
-    (* Temporary code for debugging the MailAccounts module. Starts     *)
-    (* transaction logging for this module.                             *)
-
-    BEGIN
-        LogID := CreateLogID (ctx, "Account");
-        Debugging := TRUE;
-        (*Domains.StartDebugLogging (ctx);*)
-    END StartDebugLogging;
-*)
-
-(************************************************************************)
 
 BEGIN
-    Debugging := FALSE;
     LUChain := NIL;
     CreateLock (LUChainLock);
 FINALLY

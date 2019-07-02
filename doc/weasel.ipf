@@ -16,7 +16,7 @@ IMAP can be handled by running a separate IMAP add-on in parallel
 with Weasel. Both Weasel and the IMAP add-on are distributed as freeware,
 subject to the GNU GPL licence.
 
-:p.This documentation is for version 2.5.
+:p.This documentation is for version 2.56.
 
 :p.Weasel can be configured either to handle a single mail domain,
 or to host multiple domains. This choice, together with a variety of other
@@ -2102,25 +2102,27 @@ is complete.
 
 :hp2.Options page 3:ehp2.
 
-:p.:hp2.Bind server to specific address:ehp2.
+:p.:hp2.Send outgoing mail using ...:ehp2.
 
-:p.If your machine has multiple network interfaces, Weasel is able
-to accept connections on any of the interfaces. In almost all cases this is
-acceptable, and in fact you might even want to
-:link reftype=hd refid=domainIP.allocate different addresses to different domains:elink..
-
-:p.If you are also happy to use any interface for outgoing mail,
+:p.If your machine has only one IP address (the most common situation),
+or it has several but you are happy to use any interface for outgoing mail,
 you should chose the "All local interfaces" option
-in the "Bind server to" box.
-
-:p.Sometimes, however, you might want to use only one of your network
-addresses for outgoing mail. You might, for example, have a firewall
-that only lets SMTP traffic through a single address. In that case you need to select the
-"Specific address" option.
+in the "Send outgoing mail using" box. You don't need the
+"specific address" option except in some special situations; for
+example, if your firewall only lets SMTP traffic through a single address.
 
 :p.Note that the OS/2 tcp/ip stack does not allow you to bind to
 several but not all addresses. It is either one specific address,
 or all.
+
+:p.This option does not affect incoming mail. The addresses used for
+incoming mail are controlled by your nameserver; in particular, by the
+MX entries in your name server.
+
+:p.If your machine has multiple network interfaces, Weasel does allow you to
+:link reftype=hd refid=domainIP.allocate different addresses to different domains:elink.
+for incoming mail. This does of course require ensuring that the nameserver
+MX records will direct the mail to the right addresses.
 
 :p.:hp2.Non-delivery notifications:ehp2.
 
@@ -2845,22 +2847,17 @@ way of referring to a subnet of 2^(32-N) addresses. In the present version the
 leading string "CIDR" is compulsory, but this requirement will be dropped once
 the following option has been phased out.
 
-:li.An IP address range in the format a.b.c.d/N, where N (a number in
-the range 1 to 32) specifies how many of the least significant bits
-are "don't care" bits. For example, [123.45.254.0/9] refers to the
-range from [123.45.254.0] to [123.45.255.255], inclusive. This option is
-supported for those who used it in earlier versions of Weasel, but
-will be phased out in time because of the potential for confusion
-with the CIDR form. If Setup finds such an entry, it will change it to
-CIDR format.
+:li.An IP address range in the format a.b.c.d/N. This had a different
+meaning in older versions of Weasel, but it is now considered to be
+equivalent to a CIDR specification. In effect, the prefix "CIDR" is
+now optional.
 
 :li.A hostname, for example alpha.beta.com. In this case unrestricted
 use of wildcards is possible - see below.
-:li.A domain name starting with the '.' character. This is a "wildcard"
-entry that will match any hostname that ends with that domain name.
-This form is supported for compatibility with older versions of Weasel,
-but it is being phased out now that the '*' form of wildcard is
-available.
+
+:li.A domain name starting with the '.' character. This is an obsolete
+feature, and if Setup encounters such an entry it will be changed to
+an entry using wildcards.
 :eul.
 
 :p.Where appropriate - that is, when ranges or wildcard characters are not used -
@@ -2868,6 +2865,7 @@ Weasel will query the local nameserver, as it
 is reading in the list, to find out whether the specified machine has
 alternative names or multiple IP addresses. This means that you don't
 normally need to specify aliases when setting up the list of names.
+Obviously this expansion is not possible for wildcard entries.
 
 :p.:hp2.Wildcards:ehp2.
 
@@ -4092,9 +4090,10 @@ http&colon.//www.pmoylan.org/pages/os2/genini.html.
 :p.If you want to use GenINI only with Weasel, you can safely unzip
 the GenINI package into the Weasel directory. However, since GenINI
 is now "generic" and not tied specifically to Weasel, you might want
-to put it in its own directory.
+to put it in its own directory, or to put the two programs in a directory on your PATH
+so that they can be called from anywhere.
 
-LoadINI and DumpINI are no longer specialised
+:p.LoadINI and DumpINI are no longer specialised
 to one application, but can be used for conversion or backup of any OS/2
 INI files.
 

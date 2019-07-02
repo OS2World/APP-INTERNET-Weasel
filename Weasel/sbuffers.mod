@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SBuffers;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            24 May 1998                     *)
-        (*  Last edited:        22 May 2017                     *)
+        (*  Last edited:        2 May 2019                      *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -48,7 +48,7 @@ FROM LowLevel IMPORT
 
 IMPORT Inet2Misc, MiscFuncs, Strings;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 (************************************************************************)
@@ -57,16 +57,20 @@ CONST
     Nul = CHR(0); CR = CHR(13); LF = CHR(10); CtrlZ = CHR(26);
     InBufferSize = 16384;
     OutBufferSize = 16384;
+    LineBufferSize = 4096;
 
 TYPE
     InputBufferSubscript = [0..InBufferSize-1];
-    LineBufferSubscript = [0..4095];
+    LineBufferSubscript = [0..LineBufferSize-1];
     OutBufferSubscript = [0..OutBufferSize-1];
 
     (* InputBuffer is a buffer to hold incoming data.  RBpos is the     *)
-    (* character position we're up to in InputBuffer,                   *)
-    (* and RBlength is the number of characters in InputBuffer.         *)
-    (* LineBuffer is a copy of the incoming line.                       *)
+    (* character position we're up to in InputBuffer, and RBlength is   *)
+    (* the number of characters in InputBuffer, including the ones we   *)
+    (* have already processed.  (That is, the number of InputBuffer     *)
+    (* characters still to be processed is RBlength-RBpos.)             *)
+    (* LineBuffer is a copy of the incoming line.  For line-oriented    *)
+    (* input we copy from InputBuffer to LineBuffer.                    *)
     (* Timeout is the time in milliseconds before we decide that a      *)
     (* connection for incoming data has been lost.  We make this        *)
     (* variable so that we can use a relatively short value when making *)
@@ -342,7 +346,7 @@ PROCEDURE Getch (SB: SBuffer): CHAR;
                 REPEAT
                     IF Inet2Misc.WaitForSocket (socket, Timeout) > 0 THEN
                         RBlength := recv (socket, InputBuffer,
-                                      MAX(InputBufferSubscript) + 1, 0);
+                                                        InBufferSize, 0);
                     ELSE
                         RBlength := MAX(CARDINAL);
                     END (*IF*);
@@ -397,6 +401,7 @@ PROCEDURE GetBlock (SB: SBuffer;  wanted: CARDINAL;
 
             IF RBlength = MAX(CARDINAL) THEN
                 amount := MAX(CARDINAL);
+                RBlength := 0;
             ELSE
                 amount := RBlength - RBpos;
                 IF amount > wanted THEN
@@ -491,7 +496,7 @@ PROCEDURE LoadLineBuffer (SB: SBuffer): BOOLEAN;
 
                 IF NOT found THEN
                     source := ADR(InputBuffer[RBpos]);
-                    IF RBlength <= MAX(InputBufferSubscript) THEN
+                    IF RBlength < InBufferSize THEN
                         InputBuffer[RBlength] := Nul;
                     END (*IF*);
                     Strings.FindNext (LineFeed, InputBuffer, RBpos, found, pos);

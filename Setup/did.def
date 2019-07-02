@@ -149,6 +149,7 @@ CONST
    PromoteLocalHostName* = 1007;
    AddLocalAddresses* = 1008;
    StrictChecking*   = 1009;
+   locallistcount*   = 1010;
    RelaySources*     = 1100;
    mayrelaylistexplain* = 1101;
    mayrelaylist*     = 1102;
@@ -157,6 +158,7 @@ CONST
    DeleteMayRelayName* = 1105;
    PromoteMayRelayName* = 1107;
    EditMayRelayName* = 1108;
+   mayrelaylistcount* = 1109;
    WhitelistPage*    = 1150;
    whitelistexplain* = 1151;
    whitelist*        = 1152;
@@ -165,6 +167,7 @@ CONST
    DeleteWhitelistName* = 1155;
    PromoteWhitelistName* = 1157;
    EditWhitelistName* = 1158;
+   whitelistcount*   = 1159;
    BannedHosts*      = 1200;
    bannedlistexplain* = 1201;
    bannedlist*       = 1202;
@@ -173,6 +176,7 @@ CONST
    DeleteBannedName* = 1205;
    PromoteBannedName* = 1207;
    EditBannedName*   = 1208;
+   bannedlistcount*  = 1209;
    RelayDest*        = 1300;
    relaydestlistexplain* = 1301;
    relaydestlist*    = 1302;
@@ -181,6 +185,7 @@ CONST
    DeleteRelayDestName* = 1305;
    PromoteRelayDestName* = 1307;
    EditRelayDestName* = 1308;
+   relaydestlistcount* = 1309;
    Chunking*         = 1350;
    maxchunksizelabel* = 1359;
    maxchunksize*     = 1360;
@@ -315,7 +320,5 @@ CONST
    IPAddress*        = 2108;
    MaxMessageSizeLabel* = 2109;
    MaxMessageSize*   = 2110;
-   INIchoicelabel*   = 2111;
-   INIchoice*        = 2112;
 
 END DID.

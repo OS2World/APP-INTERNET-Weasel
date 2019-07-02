@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE HostLists;
         (*               Host list pages of the notebook                *)
         (*                                                              *)
         (*        Started:        8 July 1999                           *)
-        (*        Last edited:    27 November 2018                      *)
+        (*        Last edited:    27 March 2019                         *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -40,7 +40,7 @@ IMPORT OS2, OS2RTL, DID, Strings, CommonSettings, OneLine;
 
 FROM Languages IMPORT
     (* type *)  LangHandle,
-    (* proc *)  StrToBuffer;
+    (* proc *)  StrToBuffer, StrToBufferN;
 
 FROM WSUINI IMPORT
     (* proc *)  OpenINIFile, CloseINIFile;
@@ -55,7 +55,7 @@ FROM MiscFuncs IMPORT
     (* proc *)  EVAL, StringMatch;
 
 FROM Inet2Misc IMPORT
-    (* proc *)  IPToString, NameIsNumeric, StringToIP;
+    (* proc *)  Swap4, IPToString, NameIsNumeric, StringToIP;
 
 FROM Misc IMPORT
     (* type *)  HostCategory,
@@ -75,7 +75,7 @@ FROM ioctl IMPORT
     (* const*)  SIOCGIFCONF;
 
 FROM LowLevel IMPORT
-    (* proc *)  AddOffset;
+    (* proc *)  AddOffset, LS, IAND;
 
 FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
@@ -106,6 +106,8 @@ CONST
                                  DID.relaydestlistlabel, DID.bannedlistlabel};
     HLExplain = IDarray {DID.locallistexplain, DID.whitelistexplain, DID.mayrelaylistexplain,
                                  DID.relaydestlistexplain, DID.bannedlistexplain};
+    HLCount = IDarray {DID.locallistcount, DID.whitelistcount, DID.mayrelaylistcount,
+                                 DID.relaydestlistcount, DID.bannedlistcount};
     AddButton = IDarray {DID.AddLocalHostName, DID.AddWhitelistName, DID.AddMayRelayName,
                             DID.AddRelayDestName, DID.AddBannedName};
     EditButton = IDarray {DID.EditLocalHostName, DID.EditWhitelistName, DID.EditMayRelayName,
@@ -117,6 +119,7 @@ CONST
 
 VAR
     OurLang: LangHandle;
+    Count: ARRAY HostCategory OF CARDINAL;
     Handle, notebookhandle: ARRAY HostCategory OF OS2.HWND;
     PageActive, Changed: ARRAY HostCategory OF BOOLEAN;
     ChangeInProgress: ARRAY HostCategory OF BOOLEAN;
@@ -127,6 +130,19 @@ VAR
 
 (************************************************************************)
 (*                    OPERATIONS ON DIALOGUE LABELS                     *)
+(************************************************************************)
+
+PROCEDURE ShowCount (c: HostCategory);
+
+    (* Updates the "count" display. *)
+
+    VAR stringval: ARRAY [0..511] OF CHAR;
+
+    BEGIN
+        StrToBufferN (OurLang, "HostList.count", Count[c], stringval);
+        OS2.WinSetDlgItemText (Handle[c], HLCount[c], stringval);
+    END ShowCount;
+
 (************************************************************************)
 
 PROCEDURE SetLanguage (lang: LangHandle);
@@ -158,6 +174,7 @@ PROCEDURE SetLanguage (lang: LangHandle);
                 Strings.Append (".explain", code);
                 StrToBuffer (lang, code, stringval);
                 OS2.WinSetDlgItemText (Handle[c], HLExplain[c], stringval);
+                ShowCount (c);
             END (*IF*);
         END (*FOR*);
 
@@ -286,6 +303,7 @@ PROCEDURE StoreList (category: HostCategory;  hwnd: OS2.HWND);
         ELSE
             INC (BufferSize);
             ALLOCATE (bufptr, BufferSize);
+            bufptr^[0] := Nul;
         END (*IF*);
         ActualSize := BufferSize;
 
@@ -349,6 +367,7 @@ PROCEDURE LoadValues (category: HostCategory;  hwnd: OS2.HWND);
 
                     Changed[category] := TRUE;
 
+        Count[category] := 0;
         OpenINIFile;
 
         (* Load a hostname list from the INI file. *)
@@ -369,6 +388,7 @@ PROCEDURE LoadValues (category: HostCategory;  hwnd: OS2.HWND);
 
                 OS2.WinSendDlgItemMsg (hwnd, HostList[category], OS2.LM_INSERTITEM,
                      OS2.MPFROMSHORT(OS2.LIT_END), ADR(name));
+                INC (Count[category]);
 
             END (*IF*);
         UNTIL name[0] = Nul;
@@ -386,11 +406,13 @@ PROCEDURE LoadValues (category: HostCategory;  hwnd: OS2.HWND);
 
         CloseINIFile;
 
+        ShowCount (category);
+
     END LoadValues;
 
 (************************************************************************)
 
-PROCEDURE AddLocalAddresses (hwnd: OS2.HWND);
+PROCEDURE AddLocalAddresses (hwnd: OS2.HWND;  category: HostCategory);
 
     (* Adds all local IP addresses to the listbox. *)
 
@@ -437,6 +459,9 @@ PROCEDURE AddLocalAddresses (hwnd: OS2.HWND);
 
                 OS2.WinSendDlgItemMsg (hwnd, DID.localhostlist, OS2.LM_INSERTITEM,
                      OS2.MPFROMSHORT(OS2.LIT_END), ADR(text));
+                INC (Count[category]);
+                ShowCount (category);
+
             END (*IF*);
 
         END AddAddress;
@@ -491,7 +516,10 @@ PROCEDURE AddLocalAddresses (hwnd: OS2.HWND);
 
 (************************************************************************)
 
+(*
 PROCEDURE UpdateCIDRformat (j: HostCategory);
+
+    (* OBSOLETE *)
 
     (* Goes through this hostlist, changing all CIDR entries from old   *)
     (* to new format.                                                   *)
@@ -597,6 +625,164 @@ PROCEDURE UpdateCIDRformat (j: HostCategory);
         END (*IF*);
 
     END UpdateCIDRformat;
+*)
+
+(************************************************************************)
+
+PROCEDURE NormaliseCIDRentry (VAR (*INOUT*) entry: ARRAY OF CHAR): BOOLEAN;
+
+    (* If entry has CIDR format, adjusts the base address.  Otherwise   *)
+    (* leaves entry unchanged.  Returns TRUE if entry changed.          *)
+
+    (********************************************************************)
+
+    PROCEDURE BitsToMask (N: CARDINAL): CARDINAL;
+
+        (* Produces a big-endian number where the initial N bits are 1  *)
+        (* and the remaining bits are 0.                                *)
+
+        CONST AllOnes = 0FFFFFFFFH;
+
+        VAR mask: CARDINAL;
+
+        BEGIN
+            IF N = 0 THEN
+                RETURN 0;
+            END (*IF*);
+            IF N >= 32 THEN
+                mask := AllOnes;
+            ELSE
+                mask := LS(AllOnes, 32-N);
+            END (*IF*);
+            RETURN Swap4(mask);
+        END BitsToMask;
+
+    (********************************************************************)
+
+    VAR pos, IPaddr, nbits: CARDINAL;
+        HaveCIDR, HaveSlash, changed: BOOLEAN;
+        ch: CHAR;
+        tail: ARRAY [0..511] OF CHAR;
+
+    BEGIN
+        changed := FALSE;
+
+        (* Remove leading CIDR and spaces. *)
+
+        Strings.FindNext ("CIDR", entry, 0, HaveCIDR, pos);
+        IF HaveCIDR THEN
+            Strings.Delete (entry, pos, 4);
+        END (*IF*);
+        WHILE entry[0] = ' ' DO
+            Strings.Delete (entry, 0, 1);
+        END (*WHILE*);
+
+        (* Separate out trailing '/' and number if present. *)
+
+        Strings.FindNext ('/', entry, 0, HaveSlash, pos);
+        IF HaveSlash THEN
+            Strings.Assign (entry, tail);
+            entry[pos] := Nul;
+            IF pos > 0 THEN
+                Strings.Delete (tail, 0, pos);
+            END (*IF*);
+        END (*IF*);
+
+        IF HaveSlash AND NameIsNumeric(entry) THEN
+
+            (* This is the case where we do the modification.  We don't *)
+            (* do a legality check on what follows the slash, because   *)
+            (* there is no legal case where a slash can be followed by  *)
+            (* something that is not a number.                          *)
+
+            pos := 1;  nbits := 0;
+            ch := tail[pos];
+            WHILE (ch >= '0') AND (ch <= '9') DO
+                nbits := 10*nbits + ORD(ch) - ORD('0');
+                INC (pos);
+                ch := tail[pos];
+            END (*WHILE*);
+
+            IPaddr := IAND (StringToIP(entry), BitsToMask(nbits));
+            IPToString (IPaddr, FALSE, entry);
+            changed := TRUE;
+
+        END (*IF*);
+
+        (* Reinsert what we have removed. *)
+
+        IF HaveCIDR THEN
+            Strings.Insert ("CIDR ", 0, entry);
+        END (*IF*);
+        IF HaveSlash THEN
+            Strings.Append (tail, entry);
+        END (*IF*);
+
+        RETURN changed;
+
+    END NormaliseCIDRentry;
+
+(************************************************************************)
+
+PROCEDURE NormaliseEntry (VAR (*INOUT*) entry: ARRAY OF CHAR): BOOLEAN;
+
+    (* Changes obsolete or nonstandard entries to a standard form.  *)
+    (* Returns TRUE if we have changed the entry.                   *)
+
+    VAR result, bracketed: BOOLEAN;
+        L: CARDINAL;
+
+    BEGIN
+        bracketed := entry[0] = '[';
+        IF bracketed THEN
+            Strings.Delete (entry, 0, 1);
+            L := Strings.Length(entry)-1;
+            IF entry[L] = ']' THEN
+                entry[L] := Nul;
+            END (*IF*);
+        END (*IF*);
+        IF entry[0] = '.' THEN
+            Strings.Insert ('*', 0, entry);
+            result := TRUE;
+        ELSE
+            result := NormaliseCIDRentry (entry);
+        END (*IF*);
+        IF bracketed THEN
+            Strings.Insert ('[', 0, entry);
+            Strings.Append (']', entry);
+        END (*IF*);
+        RETURN result;
+    END NormaliseEntry;
+
+(************************************************************************)
+
+PROCEDURE NormaliseAllEntries (j: HostCategory);
+
+    (* Converts, if necessary, all entries for this page to a standard form. *)
+
+    VAR w: OS2.HWND;
+        index, count: CARDINAL;
+        name: ARRAY [0..NameLength-1] OF CHAR;
+
+    BEGIN
+        w := OS2.WinWindowFromID(Handle[j],HostList[j]);
+        count := OS2.ULONGFROMMR(OS2.WinSendMsg (w, OS2.LM_QUERYITEMCOUNT, NIL, NIL));
+
+        (* Check each entry to see whether it needs updating. *)
+
+        IF count > 0 THEN
+            FOR index := 0 TO count-1 DO
+                OS2.WinSendMsg (w, OS2.LM_QUERYITEMTEXT,
+                                OS2.MPFROM2USHORT(index, NameLength), ADR(name));
+                IF NormaliseEntry(name) THEN
+                    OS2.WinSendMsg (w, OS2.LM_SETITEMTEXT,
+                                OS2.MPFROMSHORT(index), ADR(name));
+                    Changed[j] := TRUE;
+                END (*IF*);
+            END (*FOR*);
+        END (*IF*);
+
+    END NormaliseAllEntries;
 
 (************************************************************************)
 
@@ -607,7 +793,8 @@ PROCEDURE StoreData (j: HostCategory);
     VAR bool: BOOLEAN;
 
     BEGIN
-        UpdateCIDRformat(j);
+        (*UpdateCIDRformat(j);*)
+        NormaliseAllEntries (j);
         OpenINIFile;
         IF Changed[j] THEN
             StoreList(j, OS2.WinWindowFromID(Handle[j],HostList[j]));
@@ -688,6 +875,7 @@ PROCEDURE ["SysCall"] DialogueProc(hwnd     : OS2.HWND
                    name := "";
                    StrToBuffer (OurLang, "Local.EnterName", message);
                    OneLine.Edit (hwnd, message, name, UseTNI);
+                   Changed[category] := NormaliseEntry (name);
                    IF name[0] <> Nul THEN
                        IF index = OS2.LIT_NONE THEN
                            index := 0;
@@ -699,6 +887,8 @@ PROCEDURE ["SysCall"] DialogueProc(hwnd     : OS2.HWND
                        OS2.WinSendDlgItemMsg (hwnd, HostList[category], OS2.LM_SELECTITEM,
                               OS2.MPFROMSHORT(index), OS2.MPFROMSHORT(ORD(TRUE)));
                    END (*IF*);
+                   INC (Count[category]);
+                   ShowCount (category);
                    Changed[category] := TRUE;
 
             ELSIF ButtonID = EditButton[category] THEN
@@ -706,6 +896,7 @@ PROCEDURE ["SysCall"] DialogueProc(hwnd     : OS2.HWND
                             OS2.MPFROM2USHORT(index, NameLength), ADR(name));
                    StrToBuffer (OurLang, "Local.EnterName", message);
                    OneLine.Edit (hwnd, message, name, UseTNI);
+                   Changed[category] := NormaliseEntry (name);
                    IF name[0] <> Nul THEN
                        OS2.WinSendDlgItemMsg (hwnd, HostList[category], OS2.LM_SETITEMTEXT,
                               OS2.MPFROMSHORT(index), ADR(name));
@@ -734,11 +925,13 @@ PROCEDURE ["SysCall"] DialogueProc(hwnd     : OS2.HWND
                    OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, EditButton[category]), FALSE);
                    OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, PromoteButton[category]), FALSE);
                    OS2.WinEnableWindow (OS2.WinWindowFromID(hwnd, DeleteButton[category]), FALSE);
+                   DEC (Count[category]);
+                   ShowCount (category);
                    Changed[category] := TRUE;
 
             ELSIF ButtonID = DID.AddLocalAddresses THEN
 
-                   AddLocalAddresses(hwnd);
+                   AddLocalAddresses(hwnd, category);
                    Changed[category] := TRUE;
 
             END (*IF*);

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -27,7 +27,7 @@ IMPLEMENTATION MODULE TNIData;
         (*            Looking after text-based INI data             *)
         (*                                                          *)
         (*    Started:        26 June 2005                          *)
-        (*    Last edited:    22 May 2017                           *)
+        (*    Last edited:    2 May 2019                            *)
         (*    Status:         Now working, I believe                *)
         (*                                                          *)
         (************************************************************)
@@ -53,8 +53,7 @@ FROM TaskControl IMPORT
 FROM LowLevel IMPORT
     (* proc *)  Copy, AddOffset, EVAL;
 
-FROM Heap IMPORT
-    (* type *)  Track,
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE
                 <* IF DEFINED(TRACKTNIUSAGE) & TRACKTNIUSAGE THEN *>
                 , StartTracking, TrackUpdate
@@ -63,9 +62,6 @@ FROM Heap IMPORT
 
 FROM Timer IMPORT
     (* proc *)  Sleep;
-
-FROM TaskControl IMPORT
-    (* proc *)  CreateTask;
 
 FROM MiscFuncs IMPORT
     (* proc *)  ConvertCard;

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ MODULE Weasel;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            12 April 1998                   *)
-        (*  Last edited:        18 September 2018               *)
+        (*  Last edited:        10 June 2019                    *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -69,8 +69,9 @@ FROM Semaphores IMPORT
 FROM TaskControl IMPORT
     (* proc *)  CreateTask, ThreadCount, NotDetached;
 
-FROM Heap IMPORT
-    (* proc *)  EnableHeapLogging, StopHeapLogging;
+FROM OS2Sem IMPORT
+    (* type *)  SemKind,
+    (* proc *)  WaitOnSemaphore;
 
 FROM Exceptq IMPORT
     (* proc *)  InstallExceptq, UninstallExceptq;
@@ -119,7 +120,7 @@ FROM Delivery IMPORT
                 StartOnlineChecker;
 
 FROM Domains IMPORT
-    (* proc *)  CheckRegistration, ClearMailboxLocks;
+    (* proc *)  DomainsSetTNImode, ClearMailboxLocks;
 
 FROM ProgramArgs IMPORT
     (* proc *)  ArgChan, IsArgPresent;
@@ -149,7 +150,6 @@ VAR
     MainSocket: SocketArray;
     ServerPort: CardArray;
     ServerEnabled: CARDINAL;
-    BindAddr: CARDINAL;
     CalledFromInetd: BOOLEAN;
     ScreenEnabled: BOOLEAN;
     ExtraLogging: BOOLEAN;
@@ -247,7 +247,7 @@ PROCEDURE LoadUpdateableINIData;
 
     (********************************************************************)
 
-    VAR BadPasswordLimit, AuthMethods, AuthTime: CARDINAL;
+    VAR BadPasswordLimit, AuthMethods, AuthTime, BindAddr: CARDINAL;
         TimeoutLimit, MaxUsers: CardArray;
         TimeoutLimit2, MaxUsers2: CardArray2;
         TimeoutLimit3, MaxUsers3: CardArray3;
@@ -388,11 +388,10 @@ PROCEDURE LoadINIData;
                     ServerPort := DefaultPort;
                 END (*IF*);
             END (*IF*);
-            EVAL(GetItem ("BindAddr", BindAddr));
             CloseINIFile (hini);
         END (*IF*);
 
-        CheckRegistration(UseTNI);
+        DomainsSetTNImode(UseTNI);
         LoadSMTPINIData(UseTNI);
         LoadDeliveryINIData(UseTNI);
         LoadUpdateableINIData;
@@ -541,11 +540,6 @@ PROCEDURE RunTheServer;
         IF NOT ExceptqActive THEN
             LogTransactionL (LogID, "Failed to load the Exceptq handler.");
         END (*IF*);
-        (*
-        IF ExtraLogging THEN
-            EnableHeapLogging (LogID);
-        END (*IF*);
-        *)
 
         (*UseTNI := TRUE ;*)    (* while debugging *)
         StartOnlineChecker;
@@ -603,7 +597,7 @@ PROCEDURE RunTheServer;
                 Strings.Append ("            ", message);
                 UpdateTopScreenLine (0, message);
                 (*SetOurTitle (message);*)
-                UpdateTopScreenLine (25, "(C) 1998-2018 Peter Moylan");
+                UpdateTopScreenLine (25, "(C) 1998-2019 Peter Moylan");
                 UpdateTopScreenLine (54, "Users:");
 
                 EVAL (SetBreakHandler (ControlCHandler));
@@ -648,14 +642,7 @@ PROCEDURE RunTheServer;
                         Strings.Append (" will be handled by imapd.exe", message);
                         Enabled[j] := FALSE;
                     ELSE
-                        Strings.Append (" listening on ", message);
-                        (*IF BindAddr = 0 THEN*)
-                         Strings.Append ("all interfaces", message);
-                        (*
-                        ELSE AppendHostID (BindAddr, message);
-                        END (*IF*);
-                        *)
-                        Strings.Append (", port ", message);
+                        Strings.Append (" listening on all interfaces, port ", message);
                         AppendCard (ServerPort[j], message);
                     END (*IF*);
                 ELSE
@@ -667,15 +654,14 @@ PROCEDURE RunTheServer;
 
                     (* Now have the socket, bind to our machine. *)
 
-                    (* In the present version we bind to all interfaces for     *)
-                    (* incoming connections, and only use BindAddr for          *)
-                    (* outgoing mail -- see modules Domains and Delivery.       *)
+                    (* We bind to all interfaces for incoming connections, and  *)
+                    (* only use BindAddr for outgoing mail -- see modules       *)
+                    (* Domains and Delivery.                                    *)
 
                     WITH myaddr DO
                         family := AF_INET;
                         WITH in_addr DO
                             port := Swap2 (ServerPort[j]);
-                            (*addr := BindAddr;*)
                             addr := INADDR_ANY;
                             zero := Zero8;
                         END (*WITH*);
@@ -684,7 +670,9 @@ PROCEDURE RunTheServer;
                     IF bind (MainSocket[j], myaddr, SIZE(myaddr)) THEN
 
                         WriteError (LogID);
-                        LogTransactionL (LogID, "Cannot bind to server port.");
+                        Strings.Assign ("Cannot bind to server port ", message);
+                        AppendCard (ServerPort[j], message);
+                        LogTransaction (LogID, message);
 
                     ELSE
 
@@ -762,9 +750,6 @@ PROCEDURE RunTheServer;
         RapidShutdown := TRUE;
 
         LogTransactionL (LogID, "Weasel closing down");
-        IF ExtraLogging THEN
-            StopHeapLogging;
-        END (*IF*);
         DiscardLogID (LogID);
 
         UninstallExceptq (exRegRec);
@@ -780,8 +765,7 @@ PROCEDURE INIChangeDetector;
     (* Runs as a separate task.  Rereads some of the configuration data each    *)
     (* time a public event semaphore tells us that there's been a change.       *)
 
-    VAR count: CARDINAL;
-        semName: ARRAY [0..127] OF CHAR;
+    VAR semName: ARRAY [0..127] OF CHAR;
         LogID: TransactionLogID;
 
     BEGIN
@@ -795,8 +779,7 @@ PROCEDURE INIChangeDetector;
         END (*IF*);
 
         WHILE NOT ShutdownInProgress DO
-            OS2.DosWaitEventSem (UpdaterFlag, OS2.SEM_INDEFINITE_WAIT);
-            OS2.DosResetEventSem (UpdaterFlag, count);
+            WaitOnSemaphore (event, UpdaterFlag);
             IF NOT ShutdownInProgress THEN
                 IF UseTNI THEN
                     LogTransactionL (LogID, "Reloading the TNI data");
@@ -836,7 +819,7 @@ PROCEDURE ShutdownRequestDetector;
         (* rapid shutdown (or that shutdown has already happened.)    *)
 
         WHILE NOT RapidShutdown DO
-            OS2.DosWaitEventSem (ShutdownSignal, OS2.SEM_INDEFINITE_WAIT);
+            WaitOnSemaphore (event, ShutdownSignal);
             Signal (ShutdownRequest);
         END (*WHILE*);
 
@@ -1011,9 +994,8 @@ PROCEDURE DeliberateCrash;
 
 (********************************************************************************)
 
-(********************************************************************************)
-
 VAR abort: BOOLEAN;
+    j: ServiceType;
 
 BEGIN
     ExtraLogging := FALSE;
@@ -1028,6 +1010,10 @@ BEGIN
         WriteString ("Run ChooseTNI.cmd to fix the problem, then try again");
         WriteLn;
     ELSE
+
+        FOR j := MIN(ServiceType) TO MAX(ServiceType) DO
+            MainSocket[j] := NotASocket;
+        END (*FOR*);
         AdjustINIData;
         LoadINIData;
         GetProgramName (ProgVersion);
@@ -1044,7 +1030,6 @@ FINALLY
     IF NOT abort THEN
         (*
         OS2.DosPostEventSem (ShutdownSignal);
-        OS2.DosResetEventSem (ShutdownSignal, count);
         Wait (TaskDone);
         *)
         OS2.DosPostEventSem (UpdaterFlag);

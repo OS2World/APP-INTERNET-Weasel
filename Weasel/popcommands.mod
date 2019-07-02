@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE POPCommands;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            21 April 1998                   *)
-        (*  Last edited:        13 September 2018               *)
+        (*  Last edited:        10 June 2019                    *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -57,7 +57,7 @@ FROM SYSTEM IMPORT CAST, LOC, CARD8;
 
 IMPORT Strings, Delivery;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 FROM LowLevel IMPORT
@@ -359,7 +359,7 @@ PROCEDURE OpenSession (SB: SBuffer;  HostIPAddress, ClientIPAddress: CARDINAL;
             HostAddr := HostIPAddress;
             ClientAddr := ClientIPAddress;
             state := Idle;
-            CreateTimeStamp (ID, LocalHostName, TimeStamp);
+            CreateTimeStamp (CAST(CARDINAL,ID), LocalHostName, TimeStamp);
             badpasscount := 0;
             BadCommandCount := 0;
             retrcount := 0;  retrchars := 0;

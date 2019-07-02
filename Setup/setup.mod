@@ -27,7 +27,7 @@ MODULE Setup;
         (*                    PM Setup for Weasel                   *)
         (*                                                          *)
         (*    Started:        25 June 1999                          *)
-        (*    Last edited:    25 November 2018                      *)
+        (*    Last edited:    6 March 2019                          *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
@@ -136,6 +136,7 @@ BEGIN
     GetParameters (LocalRemote, UseTNI, explicit);
     IF explicit THEN
         CommitTNIDecision ("weasel", UseTNI);
+        CommitTNIDecision ("setup", UseTNI);
     ELSIF NOT ChooseDefaultINI ("weasel", UseTNI) THEN
         UseTNI := FALSE;
     END (*IF*);

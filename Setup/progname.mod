@@ -31,13 +31,13 @@ IMPLEMENTATION MODULE ProgName;
     (*       while the library modules still live at                *)
     (*       "library" level of the source structure.               *)
     (*                                                              *)
-    (*    Last edited:    1 January 2013                            *)
+    (*    Last edited:    30 May 2019                               *)
     (*    Status:         OK                                        *)
     (*                                                              *)
     (****************************************************************)
 
 
-IMPORT Exceptq, Strings;
+IMPORT Strings;
 
 IMPORT WV;
 

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Watchdog;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 December 2017                *)
-        (*  Last edited:        14 September 2018               *)
+        (*  Last edited:        21 June 2019                    *)
         (*  Status:             Appears to be working           *)
         (*                                                      *)
         (********************************************************)
@@ -68,7 +68,7 @@ FROM TaskControl IMPORT
     (* type *)  Lock,
     (* proc *)  CreateLock, DestroyLock, Obtain, Release, CreateTask;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 FROM LowLevel IMPORT
@@ -435,6 +435,8 @@ PROCEDURE DetachFromListI (ID: WatchdogID);
             INC (after^.deltatime, ID^.deltatime);
         END (*IF*);
         ID^.onlist := FALSE;
+        ID^.previous := NIL;
+        ID^.next := NIL;
         <* IF WATCHTEST THEN *>
             msg := "After DetachFromListI, LastTime = ";
             AppendCard (LastTime, msg);
@@ -531,11 +533,16 @@ PROCEDURE KickWatchdog (ID: WatchdogID);
         <* END *>
 
         (* The removal from the Watchlist and the reinsertion must be   *)
-        (* indivisible, to avoid a critical race.                       *)
+        (* indivisible, to avoid a critical race.  Even then, it is     *)
+        (* possible that a timeout occurred while we we were waiting    *)
+        (* to obtain the access lock, in which case it is too late to   *)
+        (* do the update.                                               *)
 
         Obtain (WatchList.access);
-        DetachFromListI (ID);
-        ReinsertI (ID);
+        IF ID^.onlist THEN
+            DetachFromListI (ID);
+            ReinsertI (ID);
+        END (*IF*);
         Release (WatchList.access);
     END KickWatchdog;
 
@@ -582,13 +589,18 @@ PROCEDURE GetFromKillQ(): WatchdogID;
         END (*IF*);
         Obtain (KillQ.access);
         p := KillQ.head;
-        KillQ.head := p^.next;
-        IF KillQ.head = NIL THEN
-            KillQ.tail := NIL;
+        IF p = NIL THEN
+            Release (KillQ.access);
+            result := NIL;
+        ELSE
+            KillQ.head := p^.next;
+            IF KillQ.head = NIL THEN
+                KillQ.tail := NIL;
+            END (*IF*);
+            Release (KillQ.access);
+            result := p^.this;
+            DISPOSE (p);
         END (*IF*);
-        Release (KillQ.access);
-        result := p^.this;
-        DISPOSE (p);
         RETURN result;
     END GetFromKillQ;
 
@@ -631,6 +643,14 @@ PROCEDURE KillerThread;
             p := GetFromKillQ();
             IF p <> NIL THEN
                 p^.tocall (p^.arg);
+
+                (*DISPOSE (p);*)      (* Removed 21 June 2019 *)
+
+                (* We do NOT dispose of the record here, because there  *)
+                (* is still a pointer to it in the client code.  Is     *)
+                (* deletion is the responsibility of the thread that    *)
+                (* has just received its timed-out notification.        *)
+
             END (*IF*);
         END (*WHILE*);
         Signal (TaskDone);
@@ -793,8 +813,8 @@ BEGIN
         head := NIL; tail := NIL;
     END (*WITH*);
     CreateSemaphore (TaskDone, 0);
-    EVAL (CreateTask (WatchdogThread, 0, "watchdog"));
-    EVAL (CreateTask (KillerThread, 0, "killer"));
+    EVAL (CreateTask (WatchdogThread, 4, "watchdog"));
+    EVAL (CreateTask (KillerThread, 4, "killer"));
 FINALLY
     ShutDown := TRUE;
     Signal (KillQ.count);

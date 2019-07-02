@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  PMOS/2 software library                                               *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Arith64;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            17 October 2001                 *)
-        (*  Last edited:        22 June 2018                    *)
+        (*  Last edited:        16 January 2019                 *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -193,7 +193,7 @@ PROCEDURE LongSub64 (VAR (*INOUT*) A: CARD64;  B: CARD64);
             DEC (A.low, B.low);
         END (*IF*);
         DEC (A.high, B.high);
-        IF borrow THEN
+        IF borrow AND (A.high > 0) THEN
             DEC (A.high);
         END (*IF*);
     END LongSub64;
@@ -418,7 +418,7 @@ PROCEDURE LongDiv64 (A: CARD64;  B: CARDINAL;  VAR (*OUT*) quotient: CARD64;
         (* If Z is not too large then we will decrement R by BZ, and    *)
         (* increment Q by Z.                                            *)
 
-        (*  Z := CARD64{0,1};  BZ := CARD64{0,B};  *)
+        (*  Z := CARD64{1,0};  BZ := CARD64{B,0};  *)
 
         (* Observation: at this point in the calculation we             *)
         (* know that R.high < B.  Also, by construction, BZ.high = B.   *)

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -31,13 +31,13 @@ IMPLEMENTATION MODULE ProgName;
     (*       while the library modules still live at                *)
     (*       "library" level of the source structure.               *)
     (*                                                              *)
-    (*    Last edited:    19 September 2014                         *)
+    (*    Last edited:    1 June 2019                               *)
     (*    Status:         OK                                        *)
     (*                                                              *)
     (****************************************************************)
 
 
-IMPORT Exceptq, Strings;
+IMPORT Strings;
 
 IMPORT WV;
 
@@ -47,8 +47,6 @@ PROCEDURE GetProgramName (VAR (*OUT*) Version: ARRAY OF CHAR);
 
     (* Returns a version string.  We compute it in this module so that  *)
     (* exceptq can have a version string before any threads are created.*)
-    (* (But unfortunately the exceptq handler needs this information    *)
-    (* before we know whether this is the Pro version of Weasel.)       *)
 
     VAR ProgVersion: ARRAY [0..31] OF CHAR;
 

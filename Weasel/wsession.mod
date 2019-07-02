@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE WSession;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            28 April 1998                   *)
-        (*  Last edited:        24 February 2018                *)
+        (*  Last edited:        2 May 2019                      *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -39,7 +39,7 @@ FROM SYSTEM IMPORT
     (* type *)  ADDRESS,
     (* proc *)  CAST;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 FROM LowLevel IMPORT
@@ -262,7 +262,7 @@ PROCEDURE UpdateCount (service: ServiceType;  increment: INTEGER): CARDINAL;
     (* limit, then the count is not updated and the returned value      *)
     (* is zero.                                                         *)
 
-    CONST countpos = CardArray {60, 66, 72, 72};
+    CONST countpos = CardArray {60, 65, 70, 70};
 
     VAR value, pos: CARDINAL;  changed: BOOLEAN;
         msg: ARRAY [0..7] OF CHAR;
@@ -281,7 +281,7 @@ PROCEDURE UpdateCount (service: ServiceType;  increment: INTEGER): CARDINAL;
         END (*IF*);
         IF changed THEN
             pos := 0;
-            ConvertCardRJ (UserCount[service], msg, 6, pos);
+            ConvertCardRJ (UserCount[service], msg, 5, pos);
             msg[pos] := CHR(0);
             WriteStringAt (0, countpos[service], msg);
         END (*IF*);

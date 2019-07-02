@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Remote;
         (*                Communication with INIRemote              *)
         (*                                                          *)
         (*    Started:        7 October 1999                        *)
-        (*    Last edited:    22 July 2017                          *)
+        (*    Last edited:    4 May 2019                            *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
@@ -65,7 +65,7 @@ FROM MiscFuncs IMPORT
 FROM Inet2Misc IMPORT
     (* proc *)  NameIsNumeric, Swap2, Swap4;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 (**************************************************************************)
@@ -605,7 +605,7 @@ PROCEDURE InitialSetup (lang: LangHandle;  AppTitle, SetupName,
     (* from that INI file or TNI file.  The function result is TRUE     *)
     (* iff we're defaulting to remote editing.                          *)
 
-    CONST NilHandle = LangHandle(NIL);
+    CONST NilHandle = SYSTEM.CAST (LangHandle, NIL);
 
     VAR hini: HINI;  RemoteFlag: BOOLEAN;
         key: ARRAY [0..9] OF CHAR;

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -27,7 +27,7 @@ IMPLEMENTATION MODULE OpeningDialogue;
         (*                    Initial dialogue box                      *)
         (*                                                              *)
         (*    Started:        28 June 1999                              *)
-        (*    Last edited:    22 May 2017                               *)
+        (*    Last edited:    10 June 2019                              *)
         (*    Status:         Working                                   *)
         (*                                                              *)
         (****************************************************************)
@@ -83,7 +83,7 @@ PROCEDURE PostUpdated (semName: ARRAY OF CHAR);
 
     (* Posts on a public event semaphore. *)
 
-    VAR changehev: OS2.HEV;  count: CARDINAL;
+    VAR changehev: OS2.HEV;
 
     BEGIN
         changehev := 0;
@@ -91,7 +91,6 @@ PROCEDURE PostUpdated (semName: ARRAY OF CHAR);
             OS2.DosCreateEventSem (semName, changehev, OS2.DC_SEM_SHARED, FALSE);
         END (*IF*);
         OS2.DosPostEventSem (changehev);
-        OS2.DosResetEventSem (changehev, count);
         OS2.DosCloseEventSem(changehev);
     END PostUpdated;
 

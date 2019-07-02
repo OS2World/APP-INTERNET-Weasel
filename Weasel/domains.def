@@ -6,7 +6,7 @@ DEFINITION MODULE Domains;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 July 2002                    *)
-        (*  Last edited:        17 September 2018               *)
+        (*  Last edited:        9 June 2019                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -26,16 +26,9 @@ CONST LockFileName = "LOCK.!!!";
 TYPE Domain;          (* is private *)
 
 
-PROCEDURE CheckRegistration (TNImode: BOOLEAN);
+PROCEDURE DomainsSetTNImode (TNImode: BOOLEAN);
 
-    (* Sets TNI mode. This procedure also used to check whether *)
-    (* this is a registered copy, hence the procedure name,     *)
-    (* but that check is no longer done.                        *)
-
-PROCEDURE StartDebugLogging (ctx: LogContext);
-
-    (* Temporary code for debugging the Domains module. Starts     *)
-    (* transaction logging for this module.                        *)
+    (* Sets TNI mode. *)
 
 PROCEDURE EnableDomainExtraLogging (enable: BOOLEAN);
 
@@ -104,13 +97,6 @@ PROCEDURE SMTPAuthAllowed (VAR (*IN*) name: ARRAY OF CHAR;  D: Domain): BOOLEAN;
 
     (* Returns TRUE iff this user is allowed to authenticate SMTP       *)
     (* transactions using the AUTH command.                             *)
-(*
-PROCEDURE SetFilterOverride (name: ARRAY OF CHAR;  D: Domain;
-                              VAR (*INOUT*)
-                                     FilterName: FilenameString): BOOLEAN;
-*)
-    (* Returns TRUE and alters FilterName iff this user has a filter    *)
-    (* override.                                                        *)
 
 PROCEDURE MailDirectoryFor (D: Domain;  VAR (*OUT*) DirName: FilenameString);
 
@@ -120,11 +106,6 @@ PROCEDURE MailDirectoryFor (D: Domain;  VAR (*OUT*) DirName: FilenameString);
 PROCEDURE OpenDomainINI (D: Domain): HINI;
 
     (* Opens the INI or TNI file for this domain, as appropriate. *)
-
-(*PROCEDURE LogDomainInfo (LID: TransactionLogID;  D: Domain);*)
-
-    (* Puts some information about domain D into the transaction log.   *)
-    (* (But only if extra logging has been specified.)                  *)
 
         (********************************************************)
         (*            MATCHING A USER TO A DOMAIN               *)

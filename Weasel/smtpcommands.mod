@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SMTPCommands;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 April 1998                   *)
-        (*  Last edited:        25 November 2018                *)
+        (*  Last edited:        9 June 2019                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -54,7 +54,7 @@ IMPLEMENTATION MODULE SMTPCommands;
 
 IMPORT SYSTEM, Strings, Delivery;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE(*, SayHeapCount*);
 
 FROM LowLevel IMPORT
@@ -578,14 +578,15 @@ PROCEDURE DATA (session: Session;  VAR (*IN*) dummy: ARRAY OF CHAR);
 
 PROCEDURE EHLO (session: Session;  VAR (*IN*) name: ARRAY OF CHAR);
 
-    VAR host: HostName;  pos: CARDINAL;  allowchunking: BOOLEAN;
+    CONST allowchunking = TRUE;
+
+    VAR host: HostName;  pos: CARDINAL;
         FailureReason, buffer: ARRAY [0..127] OF CHAR;
 
     BEGIN
         ResetItemDescriptor (session^.desc, "");
         ResetReturnPath (session^.desc);
         Strings.Assign (name, host);
-        allowchunking := (*NOT NoChunkingHost (host)*) TRUE;
         IF NOT SetClaimedSendingHost (session^.desc, host) THEN
             Reply (session, "550 Access denied");
             session^.state := MustAbort;

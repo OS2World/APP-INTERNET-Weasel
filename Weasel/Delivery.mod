@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -29,7 +29,7 @@ IMPLEMENTATION MODULE Delivery;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            12 May 1998                     *)
-        (*  Last edited:        25 November 2018                *)
+        (*  Last edited:        3 June 2019                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -120,7 +120,7 @@ FROM Inet2Misc IMPORT
 
 FROM MiscFuncs IMPORT
     (* type *)  CharArrayPointer,
-    (* proc *)  StringMatch, ConvertCard, ConvertCardZ, AppendCard, ToLower;
+    (* proc *)  StringMatch, ConvertCard, ConvertCardRJ, ConvertCardZ, AppendCard, ToLower;
 
 FROM Inet2Misc IMPORT
     (* proc *)  IPToString, AddressToHostName;
@@ -155,10 +155,14 @@ FROM TaskControl IMPORT
     (* type *)  Lock, NameString,
     (* proc *)  CreateTask, CreateTask1, CreateLock, Obtain, Release;
 
+FROM OS2Sem IMPORT
+    (* type *)  SemKind,
+    (* proc *)  WaitOnSemaphore;
+
 FROM LowLevel IMPORT
     (* proc *)  EVAL, IAND, AddOffset, Copy;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE(*, SayHeapCount*);
 
 (************************************************************************)
@@ -646,6 +650,14 @@ VAR
                        rrsack, rroutbound, rrretry: CARDINAL;  (* relay recipients *)
                    END (*RECORD*);
     *)
+
+    (* Counter for number of jobs that are actually at the      *)
+    (* stage of being sent by TCP/IP, for display purposes.     *)
+
+    OutCount: RECORD
+                  access: Lock;
+                  count: CARDINAL;
+              END (*RECORD*);
 
     (* Event semaphore to signal that new local mail has arrived. *)
 
@@ -1889,8 +1901,6 @@ PROCEDURE PublicNotification;
     (* Posts a public event semaphore to say that there has been a      *)
     (* new mail item received.                                          *)
 
-    VAR count: CARDINAL;
-
     BEGIN
         (* According to the manual event semaphores are edge-triggered, *)
         (* so we ought to be able to reset the semaphore immediately    *)
@@ -1899,7 +1909,6 @@ PROCEDURE PublicNotification;
         (* do the reset, but that doesn't seem to work as well.         *)
 
         OS2.DosPostEventSem (newmailhev);
-        OS2.DosResetEventSem (newmailhev, count);
 
     END PublicNotification;
 
@@ -2247,7 +2256,7 @@ PROCEDURE SortByFilter (VAR (*INOUT*) list: ListOfRecipients);
 (************************************************************************)
 
 PROCEDURE WriteRejectionLetter (cid: ChanId;  job: OutJobPtr;
-                                                          final: BOOLEAN);
+                                                   local, final: BOOLEAN);
 
     (* On entry the file has already been opened but it has no content. *)
     (* We write the header and body, then close the file.               *)
@@ -2289,6 +2298,10 @@ PROCEDURE WriteRejectionLetter (cid: ChanId;  job: OutJobPtr;
 
         (* Fill in the header details. *)
 
+        IF local THEN
+            FWriteString (cid, "Return-Path: <>");
+            FWriteLn (cid);
+        END (*IF*);
         CurrentDateAndTime (TimeBuffer);
         FWriteString (cid, "Date: ");
         FWriteString (cid, TimeBuffer);
@@ -2428,7 +2441,7 @@ PROCEDURE SendRejectionLetter (job: OutJobPtr;  ID: TransactionLogID;
     (* The job descriptor and message file are not altered by this      *)
     (* procedure - we create our own copies of what we need.            *)
 
-    VAR p: OutJobPtr;  cid: ChanId;
+    VAR p: OutJobPtr;  cid: ChanId;  D: Domain;  local: BOOLEAN;
 
     BEGIN
         (* Create a new job descriptor. *)
@@ -2439,11 +2452,17 @@ PROCEDURE SendRejectionLetter (job: OutJobPtr;  ID: TransactionLogID;
         NEW (p^.sendto^.remote);
         p^.sendto^.RemoteCount := 1;
 
+        (* Note that the recipient goes onto the remote list even if it *)
+        (* is a local address.  The Sorter thread will eventually do    *)
+        (* the separation into local and remote.                        *)
+
         WITH p^.sendto^.remote^ DO
             next := NIL;
             UserAndDomain (job^.sender, username, domain);
             KeepTrying := TRUE;
         END (*WITH*);
+
+        local := DomainIsLocal (p^.sendto^.remote^.domain, D);
 
         (* Beware of the case where the sender is <>.  I think it's     *)
         (* sufficient to check for an empty username, because I can     *)
@@ -2470,7 +2489,7 @@ PROCEDURE SendRejectionLetter (job: OutJobPtr;  ID: TransactionLogID;
 
             cid := StartNewFile (p);
             IF cid <> NoSuchChannel THEN
-                WriteRejectionLetter (cid, job, final);
+                WriteRejectionLetter (cid, job, local, final);
             END (*IF*);
 
             (* Put our message on the output queue.  *)
@@ -2801,8 +2820,10 @@ PROCEDURE SendDataFile (SB: SBuffer;  job: OutJobPtr;  UseChunking: BOOLEAN;
             (* Deletes the character at p^[pos].  *)
 
             BEGIN
-                Copy (ADR (p^[pos+1]), ADR (p^[pos]), CharsLeft);
                 DEC (CharsLeft);
+                IF CharsLeft > 0 THEN
+                    Copy (ADR (p^[pos+1]), ADR (p^[pos]), CharsLeft);
+                END (*IF*);
                 DEC (size);
                 DEC64 (bytesleft);
             END RemoveByte;
@@ -2831,6 +2852,14 @@ PROCEDURE SendDataFile (SB: SBuffer;  job: OutJobPtr;  UseChunking: BOOLEAN;
             checkpos := 0;
             CharsLeft := size;
 
+            (* Note that:                                               *)
+            (*  checkpos = next position in buffer where we'll start    *)
+            (*      the scan for the next "CR LF ."                     *)
+            (*  CharsLeft = remaining characters to check, from         *)
+            (*      checkpos onward                                     *)
+            (*  size = number of bytes in buffer = number of bytes read *)
+            (*      minus number of stuffing dots removed.              *)
+
             (* Special case: check for a "CR LF ." that crosses *)
             (* chunk boundaries.                                *)
 
@@ -2857,8 +2886,9 @@ PROCEDURE SendDataFile (SB: SBuffer;  job: OutJobPtr;  UseChunking: BOOLEAN;
             WHILE CharsLeft > 0 DO
                 Strings.FindNext (CRLFdot, p^, checkpos, found, pos);
                 IF found THEN
-                    DEC (CharsLeft, pos - checkpos + 3);
-                    checkpos := pos + 2;
+                    INC (pos, 2);       (* which gets us to the dot *)
+                    DEC (CharsLeft, pos - checkpos);
+                    checkpos := pos;
                     RemoveByte (checkpos);
                 ELSE
                     CharsLeft := 0;
@@ -2964,6 +2994,34 @@ PROCEDURE SendDataFile (SB: SBuffer;  job: OutJobPtr;  UseChunking: BOOLEAN;
 
 (************************************************************************)
 
+PROCEDURE DisplayOutCount (incr: BOOLEAN);
+
+    (* Updates the screen display of the number of mail items that are  *)
+    (* being sent, i.e. actually talking to a remote host.              *)
+
+    CONST
+        size = 5;
+        displaypos = 75;
+
+    VAR buffer: ARRAY [0..size] OF CHAR;
+        pos: CARDINAL;
+
+    BEGIN
+        Obtain (OutCount.access);
+        IF incr THEN
+            INC (OutCount.count);
+        ELSE
+            DEC (OutCount.count);
+        END (*IF*);
+        pos := 0;
+        ConvertCardRJ (OutCount.count, buffer, size, pos);
+        buffer[pos] := Nul;
+        WriteStringAt (0, displaypos, buffer);
+        Release (OutCount.access);
+    END DisplayOutCount;
+
+(************************************************************************)
+
 PROCEDURE DeliverDeLetter (job: OutJobPtr;  IPaddress, port: CARDINAL;
                            UseAuth: BOOLEAN;  AuthName: UserName;
                            AuthPass: PassString;
@@ -3021,6 +3079,11 @@ PROCEDURE DeliverDeLetter (job: OutJobPtr;  IPaddress, port: CARDINAL;
         s := ConnectToHost (IPaddress, port, job^.ID, failuremessage);
         SB := CreateSBuffer (s, TRUE);
         SetTimeout (SB, 150);
+
+        (* Display the number of jobs in progress. *)
+
+        DisplayOutCount (TRUE);
+
         success := (CAST(ADDRESS,SB) <> NIL) AND (s <> NotASocket)
                        AND PositiveResponse(SB, ConnectionLost);
         IF s = NotASocket THEN
@@ -3133,6 +3196,10 @@ PROCEDURE DeliverDeLetter (job: OutJobPtr;  IPaddress, port: CARDINAL;
         END (*IF*);
 
         CloseSBuffer (SB);
+
+        (* Decrement the display of the number of jobs in progress. *)
+
+        DisplayOutCount (FALSE);
 
         (* If 'success' is now TRUE, we have managed to send the mail   *)
         (* to all recipients for whom p^.flag is set.  Strip those out  *)
@@ -4177,14 +4244,6 @@ PROCEDURE Sorter;
             (* will increment the job count again.                      *)
 
             IF p <> NIL THEN
-                (*
-                WITH DetailedCount DO
-                    Obtain (access);
-                    DEC (jsack);
-                    DEC (rrsack, RRCount(p));
-                    Release (access);
-                END (*WITH*);
-                *)
                 WITH JobCount DO
                     Obtain (access);
                     DEC (count);
@@ -4193,11 +4252,11 @@ PROCEDURE Sorter;
                     END (*IF*);
                     Release (access);
                 END (*WITH*);
-                (*ShowCounts;*)
             END (*IF*);
 
-            (* Deal with local recipients.  A job that reached us via   *)
-            (* SMTP won't have any local recipients, because they were  *)
+            (* Deal with local recipients.  (Except in the case of a    *)
+            (* "recirculate" job.)  A job that reached us via SMTP      *)
+            (* won't have any local recipients, because they were       *)
             (* handled before the mail even reached the mail sack.      *)
             (* There might, however, be local recipients for mail that  *)
             (* another program put into the 'forward' directory for     *)
@@ -4247,7 +4306,8 @@ PROCEDURE Sorter;
                     END (*WHILE*);
                 END (*IF*);
 
-                (* Deliver the local mail, if any. *)
+                (* Deliver the local mail, if any.  Note: the local     *)
+                (* list will still be empty in the "recirculate" case.  *)
 
                 RemoveInitialSkipRecords (p^.sendto^.local);
                 IF NOT NoLocalRecipients(p^.sendto^.local) THEN
@@ -4533,7 +4593,7 @@ PROCEDURE RetryTask;
                     Release (access);
                 END (*WITH*);
                 *)
-                DEC (RetryList.RecipientCount.count);
+                DEC (RetryList.RecipientCount.count, p^.sendto^.RemoteCount);
                 WITH JobCount DO
                     Obtain (access);
                     DEC (count);
@@ -4662,6 +4722,10 @@ PROCEDURE CheckUnsentMail (LogID: TransactionLogID;  FirstTime: BOOLEAN);
     (* are able to deal with mail that's put in the "forward" directory *)
     (* by other programs.                                               *)
 
+    (* Note that we don't classify mail addresses as local or remote at *)
+    (* this point.  They all go into the "remote" group.  We rely on    *)
+    (* the Sorter to separate out the local ones later.                 *)
+
     VAR cid: ChanId;
         p: OutJobPtr;  NextChar: CHAR;  Now, CharsRead: CARDINAL;
         filesize: CARD64;
@@ -4761,8 +4825,7 @@ PROCEDURE OnlineChecker;
           DefaultCheckInterval = 15*1000;     (* 15 seconds    *)
 
     VAR TimedOut, WeWereOffline, FirstTime: BOOLEAN;
-        CheckInterval, loopcount, pos, DisplayAddr: CARDINAL;
-        txtbuf: ARRAY [0..16] OF CHAR;
+        CheckInterval, loopcount, pos, OurMainAddress: CARDINAL;
         LogID: TransactionLogID;
         message: ARRAY [0..127] OF CHAR;
 
@@ -4786,9 +4849,9 @@ PROCEDURE OnlineChecker;
             END (*CASE*);
 
             IF WeAreOffline <> WeWereOffline THEN
-                RecomputeLocalDomainNames (DisplayAddr, ExtraLogging);
+                RecomputeLocalDomainNames (OurMainAddress, ExtraLogging);
                 IF NOT UseFixedLocalName THEN
-                    EVAL (AddressToHostName (DisplayAddr, OurHostName));
+                    EVAL (AddressToHostName (OurMainAddress, OurHostName));
                 END (*IF*);
                 IF WeAreOffline THEN
 
@@ -4803,10 +4866,6 @@ PROCEDURE OnlineChecker;
                     (* We've just come on-line. *)
 
                     LogTransactionL (LogID, "Going on-line");
-                    IF ScreenEnabled THEN
-                        IPToString (DisplayAddr, TRUE, txtbuf);
-                        (*UpdateTopScreenLine (60, txtbuf);*)
-                    END (*IF*);
                     Strings.Assign ("We are using ", message);
                     pos := 13;
                     ConvertCardZ (NumberOfDaemons, message, 3, pos);
@@ -4880,8 +4939,6 @@ PROCEDURE CheckForwardMailFlag;
 
     CONST semName = "\SEM32\WEASEL\FORWARDMAIL";
 
-    VAR count: CARDINAL;
-
     BEGIN
         ForceOnlineCheck := 0;
         IF OS2.DosOpenEventSem (semName, ForceOnlineCheck) = OS2.ERROR_SEM_NOT_FOUND THEN
@@ -4889,8 +4946,7 @@ PROCEDURE CheckForwardMailFlag;
         END (*IF*);
 
         WHILE NOT ShutdownRequest DO
-            OS2.DosWaitEventSem (ForceOnlineCheck, OS2.SEM_INDEFINITE_WAIT);
-            OS2.DosResetEventSem (ForceOnlineCheck, count);
+            WaitOnSemaphore (event, ForceOnlineCheck);
             RequestForwardDirectoryCheck;
         END (*WHILE*);
 
@@ -4928,27 +4984,6 @@ PROCEDURE UnhidePendingFiles;
         DirSearchDone (D);
 
     END UnhidePendingFiles;
-
-(************************************************************************)
-
-(*
-PROCEDURE EnableExtraLogging (enable: BOOLEAN);
-
-    (* Enables the option of putting extra detail into the log file.    *)
-    (* This function is obsolescent; ExtraLogging can be enabled from   *)
-    (* the Setup notebook, so there's no point in having the extra      *)
-    (* 'X' command-line parameter.                                      *)
-
-    BEGIN
-        ForceExtraLogging := enable;
-        IF enable AND NOT ExtraLogging THEN
-            ExtraLogging := ExtraLogging OR ForceExtraLogging;
-            EnableDomainExtraLogging (ExtraLogging);
-        END (*IF*);
-        (*DisplayCounts := enable AND ScreenEnabled;*)
-        DisplayCounts := FALSE;
-    END EnableExtraLogging;
-*)
 
 (************************************************************************)
 
@@ -5257,6 +5292,10 @@ BEGIN
         count := 0;
         limit := JobCountLimitHigh;
     END (*WITH*);
+    WITH OutCount DO
+        CreateLock (access);
+        count := 0;
+    END (*WITH*);
     CreateSemaphore (CheckIfOnline, 0);
     CreateSemaphore (SomethingToSend, 0);
     CreateSemaphore (TaskDone, 0);
@@ -5299,7 +5338,6 @@ FINALLY
     Signal (MailSack.count);
     Signal(SomethingToSend);   (* One extra for good luck *)
     OS2.DosPostEventSem(ForceOnlineCheck);
-    OS2.DosResetEventSem(ForceOnlineCheck,j);
     REPEAT
         Signal(SomethingToSend);
         Wait (TaskDone);  DEC(TaskCount);

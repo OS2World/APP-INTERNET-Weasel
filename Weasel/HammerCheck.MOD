@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE HammerCheck;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            6 November 2017                 *)
-        (*  Last edited:        16 November 2017                *)
+        (*  Last edited:        2 May 2019                      *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -52,7 +52,7 @@ FROM TaskControl IMPORT
 FROM TimeConv IMPORT
     (* proc *)  time;
 
-FROM Heap IMPORT
+FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
 (************************************************************************)
@@ -214,24 +214,24 @@ PROCEDURE ResortList (p: HammerListPointer);
         IF (current <> NIL) AND (current^.time < p^.time) THEN
 
             (* Detach p^ from the list. *)
-    
+
             IF previous = NIL THEN
                 HammerList.head := current;
             ELSE
                 previous^.next := current;
             END (*IF*);
-    
+
             (* Work out where p really belongs. *)
-    
+
             WHILE (current <> NIL) AND (current^.time < p^.time) DO
                 previous := current;
                 current := current^.next;
             END (*WHILE*);
-    
+
             (* Reinsert p^ between previous^ and current^.  This might put  *)
             (* the record back exactly where it came from, except that that *)
             (* special case has already been checked, above.                *)
-    
+
             IF previous = NIL THEN
                 HammerList.head := p;
             ELSE
