@@ -37,7 +37,7 @@ PROCEDURE StopHeapLogging;
 
     (* Stops the heap-logging task, if it was running. *)
 
-PROCEDURE SayHeapCount (ID: TransLog.TransactionLogID;  label: ARRAY OF CHAR);
+(*PROCEDURE SayHeapCount (ID: TransLog.TransactionLogID;  label: ARRAY OF CHAR);*)
 
     (* Debugging: display current heap count. *)
 

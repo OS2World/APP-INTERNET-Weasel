@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE HostLists;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            1 September 2002                *)
-        (*  Last edited:        2 May 2019                      *)
+        (*  Last edited:        6 December 2019                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -40,9 +40,12 @@ FROM SYSTEM IMPORT
     (* type *)  LOC, CARD8,
     (* proc *)  CAST;
 
+FROM WINI IMPORT
+    (* proc *)  OpenINI, CloseINI;
+
 FROM INIData IMPORT
     (* type *)  StringReadState,
-    (* proc *)  OpenINIFile, CloseINIFile, GetStringList, NextString, CloseStringList;
+    (* proc *)  GetStringList, NextString, CloseStringList;
 
 FROM Names IMPORT
     (* type *)  FilenameString, HostName, HostNameIndex;
@@ -924,9 +927,7 @@ PROCEDURE DecodeRange (VAR (*IN*) Name: HostName;
 
 (************************************************************************)
 
-PROCEDURE UpdateList (VAR (*IN*) INIFile: FilenameString;
-                      VAR (*IN*) app, key: ARRAY OF CHAR;
-                      UseTNI: BOOLEAN;
+PROCEDURE UpdateList (VAR (*IN*) app, key: ARRAY OF CHAR;
                       VAR (*OUT*) list: HostList;
                       ExpandNumeric, ConfirmToLog: BOOLEAN);
 
@@ -973,7 +974,7 @@ PROCEDURE UpdateList (VAR (*IN*) INIFile: FilenameString;
 
     BEGIN          (* Body of procedure UpdateList *)
 
-        hini := OpenINIFile (INIFile, UseTNI);
+        hini := OpenINI();
         IF INIData.INIValid (hini) THEN
             GetStringList (hini, app, key, state);
             LOOP
@@ -984,16 +985,14 @@ PROCEDURE UpdateList (VAR (*IN*) INIFile: FilenameString;
                 ProcessOneName (ThisName);
             END (*LOOP*);
             CloseStringList (state);
-            CloseINIFile (hini);
+            CloseINI;
         END (*IF*);
 
     END UpdateList;
 
 (************************************************************************)
 
-PROCEDURE RefreshHostList (VAR (*IN*) INIFile: FilenameString;
-                           VAR (*IN*) app, key: ARRAY OF CHAR;
-                           UseTNI: BOOLEAN;
+PROCEDURE RefreshHostList (VAR (*IN*) app, key: ARRAY OF CHAR;
                            VAR (*INOUT*) list: HostList;
                            ExpandNumeric, Log: BOOLEAN);
 
@@ -1001,19 +1000,16 @@ PROCEDURE RefreshHostList (VAR (*IN*) INIFile: FilenameString;
     (* from INI file data.                                              *)
 
     BEGIN
-        (*LogTransaction (LogID, "Refreshing host list");*)
         Obtain (list^.access);
         FlushHostList (list);
-        UpdateList (INIFile, app, key, UseTNI, list, ExpandNumeric, Log);
+        UpdateList (app, key, list, ExpandNumeric, Log);
         ExpandAllAliases (list, ExpandNumeric, Log);
         Release (list^.access);
     END RefreshHostList;
 
 (************************************************************************)
 
-PROCEDURE RefreshHostList2 (VAR (*IN*) INIFile: FilenameString;
-                           VAR (*IN*) app, key: ARRAY OF CHAR;
-                           UseTNI: BOOLEAN;
+PROCEDURE RefreshHostList2 (VAR (*IN*) app, key: ARRAY OF CHAR;
                            VAR (*INOUT*) list: HostList;
                            InitialAddresses: ARRAY OF CARDINAL;
                            ExpandNumeric, Log: BOOLEAN);
@@ -1034,7 +1030,7 @@ PROCEDURE RefreshHostList2 (VAR (*IN*) INIFile: FilenameString;
             INC (j);
         END (*WHILE*);
         ExpandAllAliases (list, ExpandNumeric, Log);
-        UpdateList (INIFile, app, key, UseTNI, list, ExpandNumeric, Log);
+        UpdateList (app, key, list, ExpandNumeric, Log);
         ExpandAllAliases (list, ExpandNumeric, Log);
         Release (list^.access);
     END RefreshHostList2;

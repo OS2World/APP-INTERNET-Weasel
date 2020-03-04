@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support module for some of my applications                            *)
-(*  Copyright (C) 2015   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,16 +28,18 @@ IMPLEMENTATION MODULE MyClock;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            26 June 1998                    *)
-        (*  Last edited:        27 April 2015                   *)
+        (*  Last edited:        17 October 2019                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
+        (*  The reason for the multiplicity of conversion       *)
+        (*  functions all doing approximately the same job      *)
+        (*  is that different standards require different       *)
+        (*  formats.  The recent tendency is to converge on     *)
+        (*  the format used by CurrentDateAndTimeGMT (see       *)
+        (*  below), but we still have to support older          *)
+        (*  specifications.                                     *)
+        (*                                                      *)
         (********************************************************)
-
-(****************************************************************************)
-(*  Remark: now that I've written FormatDateTime, the size of this module   *)
-(*  can probably be reduced substantially.  For now, though, I haven't done *)
-(*  enough testing to check simplified versions of many procedures.         *)
-(****************************************************************************)
 
 IMPORT Strings;
 
@@ -74,6 +76,7 @@ PROCEDURE PutDayName (date: DateTime;  VAR (*INOUT*) result: ARRAY OF CHAR;
     TYPE
         MonthData = ARRAY [1..13] OF CARDINAL;
         DayOfWeek = [0..6];       (* 0 = Sunday *)
+        DayName = ARRAY [0..6] OF ARRAY [0..2] OF CHAR;
 
     CONST
         BaseDay = 6;
@@ -84,9 +87,10 @@ PROCEDURE PutDayName (date: DateTime;  VAR (*INOUT*) result: ARRAY OF CHAR;
         FirstDayInMonth = MonthData {  0,  31,  59,  90, 120, 151,
                                      181, 212, 243, 273, 304, 334, 365};
 
+        Dname = DayName {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+
     VAR FirstDayOfYear, weekday: DayOfWeek;
         dayofyear: CARDINAL;
-        name: ARRAY [0..2] OF CHAR;
         IsLeapYear: BOOLEAN;
 
     BEGIN
@@ -113,17 +117,9 @@ PROCEDURE PutDayName (date: DateTime;  VAR (*INOUT*) result: ARRAY OF CHAR;
 
         weekday := (FirstDayOfYear + dayofyear - 1) MOD 7;
         result[j] := Nul;
-        CASE weekday OF
-          |  0:  name := "Sun";
-          |  1:  name := "Mon";
-          |  2:  name := "Tue";
-          |  3:  name := "Wed";
-          |  4:  name := "Thu";
-          |  5:  name := "Fri";
-          |  6:  name := "Sat";
-        END (*CASE*);
-        Strings.Append (name, result);
+        Strings.Append (Dname[weekday], result);
         INC (j, 3);
+
     END PutDayName;
 
 (********************************************************************************)
@@ -395,6 +391,9 @@ PROCEDURE FormatDateTime (Time: DateTime;  format: ARRAY OF CHAR;
                     IF format[kf+1] = 'z' THEN
                         INC (kf, 2);
                         IF Time.zone <> -1 THEN
+
+                            (* -1 means undefined, other values are minutes *)
+
                             IF zonefound THEN
                                 Convert2 (-Time.zone MOD 60, result, k);
                             ELSE
@@ -433,81 +432,18 @@ PROCEDURE DateTimeToString (Time: DateTime;  IncludeDayName: BOOLEAN;
     (* The result array must have room for at least 26 characters, or   *)
     (* 5 more if IncludeDayName is specified.                           *)
 
-    VAR k: [0..2];  j, tzhour, tzmin: CARDINAL;
+    VAR format: ARRAY [0..31] OF CHAR;
 
     BEGIN
-        j := 0;
+        format := "dd mmm yyyy HH:MM:SS zzzz";
         IF IncludeDayName THEN
-            PutDayName (Time, result, j);
-            result[j] := ',';  INC(j);
-            result[j] := ' ';  INC(j);
+            Strings.Insert ("ddd, ", 0, format);
         END (*IF*);
-        Convert2 (Time.day, result, j);  result[j] := ' ';  INC(j);
-        FOR k := 0 TO 2 DO
-            result[j] := MonthName[Time.month][k];  INC(j);
-        END (*FOR*);
-        result[j] := ' ';  INC(j);
-        Convert2 (Time.year DIV 100, result, j);
-        Convert2 (Time.year MOD 100, result, j);
-        result[j] := ' ';  INC(j);
-
-        Convert2 (Time.hour, result, j);  result[j] := ':';  INC(j);
-        Convert2 (Time.minute, result, j);  result[j] := ':';  INC(j);
-        Convert2 (Time.second, result, j);  result[j] := ' ';  INC(j);
-
-        IF Time.zone <> -1 THEN
-            IF Time.zone = 0 THEN
-                IF j <= HIGH(result) THEN
-                    result[j] := CHR(0);
-                END (*IF*);
-                Strings.Append ("GMT", result);
-                INC (j, 3);
-            ELSE
-                IF Time.zone < 0 THEN result[j] := '+'
-                ELSE result[j] := '-'
-                END (*IF*);
-                INC(j);
-                tzmin := ABS (Time.zone);
-                tzhour := tzmin DIV 60;
-                tzmin := tzmin MOD 60;
-                Convert2 (tzhour, result, j);
-                Convert2 (tzmin, result, j);
-            END (*IF*);
-        END (*IF*);
-
-        IF j <= HIGH(result) THEN
-            result[j] := CHR(0);
-        END (*IF*);
+        FormatDateTime (Time, format, FALSE, result);
     END DateTimeToString;
 
 (********************************************************************************)
 (*                         PACK OR UNPACK DATE/TIME                             *)
-(********************************************************************************)
-
-PROCEDURE UnpackDate (date: CARDINAL;  VAR (*OUT*) day, month, year: CARDINAL);
-
-    (* Converts a packed date to its three components.  *)
-
-    BEGIN
-        day := date MOD 32;
-        month := date DIV 32;
-        year := month DIV 16 + 1980;
-        month := month MOD 16;
-    END UnpackDate;
-
-(********************************************************************************)
-
-PROCEDURE UnpackTime (time: CARDINAL;  VAR (*OUT*) hour, min, sec: CARDINAL);
-
-    (* Converts a packed time to its three components.  *)
-
-    BEGIN
-        sec := 2*(time MOD 32);
-        min := time DIV 32;
-        hour := min DIV 64;
-        min := min MOD 64;
-    END UnpackTime;
-
 (********************************************************************************)
 
 PROCEDURE UnpackDateTime (date, time: CARDINAL): DateTime;
@@ -539,42 +475,11 @@ PROCEDURE PackedDateTimeToString (date, time: CARDINAL;
     (*         01-Jan-2000 00:00:00 +1000                                *)
     (* The result array must have room for at least 26 characters.       *)
 
-    VAR k: [0..2];  one, two, three, j, tzhour, tzmin: CARDINAL;
-        now: DateTime;
+    VAR dt: DateTime;
 
     BEGIN
-        j := 0;
-        UnpackDate (date, one, two, three);
-        Convert2 (one, result, j);  result[j] := '-';  INC(j);
-        FOR k := 0 TO 2 DO
-            result[j] := MonthName[two][k];  INC(j);
-        END (*FOR*);
-        result[j] := '-';  INC(j);
-        Convert2 (three DIV 100, result, j);
-        Convert2 (three MOD 100, result, j);
-        result[j] := ' ';  INC(j);
-
-        UnpackTime (date, one, two, three);
-        Convert2 (one, result, j);  result[j] := ':';  INC(j);
-        Convert2 (two, result, j);  result[j] := ':';  INC(j);
-        Convert2 (three, result, j);  result[j] := ' ';  INC(j);
-
-        GetClock (now);
-        IF now.zone <> -1 THEN
-            IF now.zone < 0 THEN result[j] := '+'
-            ELSE result[j] := '-'
-            END (*IF*);
-            INC(j);
-            tzmin := ABS (now.zone);
-            tzhour := tzmin DIV 60;
-            tzmin := tzmin MOD 60;
-            Convert2 (tzhour, result, j);
-            Convert2 (tzmin, result, j);
-        END (*IF*);
-
-        IF j <= HIGH(result) THEN
-            result[j] := CHR(0);
-        END (*IF*);
+        dt := UnpackDateTime (date, time);
+        FormatDateTime (dt, "dd-mmm-yyyy HH:MM:SS zzzz", FALSE, result);
     END PackedDateTimeToString;
 
 (********************************************************************************)
@@ -858,46 +763,16 @@ PROCEDURE AppendShortDateTime (Time: DateTime;  VAR (*INOUT*) result: ARRAY OF C
 
 (****************************************************************************)
 
-PROCEDURE AppendTime (Time: DateTime;  VAR (*OUT*) result: ARRAY OF CHAR);
-
-    (* Converts Time to a time string in the format           *)
-    (*         17:32:10                                       *)
-    (* and appends it to result.                              *)
-
-    VAR j: CARDINAL;
-
-    BEGIN
-        j := LENGTH (result);
-        Convert2 (Time.hour, result, j);  result[j] := ':';  INC(j);
-        Convert2 (Time.minute, result, j);  result[j] := ':';  INC(j);
-        Convert2 (Time.second, result, j);
-        IF j <= HIGH(result) THEN
-            result[j] := Nul;
-        END (*IF*);
-    END AppendTime;
-
-(****************************************************************************)
-
 PROCEDURE AppendSyslogDateTime (Time: DateTime;  VAR (*INOUT*) result: ARRAY OF CHAR);
 
     (* Converts Time to a date/time string, appends it to result. *)
     (* Format is Mmm dd hh:mm:ss.                                 *)
 
-    VAR j: CARDINAL;
+    VAR str: ARRAY [0..15] OF CHAR;
 
     BEGIN
-        Strings.Append (MonthName[Time.month], result);
-        j := Strings.Length (result);
-        result[j] := ' ';  INC(j);
-        Convert2 (Time.day, result, j);
-        IF result[j-2] = '0' THEN
-            result[j-2] := ' ';
-        END (*IF*);
-        result[j] := ' ';  INC(j);
-        IF j <= HIGH(result) THEN
-            result[j] := Nul;
-        END (*IF*);
-        AppendTime (Time, result);
+        FormatDateTime (Time, "mmm dd HH:MM:SS", FALSE, str);
+        Strings.Append (str, result);
     END AppendSyslogDateTime;
 
 (****************************************************************************)
@@ -908,17 +783,8 @@ PROCEDURE TimeToString19 (Time: DateTime;  VAR (*OUT*) result: ARRAY OF CHAR);
     (*        2000-01-26 17:32:10                                       *)
     (* The result array must have room for at least 19 characters.      *)
 
-    VAR j: CARDINAL;
-
     BEGIN
-        j := 0;  Convert2 (Time.year DIV 100, result, j);
-        Convert2 (Time.year MOD 100, result, j);  result[j] := '-';  INC(j);
-        Convert2 (Time.month, result, j);  result[j] := '-';  INC(j);
-        Convert2 (Time.day, result, j);  result[j] := ' ';  INC(j);
-        IF j <= HIGH(result) THEN
-            result[j] := Nul;
-        END (*IF*);
-        AppendTime (Time, result);
+        FormatDateTime (Time, "yyyy-mm-dd HH:MM:SS", FALSE, result);
     END TimeToString19;
 
 (****************************************************************************)
@@ -950,29 +816,10 @@ PROCEDURE OurTimezone (VAR (*OUT*) result: ARRAY OF CHAR);
     (* Returns empty string if time zone is undefined.              *)
 
     VAR now: DateTime;
-        j: CARDINAL;
-        val: INTEGER;
 
     BEGIN
         GetClock (now);
-        val := now.zone;
-        IF val = -1 THEN
-            result[0] := Nul;
-        ELSE
-            IF val < 0 THEN
-                result[0] := '+';
-                val := -val;
-            ELSE
-                result[0] := '-';
-            END (*IF*);
-            j := 1;
-            Convert2 (val DIV 60, result, j);
-            result[j] := ':';  INC(j);
-            Convert2 (val MOD 60, result, j);
-            IF j <= HIGH(result) THEN
-                result[j] := Nul;
-            END (*IF*);
-        END (*IF*);
+        FormatDateTime (now, "zzzz", FALSE, result);
     END OurTimezone;
 
 (****************************************************************************)
@@ -1108,18 +955,20 @@ PROCEDURE AppendTimeString (VAR (*INOUT*) result: ARRAY OF CHAR);
     (* but we are less concerned with its exact value than with having a        *)
     (* high probability that the value will be different on each call.          *)
 
+    CONST Ndigits = 10;
+
     VAR j, time, count, H: CARDINAL;
 
     BEGIN
         time := millisecs();
-        j := LENGTH(result) + 10;  count := 10;
+        j := LENGTH(result) + 10;  count := Ndigits;
         H := HIGH(result);
         IF j <= H THEN
             result[j] := CHR(0);
         END (*IF*);
         DEC (j);
         IF j > H THEN
-            DEC (count, j-H);
+            count := Ndigits - (j-H);
             j := H;
         END (*IF*);
         WHILE count > 0 DO

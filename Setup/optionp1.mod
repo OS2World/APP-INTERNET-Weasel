@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE OptionP1;
         (*                 Option page 1 of the notebook                *)
         (*                                                              *)
         (*        Started:        30 June 1999                          *)
-        (*        Last edited:    13 April 2019                         *)
+        (*        Last edited:    27 November 2019                      *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -73,7 +73,8 @@ CONST
 VAR
     ChangeInProgress: BOOLEAN;
     OurPageHandle, notebookhandle: OS2.HWND;
-    OldCheckNoRDNS, OldMAILFROMcheck, OldSPFenabled, OldUseFixedLocalName: BOOLEAN;
+    OldCheckNoRDNS, OldCheckNoDNS, OldMAILFROMcheck,
+                    OldSPFenabled, OldUseFixedLocalName: BOOLEAN;
     OldBadPasswordLimit: CARDINAL;
     OldAuthTime: CARDINAL;
     OldAuthMethods: CARDINAL;
@@ -100,6 +101,8 @@ PROCEDURE SetLanguage (lang: LangHandle);
         OS2.WinSetDlgItemText (OurPageHandle, DID.BadPasswordLimitEnable, stringval);
         StrToBuffer (lang, "OptionP1.BadPasswordLimitLabel", stringval);
         OS2.WinSetDlgItemText (OurPageHandle, DID.BadPasswordLimitLabel, stringval);
+        StrToBuffer (lang, "OptionP1.CheckNoDNS", stringval);
+        OS2.WinSetDlgItemText (OurPageHandle, DID.CheckNoDNS, stringval);
         StrToBuffer (lang, "OptionP1.CheckNoRDNS", stringval);
         OS2.WinSetDlgItemText (OurPageHandle, DID.CheckNoRDNS, stringval);
         StrToBuffer (lang, "OptionP1.MAILFROMcheck", stringval);
@@ -174,8 +177,9 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
             OS2.WinShowWindow (OS2.WinWindowFromID(hwnd, DID.BadPasswordLimitLabel), TRUE);
         END (*IF*);
 
-        (* Reject mail if rDNS fails. *)
+        (* Reject mail if DNS or rDNS fails. *)
 
+        LoadCheckbox (DID.CheckNoDNS, TRUE, OldCheckNoDNS, 'CheckNoDNS');
         LoadCheckbox (DID.CheckNoRDNS, TRUE, OldCheckNoRDNS, 'CheckNoRDNS');
 
         (* Apply address checks to MAIL FROM address. *)
@@ -285,8 +289,9 @@ PROCEDURE StoreData;
             INIPut ('$SYS', 'BadPasswordLimit', j);
         END (*IF*);
 
-        (* CheckNoRDNS check. *)
+        (* CheckNoDNS and CheckNoRDNS checks. *)
 
+        StoreCheckbox (DID.CheckNoDNS, OldCheckNoDNS, 'CheckNoDNS');
         StoreCheckbox (DID.CheckNoRDNS, OldCheckNoRDNS, 'CheckNoRDNS');
 
         (* MAILFROM check. *)

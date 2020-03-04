@@ -29,7 +29,7 @@ IMPLEMENTATION MODULE Delivery;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            12 May 1998                     *)
-        (*  Last edited:        3 June 2019                     *)
+        (*  Last edited:        11 December 2019                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -66,7 +66,7 @@ FROM Domains IMPORT
     (* proc *)  RefreshMasterDomainList, DomainIsLocal, MailDirectoryFor,
                 AddressIsLocal, RecomputeLocalDomainNames,
                 SetPrincipalIPAddress, RefreshOurIPAddresses, OpenDomainINI,
-                EnableDomainExtraLogging, NameOfDomain;
+                CloseDomainINI, EnableDomainExtraLogging, NameOfDomain;
 
 FROM MailAccounts IMPORT
     (* type *)  LocalUser,
@@ -106,9 +106,12 @@ FROM FileOps IMPORT
                 FWriteChar, FirstDirEntry, NextDirEntry, DirSearchDone,
                 DeleteFile;
 
+FROM WINI IMPORT
+    (* proc *)  OpenINI, CloseINI;
+
 FROM INIData IMPORT
     (* type *)  StringReadState,
-    (* proc *)  OpenINIFile, CloseINIFile, INIGet, INIGetString, INIPut,
+    (* proc *)  INIGet, INIGetString, INIPut,
                 GetStringList, NextString, CloseStringList, INIValid,
                 ItemSize, INIGetTrusted;
 
@@ -436,13 +439,13 @@ TYPE
 (************************************************************************)
 
 VAR
+    (* A flag saying that we should give up because of no valid INI.    *)
+
+    abort: BOOLEAN;
+
     (* A flag saying whether we may write to the screen. *)
 
     ScreenEnabled: BOOLEAN;
-
-    (* A flag to say whether our INI data is in a TNI file. *)
-
-    UseTNI: BOOLEAN;
 
     (* A flag saying that we want more detail written to the log file. *)
 
@@ -1716,7 +1719,7 @@ PROCEDURE ExpandAlias (VAR (*INOUT*) CRL: CombinedRecipientList;
             END (*LOOP*);
 
             CloseStringList (searchstate);
-            CloseINIFile (hini);
+            CloseDomainINI (D, hini);
 
         END (*IF*);
 
@@ -5025,8 +5028,7 @@ PROCEDURE ReloadDeliveryINIData (FirstTime: BOOLEAN;
         BindAddr := AddressToBindTo;
         LogInitLists := TRUE;
         Obtain (LogFileLock);
-        key := "weasel.ini";
-        hini := OpenINIFile (key, UseTNI);
+        hini := OpenINI();
         SYSapp := "$SYS";
         IF INIValid(hini) THEN
             key := "SyslogHost";
@@ -5118,7 +5120,7 @@ PROCEDURE ReloadDeliveryINIData (FirstTime: BOOLEAN;
                 MaxChunkSize := 1024*maxchunksize - 1;
             END (*IF*);
         END (*IF*);
-        CloseINIFile (hini);
+        CloseINI;
         Release (LogFileLock);
         ExtraLogging := TransLevel > 15;
         EnableDomainExtraLogging (ExtraLogging);
@@ -5161,8 +5163,8 @@ PROCEDURE ReloadDeliveryINIData (FirstTime: BOOLEAN;
         StartTransactionLogging (WCtx, TransLogName, TransLevel);
         LogInitLists := LogInitLists AND FirstTime;
         RefreshMasterDomainList (LogInitLists);
-        RefreshHostLists (LogInitLists, UseTNI);
-        LoadRelayRules (UseTNI);
+        RefreshHostLists (LogInitLists);
+        LoadRelayRules;
 
         (* Now that we know how many Send_NN tasks to run, wake up      *)
         (* one that is already running, so that it can decide whether   *)
@@ -5176,7 +5178,7 @@ PROCEDURE ReloadDeliveryINIData (FirstTime: BOOLEAN;
 
 (************************************************************************)
 
-PROCEDURE LoadDeliveryINIData (TNImode: BOOLEAN);
+PROCEDURE LoadDeliveryINIData;
 
     (* Loads the values of this module's global variables that reside   *)
     (* in the main INI file.  Also starts the transaction logging and   *)
@@ -5193,12 +5195,11 @@ PROCEDURE LoadDeliveryINIData (TNImode: BOOLEAN);
         key: ARRAY [0..12] OF CHAR;
 
     BEGIN
-        UseTNI := TNImode;
         OnlineOption := 0;
-        key := "weasel.ini";
-        hini := OpenINIFile (key, UseTNI);
+        hini := OpenINI();
         SYSapp := "$SYS";
         IF INIValid(hini) THEN
+            abort := FALSE;
             key := "ServerPort";
             IF INIGet (hini, SYSapp, key, ServerPort) THEN
                 OurSMTPPort := ServerPort[SMTP];
@@ -5231,10 +5232,10 @@ PROCEDURE LoadDeliveryINIData (TNImode: BOOLEAN);
             ELSE
                 NextName := "00000000";
             END (*IF*);
-            CloseINIFile (hini);
+            CloseINI;
+            ExtraLogging := ReloadDeliveryINIData (TRUE, 0);
         END (*IF*);
 
-        ExtraLogging := ReloadDeliveryINIData (TRUE, 0);
         Signal (SystemUp);
     END LoadDeliveryINIData;
 
@@ -5245,7 +5246,7 @@ VAR hini: INIData.HINI;  j: CARDINAL;
     name: ARRAY [0..10] OF CHAR;
 
 BEGIN
-    UseTNI := FALSE;
+    abort := TRUE;
     UseFixedLocalName := FALSE;
     MaxChunkSize := 8*1024;
     MaxRecipientsPerLetter := 100;
@@ -5334,24 +5335,25 @@ BEGIN
         INC (TaskCount);
     END (*IF*);
 FINALLY
-    ShutdownRequest := TRUE;  Signal(Retry);  Signal(CheckIfOnline);
-    Signal (MailSack.count);
-    Signal(SomethingToSend);   (* One extra for good luck *)
-    OS2.DosPostEventSem(ForceOnlineCheck);
-    REPEAT
-        Signal(SomethingToSend);
-        Wait (TaskDone);  DEC(TaskCount);
-    UNTIL TaskCount = 0;
-    UnhidePendingFiles;
-    name := "weasel.ini";
-    hini := OpenINIFile (name, UseTNI);
-    IF INIValid(hini) THEN
-        Obtain (NextNameLock);
-        SYSapp := "$SYS";
-        name := "VName";
-        INIPut (hini, SYSapp, name, NextName);
-        Release (NextNameLock);
-        CloseINIFile (hini);
+    IF NOT abort THEN
+        ShutdownRequest := TRUE;  Signal(Retry);  Signal(CheckIfOnline);
+        Signal (MailSack.count);
+        Signal(SomethingToSend);   (* One extra for good luck *)
+        OS2.DosPostEventSem(ForceOnlineCheck);
+        REPEAT
+            Signal(SomethingToSend);
+            Wait (TaskDone);  DEC(TaskCount);
+        UNTIL TaskCount = 0;
+        UnhidePendingFiles;
+        hini := OpenINI();
+        IF INIValid(hini) THEN
+            Obtain (NextNameLock);
+            SYSapp := "$SYS";
+            name := "VName";
+            INIPut (hini, SYSapp, name, NextName);
+            Release (NextNameLock);
+            CloseINI;
+        END (*IF*);
     END (*IF*);
     OS2.DosCloseEventSem(newmailhev);
 END Delivery.

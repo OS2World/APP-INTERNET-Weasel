@@ -6,7 +6,7 @@ DEFINITION MODULE SUDomains;
     (*                     Operations on domains                    *)
     (*                                                              *)
     (*        Started:        11 January 2002                       *)
-    (*        Last edited:    24 January 2009                       *)
+    (*        Last edited:    28 February 2020                      *)
     (*        Status:         OK                                    *)
     (*                                                              *)
     (*    IMPORTANT CONVENTION: The procedures in this module       *)
@@ -56,6 +56,10 @@ PROCEDURE SetOriginalDomainName (VAR (*IN*) name: DomainName);
 
     (* Called by another module that wishes to set the name that will   *)
     (* be recorded as the original domain name.                         *)
+
+PROCEDURE NoDomainsDefined(): BOOLEAN;
+
+    (* Returns TRUE if our INI file records no domains. *)
 
 PROCEDURE DomainExists (domainname: DomainName): BOOLEAN;
 

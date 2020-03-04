@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE IMAPPage;
         (*            The IMAP page of the notebook             *)
         (*                                                      *)
         (*        Started:        25 March 2005                 *)
-        (*        Last edited:    22 May 2017                   *)
+        (*        Last edited:    29 August 2019                *)
         (*        Status:         OK                            *)
         (*                                                      *)
         (********************************************************)
@@ -377,7 +377,7 @@ PROCEDURE MigrateOldSettings;
     VAR NextUIDValidity: CARDINAL;
 
     BEGIN
-        IF RINIData.OpenINIFile ("IMAP.ini", FALSE) THEN
+        IF RINIData.OpenINIFile ("IMAP.ini") THEN
             IF INIFetch ("$SYS", "NextUIDValidity", NextUIDValidity) THEN
                 RINIData.INIDeleteKey ('$SYS', 'NextUIDValidity');
                 RINIData.CloseINIFile;

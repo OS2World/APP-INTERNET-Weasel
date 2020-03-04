@@ -1,0 +1,52 @@
+DEFINITION MODULE WINI;
+
+        (************************************************************)
+        (*                                                          *)
+        (*                    Weasel mail server                    *)
+        (*              Opens and closes the INI file               *)
+        (*                                                          *)
+        (*      Started:        3 December 2019                     *)
+        (*      Last edited:    6 December 2019                     *)
+        (*      Status:         OK                                  *)
+        (*                                                          *)
+        (*  At present this deals only with the global INI file.    *)
+        (*  I still have to think about how to handle domain INI    *)
+        (*  files, given that more than one might be open           *)
+        (*  simultaneously.                                         *)
+        (*                                                          *)
+        (************************************************************)
+
+
+
+FROM INIData IMPORT (* type *) HINI;
+FROM Names IMPORT (*type*) UserName;
+
+
+PROCEDURE SetTNIMode (useTNI: BOOLEAN);
+
+    (* If the parameter is FALSE, we are going to work with INI files.  *)
+    (* If it's TRUE, we will use TNI files.                             *)
+
+(*PROCEDURE SetINIDirectory (GlobalMailRoot, subdir: ARRAY OF CHAR);*)
+
+    (* If subdir = "", the INI file to be used will be WEASEL.INI in    *)
+    (* our working directory.  Otherwise, the subdirectory 'subdir' of  *)
+    (* GlobalMailRoot, will be used, and the file name is DOMAIN.INI.   *)
+    (* In TNI mode the files are TNI files rather than INI files.       *)
+
+PROCEDURE OpenINI(): HINI;
+
+    (* Opens Weasel's global INI file. *)
+
+PROCEDURE CloseINI;
+
+    (* Closes Weasel's global INI file. *)
+
+PROCEDURE INIForDomain (DomainMailRoot: ARRAY OF CHAR;
+                            VAR (*OUT*) INIname: ARRAY OF CHAR);
+
+    (* Given the mail root for a domain (assumed to end with a '\'),    *)
+    (* returns the name of the INI file.                                *)
+
+END WINI.
+

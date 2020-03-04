@@ -1,6 +1,6 @@
 (**************************************************************************)
 (*                                                                        *)
-(*  Setup for Weasel mail server                                          *)
+(*  Weasel mail server                                                    *)
 (*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
@@ -20,36 +20,38 @@
 (*                                                                        *)
 (**************************************************************************)
 
-IMPLEMENTATION MODULE WSUINI;
+IMPLEMENTATION MODULE WINI;
 
-      (************************************************************)
-      (*                                                          *)
-      (*                    PM Setup for Weasel                   *)
-      (*          This module reads/writes user INI data,         *)
-      (*          either locally or remotely as requested         *)
-      (*                                                          *)
-      (*      Started:        01 July 1999                        *)
-      (*      Last edited:    29 September 2019                   *)
-      (*      Status:         OK                                  *)
-      (*                                                          *)
-      (************************************************************)
+        (************************************************************)
+        (*                                                          *)
+        (*                    Weasel mail server                    *)
+        (*              Opens and closes the INI file               *)
+        (*                                                          *)
+        (*      Started:        3 December 2019                     *)
+        (*      Last edited:    6 December 2019                     *)
+        (*      Status:         OK                                  *)
+        (*                                                          *)
+        (*  At present this deals only with the global INI file.    *)
+        (*  I still have to think about how to handle domain INI    *)
+        (*  files, given that more than one might be open           *)
+        (*  simultaneously.                                         *)
+        (*                                                          *)
+        (************************************************************)
 
-IMPORT Strings, RINIData;
+IMPORT Strings, INIData;
 
 FROM Names IMPORT
-    (* type *)  FilenameString, UserName;
+    (* type *)  FilenameString;
 
-FROM SUDomains IMPORT
-    (* proc *)  DeleteUser;
-
-FROM MiscFuncs IMPORT
-    (* proc *)  EVAL;
+FROM INIData IMPORT
+    (* type *)  HINI;
 
 (************************************************************************)
 
 CONST Nul = CHR(0);
 
 VAR INIFilename, CurrentMailRoot: FilenameString;
+    hini: INIData.HINI;
     OpenCount: CARDINAL;
     TNImode: BOOLEAN;
 
@@ -74,6 +76,25 @@ PROCEDURE SetTNIMode (useTNI: BOOLEAN);
 
 (************************************************************************)
 
+PROCEDURE INIForDomain (DomainMailRoot: ARRAY OF CHAR;
+                            VAR (*OUT*) INIname: ARRAY OF CHAR);
+
+    (* Given the mail root for a domain (assumed to end with a '\'),    *)
+    (* returns the name of the INI file.                                *)
+
+    BEGIN
+        Strings.Assign (DomainMailRoot, INIname);
+        Strings.Append ("DOMAIN", INIname);
+        IF TNImode THEN
+            Strings.Append (".TNI", INIname);
+        ELSE
+            Strings.Append (".INI", INIname);
+        END (*IF*);
+    END INIForDomain;
+
+(************************************************************************)
+
+(*
 PROCEDURE SetINIDirectory (GlobalMailRoot, subdir: ARRAY OF CHAR);
 
     (* If subdir = "", the INI file to be used will be WEASEL.INI in    *)
@@ -97,43 +118,40 @@ PROCEDURE SetINIDirectory (GlobalMailRoot, subdir: ARRAY OF CHAR);
             Strings.Append (".INI", INIFilename);
         END (*IF*);
     END SetINIDirectory;
+*)
 
 (************************************************************************)
 (*                 OTHER EXTERNALLY CALLABLE PROCEDURES                 *)
 (************************************************************************)
 
-PROCEDURE OpenINIFile;
+PROCEDURE OpenINI(): HINI;
+
+    (* Opens Weasel's global INI file. *)
 
     BEGIN
         IF OpenCount = 0 THEN
-           EVAL (RINIData.OpenINIFile (INIFilename));
+            hini := INIData.OpenINIFile (INIFilename);
+            IF INIData.INIValid(hini) THEN
+                INC (OpenCount);
+            END (*IF*);
         END (*IF*);
-        INC (OpenCount);
-    END OpenINIFile;
+        RETURN hini;
+    END OpenINI;
 
 (************************************************************************)
 
-PROCEDURE CloseINIFile;
+PROCEDURE CloseINI;
+
+    (* Closes Weasel's global INI file. *)
 
     BEGIN
-        DEC (OpenCount);
-        IF OpenCount = 0 THEN
-           RINIData.CloseINIFile;
+        IF OpenCount > 0 THEN
+            DEC (OpenCount);
+            IF OpenCount = 0 THEN
+               INIData.CloseINIFile(hini);
+            END (*IF*);
         END (*IF*);
-    END CloseINIFile;
-
-(************************************************************************)
-
-PROCEDURE RemoveUser (user: UserName);
-
-    (* Deletes one user from the currently active domain.  The user's   *)
-    (* mail directory will also be deleted iff it is empty.             *)
-
-    BEGIN
-        OpenINIFile;
-        DeleteUser (user, CurrentMailRoot);
-        CloseINIFile;
-    END RemoveUser;
+    END CloseINI;
 
 (************************************************************************)
 
@@ -142,5 +160,5 @@ BEGIN
     INIFilename := "Weasel.INI";
     TNImode := FALSE;
     OpenCount := 0;
-END WSUINI.
+END WINI.
 

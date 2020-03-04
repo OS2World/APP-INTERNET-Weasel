@@ -24,7 +24,6 @@ IMPLEMENTATION MODULE Languages;
 
         (********************************************************)
         (*                                                      *)
-        (*                Mailing list manager                  *)
         (*    Module to generate language-dependent messages    *)
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)

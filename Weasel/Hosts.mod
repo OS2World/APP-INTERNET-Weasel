@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,13 +28,13 @@ IMPLEMENTATION MODULE Hosts;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            9 May 1998                      *)
-        (*  Last edited:        19 September 2018               *)
+        (*  Last edited:        6 December 2019                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
 
 
-IMPORT Strings, INIData;
+IMPORT Strings;
 
 FROM SYSTEM IMPORT
     (* type *)  CARD8;
@@ -80,8 +80,12 @@ FROM MiscFuncs IMPORT
 FROM Inet2Misc IMPORT
     (* proc *)  IPToString, StringToIP, NameIsNumeric, Swap4, NonRouteable;
 
+FROM WINI IMPORT
+    (* proc *)  OpenINI, CloseINI;
+
 FROM INIData IMPORT
-    (* proc *)  OpenINIFile, INIGet, INIGetString;
+    (* type *)  HINI,
+    (* proc *)  INIValid, INIGet, INIGetString;
 
 FROM TransLog IMPORT
     (* type *)  TransactionLogID,
@@ -513,20 +517,19 @@ PROCEDURE NoChunkingHost (VAR (*IN*) name: HostName): BOOLEAN;
 (*                            INITIALISATION                            *)
 (************************************************************************)
 
-PROCEDURE CheckRBLOption (UseTNI: BOOLEAN);
+PROCEDURE CheckRBLOption;
 
     (* Initialises the RBL and DBL options. *)
 
-    VAR hini: INIData.HINI;  RBLchecking, DBLchecking: CARD8;  j: BlacklistType;
+    VAR hini: HINI;  RBLchecking, DBLchecking: CARD8;  j: BlacklistType;
         number: ARRAY [0..0] OF CHAR;
         app: ARRAY [0..4] OF CHAR;  key: ARRAY [0..15] OF CHAR;
         domain: DomainName;
 
     BEGIN
         app := "$SYS";
-        key := "Weasel.INI";
-        hini := OpenINIFile (key, UseTNI);
-        IF NOT INIData.INIValid (hini) THEN
+        hini := OpenINI();
+        IF NOT INIValid (hini) THEN
             RBLchecking := 0;
             DBLchecking := 0;
         ELSE
@@ -582,46 +585,44 @@ PROCEDURE CheckRBLOption (UseTNI: BOOLEAN);
             END (*IF*);
         END (*FOR*);
 
-        IF INIData.INIValid (hini) THEN
-            INIData.CloseINIFile (hini);
+        IF INIValid (hini) THEN
+            CloseINI;
         END (*IF*);
 
     END CheckRBLOption;
 
 (************************************************************************)
 
-PROCEDURE RefreshHostLists (LogIt, UseTNI: BOOLEAN);
+PROCEDURE RefreshHostLists (LogIt: BOOLEAN);
 
     (* This procedure is to be called whenever there is a chance that   *)
     (* the INI data might have been updated.  Discards the existing     *)
     (* version of all host lists, and builds new copies.                *)
 
     VAR Loopback: ARRAY [0..1] OF CARDINAL;
-        INIname: FilenameString;
         app: ARRAY [0..4] OF CHAR;
         key: ARRAY [0..11] OF CHAR;
 
     BEGIN
         Loopback[0] := 16777343;
         Loopback[1] := 0;
-        INIname := "Weasel.INI";
         app := "$SYS";
         key := "Whitelisted";
-        RefreshHostList (INIname, app, key, UseTNI,
+        RefreshHostList (app, key,
                              MasterList[whitelisted], FALSE, LogIt);
         key := "MayRelay";
-        RefreshHostList2 (INIname, app, key, UseTNI,
+        RefreshHostList2 (app, key,
                              MasterList[mayrelay], Loopback, FALSE, LogIt);
         key := "RelayDest";
-        RefreshHostList (INIname, app, key, UseTNI,
+        RefreshHostList (app, key,
                              MasterList[relaydest], FALSE, LogIt);
         key := "Banned";
-        RefreshHostList (INIname, app, key, UseTNI,
+        RefreshHostList (app, key,
                              MasterList[banned], FALSE, LogIt);
         key := "NoChunking";
-        RefreshHostList (INIname, app, key, UseTNI,
+        RefreshHostList (app, key,
                              MasterList[nochunking], FALSE, LogIt);
-        CheckRBLOption (UseTNI);
+        CheckRBLOption;
     END RefreshHostLists;
 
 (************************************************************************)

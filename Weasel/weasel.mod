@@ -28,7 +28,7 @@ MODULE Weasel;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            12 April 1998                   *)
-        (*  Last edited:        10 June 2019                    *)
+        (*  Last edited:        11 December 2019                *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -39,6 +39,13 @@ FROM SYSTEM IMPORT LOC, CARD8, CARD16;
 
 FROM ProgName IMPORT
     (* proc *)  GetProgramName;
+
+FROM WINI IMPORT
+    (* proc *)  SetTNIMode, OpenINI, CloseINI;
+
+FROM INIData IMPORT
+    (* proc *)  INIGet, INIGetString,
+                INIPut, SetWorkingDirectory;
 
 FROM IOChan IMPORT
     (* type *)  ChanId;
@@ -79,10 +86,6 @@ FROM Exceptq IMPORT
 FROM SplitScreen IMPORT
     (* proc *)  WriteString, WriteLn;
 
-FROM INIData IMPORT
-    (* proc *)  OpenINIFile, CloseINIFile, INIGet, INIGetString,
-                INIPut, SetWorkingDirectory;
-
 FROM MiscFuncs IMPORT
     (* proc *)  ConvertDecimal, ConvertCard;
 
@@ -120,7 +123,7 @@ FROM Delivery IMPORT
                 StartOnlineChecker;
 
 FROM Domains IMPORT
-    (* proc *)  DomainsSetTNImode, ClearMailboxLocks;
+    (* proc *)  ClearMailboxLocks;
 
 FROM ProgramArgs IMPORT
     (* proc *)  ArgChan, IsArgPresent;
@@ -264,13 +267,7 @@ PROCEDURE LoadUpdateableINIData;
         LogPOPusers := FALSE;
         ExtraLogging := FALSE;
         NoPOPinTL := FALSE;
-        IF UseTNI THEN
-            key := "weasel.tni";
-            hini := OpenINIFile(key, TRUE);
-        ELSE
-            key := "weasel.ini";
-            hini := OpenINIFile(key, FALSE);
-        END (*IF*);
+        hini := OpenINI();
         IF INIData.INIValid (hini) THEN
             EVAL(GetItem ("BindAddr", BindAddr));
             IF NOT GetItem ("MaxUsers", MaxUsers) THEN
@@ -323,7 +320,7 @@ PROCEDURE LoadUpdateableINIData;
             IF NOT INIGetString (hini, SYSapp, key, PopLogName) THEN
                 PopLogName := "POP.LOG";
             END (*IF*);
-            CloseINIFile (hini);
+            CloseINI;
         END (*IF*);
         SetPopLogName (LogPOPusers, PopLogName);
         ExtraLogging := ReloadDeliveryINIData (FALSE, BindAddr);
@@ -339,7 +336,7 @@ PROCEDURE LoadUpdateableINIData;
 
 (************************************************************************)
 
-PROCEDURE LoadINIData;
+PROCEDURE LoadINIData(): BOOLEAN;
 
     (* Loads setup parameters from "weasel.ini" or "weasel.tni". *)
 
@@ -358,43 +355,38 @@ PROCEDURE LoadINIData;
     (********************************************************************)
 
     VAR ServerPort2: CardArray2;  ServerPort3: CardArray3;
-        name: ARRAY [0..10] OF CHAR;
 
     BEGIN
         SYSapp := "$SYS";
-        IF UseTNI THEN
-            name := "weasel.tni";
-            hini := OpenINIFile(name, TRUE);
-        ELSE
-            name := "weasel.ini";
-            hini := OpenINIFile(name, FALSE);
-        END (*IF*);
-        IF INIData.INIValid (hini) THEN
-            IF NOT GetItem ("Enable", ServerEnabled) THEN
-                ServerEnabled := 1;
-            END (*IF*);
-            IF NOT GetItem ("ServerPort", ServerPort) THEN
-                IF GetItem ("ServerPort", ServerPort3) THEN
-                    ServerPort[POP] := ServerPort3[POP];
-                    ServerPort[SMTP] := ServerPort3[SMTP];
-                    ServerPort[MSA] := ServerPort3[MSA];
-                    ServerPort[IMAP] := DefaultPort[IMAP];
-                ELSIF GetItem ("ServerPort", ServerPort2) THEN
-                    ServerPort[POP] := ServerPort2[POP];
-                    ServerPort[SMTP] := ServerPort2[SMTP];
-                    ServerPort[MSA] := DefaultPort[MSA];
-                    ServerPort[IMAP] := DefaultPort[IMAP];
-                ELSE
-                    ServerPort := DefaultPort;
-                END (*IF*);
-            END (*IF*);
-            CloseINIFile (hini);
+        hini := OpenINI();
+        IF NOT INIData.INIValid (hini) THEN
+            RETURN FALSE;
         END (*IF*);
 
-        DomainsSetTNImode(UseTNI);
-        LoadSMTPINIData(UseTNI);
-        LoadDeliveryINIData(UseTNI);
+        IF NOT GetItem ("Enable", ServerEnabled) THEN
+            ServerEnabled := 1;
+        END (*IF*);
+        IF NOT GetItem ("ServerPort", ServerPort) THEN
+            IF GetItem ("ServerPort", ServerPort3) THEN
+                ServerPort[POP] := ServerPort3[POP];
+                ServerPort[SMTP] := ServerPort3[SMTP];
+                ServerPort[MSA] := ServerPort3[MSA];
+                ServerPort[IMAP] := DefaultPort[IMAP];
+            ELSIF GetItem ("ServerPort", ServerPort2) THEN
+                ServerPort[POP] := ServerPort2[POP];
+                ServerPort[SMTP] := ServerPort2[SMTP];
+                ServerPort[MSA] := DefaultPort[MSA];
+                ServerPort[IMAP] := DefaultPort[IMAP];
+            ELSE
+                ServerPort := DefaultPort;
+            END (*IF*);
+        END (*IF*);
+        CloseINI;
+
+        LoadSMTPINIData;
+        LoadDeliveryINIData;
         LoadUpdateableINIData;
+        RETURN TRUE;
 
     END LoadINIData;
 
@@ -407,7 +399,7 @@ PROCEDURE GetParameters (VAR (*OUT*) result: CARDINAL;
 
     (* Picks up optional program arguments from the command line.  If a *)
     (* numeric argument is present, returns TRUE and returns its value  *)
-    (* in result.  This procedure also sets the value of UseTNI, or     *)
+    (* in result.  This procedure also sets the TNI mode, or            *)
     (* returns with abort=TRUE if no decision can be made.              *)
 
     TYPE CharSet = SET OF CHAR;
@@ -459,7 +451,9 @@ PROCEDURE GetParameters (VAR (*OUT*) result: CARDINAL;
             abort := NOT INIData.ChooseDefaultINI("Weasel", UseTNI);
         END (*IF*);
 
-        (*UseTNI := TRUE;*)      (* while testing TNI mode *)
+        IF NOT abort THEN
+            SetTNIMode (UseTNI);
+        END (*IF*);
 
         RETURN NumberPresent;
 
@@ -541,7 +535,6 @@ PROCEDURE RunTheServer;
             LogTransactionL (LogID, "Failed to load the Exceptq handler.");
         END (*IF*);
 
-        (*UseTNI := TRUE ;*)    (* while debugging *)
         StartOnlineChecker;
         IF UseTNI THEN
             LogTransactionL (LogID, "Getting configuration data from weasel.tni");
@@ -906,18 +899,11 @@ PROCEDURE AdjustINIData;
 
     VAR cardval, temp: CARDINAL;  val, IMAPdata: FourCard;
         switch, bit0, bit1, bit2, bit3, btemp: BOOLEAN;
-        name: ARRAY [0..15] OF CHAR;
         hini: INIData.HINI;
 
     BEGIN
         SYSapp := "$SYS";
-        IF UseTNI THEN
-            name := "weasel.tni";
-            hini := OpenINIFile(name, TRUE);
-        ELSE
-            name := "weasel.ini";
-            hini := OpenINIFile(name, FALSE);
-        END (*IF*);
+        hini := OpenINI();
         IF INIData.INIValid (hini) THEN
 
             (* Server ports. *)
@@ -967,7 +953,7 @@ PROCEDURE AdjustINIData;
             END (*IF*);
         END (*IF*);
 
-        CloseINIFile(hini);
+        CloseINI;
 
     END AdjustINIData;
 
@@ -1015,7 +1001,12 @@ BEGIN
             MainSocket[j] := NotASocket;
         END (*FOR*);
         AdjustINIData;
-        LoadINIData;
+        abort := NOT LoadINIData();
+    END (*IF*);
+    IF abort THEN
+        WriteString ("ERROR: can't open INI file.");
+        WriteLn;
+    ELSE
         GetProgramName (ProgVersion);
         ClearMailboxLocks;
         ShutdownInProgress := FALSE;  RapidShutdown := FALSE;
@@ -1025,9 +1016,6 @@ BEGIN
         EVAL(CreateTask (ShutdownChecker, 1, "ctrl/c hook"));
         EVAL(CreateTask (ShutdownRequestDetector, 2, "shutdown"));
         RunTheServer;
-    END (*IF*);
-FINALLY
-    IF NOT abort THEN
         (*
         OS2.DosPostEventSem (ShutdownSignal);
         Wait (TaskDone);

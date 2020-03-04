@@ -6,7 +6,7 @@ DEFINITION MODULE SMTPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 April 1998                   *)
-        (*  Last edited:        25 November 2018                *)
+        (*  Last edited:        6 December 2019                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -36,7 +36,7 @@ TYPE ItemDescriptor;      (* is private *)
 
 (************************************************************************)
 
-PROCEDURE LoadSMTPINIData (TNImode: BOOLEAN);
+PROCEDURE LoadSMTPINIData;
 
     (* Initial load of configuration data for this module. *)
 

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2019   Peter Moylan                                     *)
+(*  Copyright (C) 2020   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SMTPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 April 1998                   *)
-        (*  Last edited:        2 May 2019                      *)
+        (*  Last edited:        28 February 2020                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -42,6 +42,9 @@ FROM Storage IMPORT
 
 FROM LowLevel IMPORT
     (* proc *)  EVAL, AddOffset;
+
+FROM NetDB IMPORT
+    (* proc *)  gethostbyname;
 
 FROM Sockets IMPORT
     (* type *)  Socket;
@@ -88,16 +91,18 @@ FROM MXCheck IMPORT
 FROM MyClock IMPORT
     (* proc *)  CurrentDateAndTime, AppendTimeString, CurrentTimeToString;
 
+FROM WINI IMPORT
+    (* proc *)  OpenINI, CloseINI;
+
 FROM INIData IMPORT
-    (* proc *)  OpenINIFile, INIGet, INIGetString, INIPut, INIPutString,
-                CloseINIFile;
+    (* proc *)  INIGet, INIGetString, INIPut, INIPutString;
 
 FROM MiscFuncs IMPORT
     (* type *)  LocArrayPointer, CharArrayPointer,
     (* proc *)  StringMatch;
 
 FROM Inet2Misc IMPORT
-    (* proc *)  IPToString, AddressToHostName, NonRouteable;
+    (* proc *)  IPToString, AddressToHostName, NonRouteable, NameIsNumeric;
 
 FROM SMTPLogin IMPORT
     (* proc *)  PostmasterCheck;
@@ -231,10 +236,10 @@ VAR
 
     SMTPLogName: FilenameString;
 
-    (* Flag to say that we should reject mail if an rDNS on the client  *)
-    (* address fails.                                                   *)
+    (* Flags to say that we should reject mail if a DNS or rDNS,        *)
+    (* respectively, on the client address fails.                       *)
 
-    CheckNoRDNS: BOOLEAN;
+    CheckNoDNS, CheckNoRDNS: BOOLEAN;
 
     (* Flag to say that we should apply "unacceptable host" checks to   *)
     (* the domain in the MAIL FROM command.                             *)
@@ -248,10 +253,6 @@ VAR
     (* What to do about postmaster check failures. *)
 
     pmchecklevel: (disabled, marksuspectfiles, blockpmfailures);
-
-    (* Flag to say that we get our INI data from TNI files. *)
-
-    UseTNI: BOOLEAN;
 
     (* A useful "constant". *)
 
@@ -559,7 +560,7 @@ PROCEDURE FromAddressAcceptable (desc: ItemDescriptor;  S: Socket;
 
     VAR user: UserName;
         SenderDomain: Domain;
-        E1, E2, OK, IsBanned, whitelisted, MayRelay: BOOLEAN;
+        E1, E2, OK, IsBanned, whitelisted, MayRelay, MXOK: BOOLEAN;
         address: ARRAY [0..max] OF CARDINAL;
         message: ARRAY [0..127] OF CHAR;
         domain, OurDomainName: DomainName;
@@ -587,6 +588,13 @@ PROCEDURE FromAddressAcceptable (desc: ItemDescriptor;  S: Socket;
 
         OK := (E1 = E2);
 
+        (* Check whether the claimed domain is a nonexistent domain. *)
+
+        MXOK := DoMXLookup (domain, address) = 0;
+        IF CheckNoDNS AND ((NOT MXOK) OR (address[0] = 0)) THEN
+            RETURN FALSE;
+        END (*IF*);
+
         (* Skip the next couple of checks if the domain matches the     *)
         (* HELO name, because in that case we have already done those   *)
         (* checks.                                                      *)
@@ -604,7 +612,7 @@ PROCEDURE FromAddressAcceptable (desc: ItemDescriptor;  S: Socket;
                 (* To avoid excessive time delays, we should only look  *)
                 (* at the primary MX host for this domain.              *)
 
-                IF OK AND (DoMXLookup (domain, address) = 0) THEN
+                IF OK AND MXOK THEN
                     IF address[0] <> 0 THEN
                         KickWatchdog (desc^.watchID);
                         CheckHost (address[0], IsBanned, whitelisted, MayRelay);
@@ -940,6 +948,34 @@ PROCEDURE InsertMessageID (cid: ChanId;  LocalHost: HostName): CARDINAL;
 
 (************************************************************************)
 
+PROCEDURE InsertDate (cid: ChanId;  LocalHost: HostName): CARDINAL;
+
+    (* Writes a "Date" header line to the file.  Returns the number of  *)
+    (* characters written.                                              *)
+
+    VAR nchars: CARDINAL;  Buffer: ARRAY [0..1023] OF CHAR;
+
+    BEGIN
+        Strings.Assign ("Date: ", Buffer);
+        nchars := LENGTH(Buffer);
+        WriteRaw (cid, Buffer, nchars);
+        CurrentDateAndTime (Buffer);
+        WriteRaw (cid, Buffer, LENGTH(Buffer));
+        WriteEOL (cid);
+        INC (nchars, LENGTH(Buffer) + 2);
+
+        Strings.Assign ("X-Date-Added: Date header was added by ", Buffer);
+        Strings.Append (LocalHost, Buffer);
+        WriteRaw (cid, Buffer, LENGTH(Buffer));
+        WriteEOL (cid);
+        INC (nchars, LENGTH(Buffer) + 2);
+
+        RETURN nchars;
+
+    END InsertDate;
+
+(************************************************************************)
+
 PROCEDURE KeywordMatch (kwd: ARRAY OF CHAR;
                          VAR (*IN*) Line: ARRAY OF CHAR): BOOLEAN;
 
@@ -999,12 +1035,13 @@ PROCEDURE ReceiveMessage0 (SB: SBuffer;  cid: ChanId;  LocalHost: HostName;
 
     (********************************************************************)
 
-    VAR EndOfMessage, MessageIDPresent, InHeader: BOOLEAN;
+    VAR EndOfMessage, MessageIDPresent, DatePresent, InHeader: BOOLEAN;
         amount, total, ReceivedCount: CARDINAL;
 
     BEGIN
         EndOfMessage := FALSE;
         MessageIDPresent := FALSE;
+        DatePresent := FALSE;
         FromPresent := FALSE;
         InHeader := TRUE;
         ReceivedCount := 0;
@@ -1025,11 +1062,15 @@ PROCEDURE ReceiveMessage0 (SB: SBuffer;  cid: ChanId;  LocalHost: HostName;
                     IF EndOfMessage OR (LineBuffer[0] = Nul) THEN
 
                         (* We have just come to the end of the headers.  Add a  *)
-                        (* "Message-ID" header line if none was received.       *)
+                        (* "Message-ID" and/or "Date" header line if none was   *)
+                        (* received.                                            *)
 
                         InHeader := FALSE;
                         IF NOT MessageIDPresent THEN
                             INC (total, InsertMessageID (cid, LocalHost));
+                        END (*IF*);
+                        IF NOT DatePresent THEN
+                            INC (total, InsertDate (cid, LocalHost));
                         END (*IF*);
 
                     ELSIF KeywordMatch ("From", LineBuffer) THEN
@@ -1044,6 +1085,8 @@ PROCEDURE ReceiveMessage0 (SB: SBuffer;  cid: ChanId;  LocalHost: HostName;
                     ELSE
                         MessageIDPresent := MessageIDPresent OR
                                          KeywordMatch ("Message-ID", LineBuffer);
+                        DatePresent := MessageIDPresent OR
+                                         KeywordMatch ("Date", LineBuffer);
                     END (*IF*);
 
                 END (*IF*);
@@ -1190,6 +1233,7 @@ PROCEDURE StartNewMessage (itemdata: ItemDescriptor): ChanId;
                     IF itemdata^.whitelisted THEN
                         AddString (cid, " (whitelisted)");
                     END (*IF*);
+                    Strings.Append ("; ", StringBuffer);
                     AddString (cid, " smtp.helo=");
                     AddString (cid, itemdata^.HELOname);
 
@@ -2456,10 +2500,12 @@ PROCEDURE UpdateINIData;
 
     BEGIN
         app := "$SYS";
-        key := "weasel.ini";
-        hini := OpenINIFile (key, UseTNI);
+        hini := OpenINI();
         IF INIData.INIValid (hini) THEN
 
+            IF NOT INIGet (hini, app, "CheckNoDNS", CheckNoDNS) THEN
+                CheckNoDNS := FALSE;
+            END (*IF*);
             IF NOT INIGet (hini, app, "CheckNoRDNS", CheckNoRDNS) THEN
                 CheckNoRDNS := TRUE;
             END (*IF*);
@@ -2501,14 +2547,14 @@ PROCEDURE UpdateINIData;
             key := "SPFenabled";
             EVAL (INIGet (hini, app, key, SPFenabled));
 
-            CloseINIFile (hini);
+            CloseINI;
 
         END (*IF*);
     END UpdateINIData;
 
 (************************************************************************)
 
-PROCEDURE LoadSMTPINIData (TNImode: BOOLEAN);
+PROCEDURE LoadSMTPINIData;
 
     (* Initial load of configuration data for this module. *)
 
@@ -2522,9 +2568,7 @@ PROCEDURE LoadSMTPINIData (TNImode: BOOLEAN);
 
     BEGIN
         app := "$SYS";
-        key := "weasel.ini";
-        UseTNI := TNImode;
-        hini := OpenINIFile (key, UseTNI);
+        hini := OpenINI();
         IF INIData.INIValid (hini) THEN
 
             (* For the filters, convert from old version if necessary. *)
@@ -2556,7 +2600,7 @@ PROCEDURE LoadSMTPINIData (TNImode: BOOLEAN);
                 NextName := "00000000";
             END (*IF*);
 
-            CloseINIFile (hini);
+            CloseINI;
         END (*IF*);
         UpdateINIData;
     END LoadSMTPINIData;
@@ -2569,28 +2613,26 @@ VAR hini: INIData.HINI;
 
 BEGIN
     CRLF[0] := CR;  CRLF[1] := LF;
-    UseTNI := FALSE;
     MaxMessageSize := MAX(CARDINAL);
     CreateLock (MaxMessageSizeLock);
     CreateLock (LogFileLock);
     LogSMTPItems := FALSE;
     SPFenabled := FALSE;
     CheckNoRDNS := FALSE;
+    CheckNoDNS := FALSE;
     pmchecklevel := marksuspectfiles;
     SerialiseFilters := TRUE;
     CreateLock (FilterAccess);
     CreateLock (FilterProgLock);
     CreateLock (NextNameLock);
 FINALLY
-    app := "$SYS";
-    key := "weasel.ini";
-    hini := OpenINIFile (key, UseTNI);
+    hini := OpenINI();
     IF INIData.INIValid (hini) THEN
         Obtain (NextNameLock);
         app := "$SYS";  key := "UName";
         INIPut (hini, app, key, NextName);
         Release (NextNameLock);
-        CloseINIFile (hini);
+        CloseINI;
     END (*IF*);
 END SMTPData.
 

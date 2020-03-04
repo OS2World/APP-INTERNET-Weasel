@@ -7,7 +7,7 @@ DEFINITION MODULE MiscFuncs;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            21 May 2017                     *)
-        (*  Last edited:        26 January 2018                 *)
+        (*  Last edited:        1 October 2019                  *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -59,6 +59,12 @@ PROCEDURE SplitArg (VAR (*OUT*) first: ARRAY OF CHAR;
     (* before it to first, and everything after it to arg.  Leading and *)
     (* trailing spaces are stripped.  If there is no internal space,    *)
     (* arg is copied to first and arg then becomes the empty string.    *)
+
+PROCEDURE SetINIorTNIname (appname: ARRAY OF CHAR;  TNI: BOOLEAN;
+                                        VAR (*OUT*) INIname: ARRAY OF CHAR);
+
+    (* Sets INIname to appname.INI or appname.TNI, depending on the *)
+    (* TNI parameter.                                               *)
 
 PROCEDURE GetNum (str: ARRAY OF CHAR;  VAR (*INOUT*) pos: CARDINAL): CARDINAL;
 

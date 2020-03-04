@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2020   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE BigFrame;
         (*             The settings notebook and its frame          *)
         (*                                                          *)
         (*    Started:        28 June 1999                          *)
-        (*    Last edited:    10 August 2018                        *)
+        (*    Last edited:    28 February 2020                      *)
         (*    Status:         Working                               *)
         (*                                                          *)
         (************************************************************)
@@ -340,7 +340,7 @@ PROCEDURE UpdateNotebook1 (hwnd: OS2.HWND;  NewMultiDomain: BOOLEAN);
                 pagehandle[pdomains] := DomainPage.CreatePage(notebook, InsertionPoint,
                              AcceptUnknown, NewStyle, UseTNI, IDofPage[pdomains]);
                 AcceptUnknown := FALSE;
-                IF NOT SUDomains.DomainExists(OriginalDomainName) THEN
+                IF SUDomains.NoDomainsDefined() THEN
                     DomainPage.Add (OriginalDomainName);
                 END (*IF*);
                 Strings.Append (OriginalDomainName, MailRootDir);
@@ -472,7 +472,7 @@ PROCEDURE ["SysCall"] SubWindowProc (hwnd     : OS2.HWND;
 
                 IF NOT Strings.Equal (NewFontName, TabFontName) THEN
                     TabFontName := NewFontName;
-                    hini := INIData.OpenINIFile (INIFileName, UseTNI);
+                    hini := INIData.OpenINIFile (INIFileName);
                     app := "Font";
                     key := "MainNotebookTabs";
                     INIData.INIPutString (hini, app, key, TabFontName);
@@ -514,7 +514,7 @@ PROCEDURE ["SysCall"] MainDialogueProc(hwnd     : OS2.HWND
            |  OS2.WM_INITDLG:
                    stringval := "MainNotebook";
                    INIData.SetInitialWindowPosition (hwnd, INIFileName,
-                                                     stringval, UseTNI);
+                                                              stringval);
                    CommonSettings.CurrentLanguage (lang, stringval);
 
                    IF RINIData.RemoteOperation() THEN
@@ -586,7 +586,7 @@ PROCEDURE ["SysCall"] MainDialogueProc(hwnd     : OS2.HWND
                    WHILE (IDofPage[pg] <> pageID) AND (pg > MIN(Page)) DO
                        DEC (pg);
                    END (*WHILE*);
-                   hini := INIData.OpenINIFile (INIFileName, UseTNI);
+                   hini := INIData.OpenINIFile (INIFileName);
                    app := "StartingPage";
                    key := "MainNotebook";
                    INIData.INIPut (hini, app, key, pg);
@@ -630,6 +630,7 @@ PROCEDURE OpenBigFrame (owner: OS2.HWND;  TNImode: BOOLEAN);
     VAR hini: INIData.HINI;
         app: ARRAY [0..12] OF CHAR;
         key: ARRAY [0..16] OF CHAR;
+        filename: ARRAY [0..15] OF CHAR;
 
     BEGIN
         UseTNI := TNImode;
@@ -643,7 +644,7 @@ PROCEDURE OpenBigFrame (owner: OS2.HWND;  TNImode: BOOLEAN);
 
         (* Set the initial tab font and starting page. *)
 
-        hini := INIData.OpenINIFile (INIFileName, UseTNI);
+        hini := INIData.OpenINIFile (INIFileName);
         app := "Font";
         key := "MainNotebookTabs";
         IF NOT INIData.INIGetString (hini, app, key, TabFontName) THEN
@@ -659,7 +660,12 @@ PROCEDURE OpenBigFrame (owner: OS2.HWND;  TNImode: BOOLEAN);
 
         (* Get a few important options from Weasel INI file. *)
 
-        EVAL (RINIData.OpenINIFile ('WEASEL.INI', UseTNI));
+        IF UseTNI THEN
+            filename := "Weasel.TNI";
+        ELSE
+            filename := "Weasel.INI";
+        END (*IF*);
+        EVAL (RINIData.OpenINIFile (filename));
         SUDomains.SetMasterININame ('WEASEL', UseTNI);
         SUDomains.LoadOriginalDomainName;
         IF RINIData.INIFetch ('$SYS', 'AcceptUnknown', AcceptUnknown) THEN

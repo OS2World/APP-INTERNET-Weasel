@@ -63,6 +63,7 @@ CONST
    BadPasswordLimitLabel* = 368;
    SPFenabled*       = 369;
    CheckNoRDNS*      = 370;
+   CheckNoDNS*       = 371;
    optionp2*         = 380;
    onlineGroup*      = 381;
    onlineONLINE*     = 382;

@@ -31,7 +31,7 @@ IMPLEMENTATION MODULE MailAccounts;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            8 March 2003                    *)
-        (*  Last edited:        10 May 2019                     *)
+        (*  Last edited:        13 December 2019                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -45,7 +45,7 @@ FROM SYSTEM IMPORT
 FROM Domains IMPORT
     (* type *)  Domain, DomainSearchState,
     (* proc *)  StartDomainSearch, NextDomain, EndDomainSearch,
-                OpenDomainINI, MailDirectoryFor;
+                OpenDomainINI, CloseDomainINI, MailDirectoryFor;
 
 FROM MyClock IMPORT
     (* proc *)  AppendTimeString, PackedCurrentDateTime;
@@ -57,7 +57,7 @@ FROM MiscFuncs IMPORT
     (* proc *)  ToLower, ConvertCard;
 
 FROM INIData IMPORT
-    (* proc *)  OpenINIFile, CloseINIFile, INIValid, INIGet, INIGetString, INIPut;
+    (* proc *)  INIValid, INIGet, INIGetString, INIPut;
 
 FROM TaskControl IMPORT
     (* type *)  Lock,
@@ -431,7 +431,7 @@ PROCEDURE IsIMAPUser (VAR (*IN*) username: ARRAY OF CHAR;  domain: Domain): BOOL
                                                            AND (code = 0));
                 END (*IF*);
             END (*IF*);
-            CloseINIFile (hini);
+            CloseDomainINI (domain, hini);
         END (*IF*);
 
         RETURN result;
@@ -486,7 +486,7 @@ PROCEDURE CreateLUrecord (VAR (*IN*) username: ARRAY OF CHAR;
                     U^.FinalFilterName[0] := Nul;
                 END (*IF*);
             END (*IF*);
-            CloseINIFile (hini);
+            CloseDomainINI (domain, hini);
         END (*IF*);
 
         IF U <> NIL THEN

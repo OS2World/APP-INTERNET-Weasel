@@ -13,7 +13,7 @@ DEFINITION MODULE RINIData;
         (*     a handle on every call.                              *)
         (*                                                          *)
         (*      Started:        13 January 2002                     *)
-        (*      Last edited:    21 November 2018                    *)
+        (*      Last edited:    29 August 2019                      *)
         (*      Status:         OK                                  *)
         (*                                                          *)
         (************************************************************)
@@ -56,7 +56,7 @@ PROCEDURE CommitTNIDecision (appname: ARRAY OF CHAR;  useTNI: BOOLEAN);
     (* become the default for the next ChooseDefaultINI decision, all   *)
     (* other factors being equal.                                       *)
 
-PROCEDURE OpenINIFile (filename: ARRAY OF CHAR;  useTNI: BOOLEAN): BOOLEAN;
+PROCEDURE OpenINIFile (filename: ARRAY OF CHAR): BOOLEAN;
 
     (* Opens the INI or TNI file. *)
 

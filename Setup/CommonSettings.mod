@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE CommonSettings;
         (*            Data common to the main Setup notebook            *)
         (*                                                              *)
         (*    Started:        26 March 2004                             *)
-        (*    Last edited:    5 July 2012                               *)
+        (*    Last edited:    29 August 2019                            *)
         (*    Status:         OK                                        *)
         (*                                                              *)
         (****************************************************************)
@@ -112,7 +112,7 @@ PROCEDURE UpdateFontFrom (hwnd: OS2.HWND;  group: FontGroup);
             IF NOT Strings.Equal (NewFontName, OurFontName[group]) THEN
 
                 OurFontName[group] := NewFontName;
-                hini := INIData.OpenINIFile (INIFileName, TNI);
+                hini := INIData.OpenINIFile (INIFileName);
                 app := "Font";
                 key := FontGroupLabel[group];
                 INIData.INIPutString (hini, app, key, NewFontName);
@@ -181,8 +181,15 @@ PROCEDURE SetInitialLanguage;
 
     (* Sets the language from the Weasel INI or TNI file. *)
 
+    VAR fname: ARRAY [0..15] OF CHAR;
+
     BEGIN
-        IF NOT RINIData.OpenINIFile("WEASEL.INI", TNI)
+        IF TNI THEN
+            fname := "WEASEL.TNI";
+        ELSE
+            fname := "WEASEL.INI";
+        END (*IF*);
+        IF NOT RINIData.OpenINIFile(fname)
            OR NOT RINIData.INIGetString ('$SYS', 'Language', LanguageCode)
                                      OR (LanguageCode[0] = Nul) THEN
             LanguageCode := "en";
@@ -208,9 +215,9 @@ PROCEDURE SetFonts (useTNI: BOOLEAN);
         ELSE
             INIFileName := "Setup.INI";
         END (*IF*);
-        hini := INIData.OpenINIFile(INIFileName, useTNI);
+        hini := INIData.OpenINIFile(INIFileName);
         IF NOT INIData.INIValid(hini) THEN
-            hini := INIData.CreateINIFile(INIFileName, useTNI);
+            hini := INIData.CreateINIFile(INIFileName);
         END (*IF*);
         FOR group := MIN(FontGroup) TO MAX(FontGroup) DO
             IF group <> NilFontGroup THEN

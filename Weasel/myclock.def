@@ -6,8 +6,16 @@ DEFINITION MODULE MyClock;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            26 June 1998                    *)
-        (*  Last edited:        27 April 2015                   *)
+        (*  Last edited:        17 October 2019                 *)
         (*  Status:             OK                              *)
+        (*                                                      *)
+        (*  The reason for the multiplicity of conversion       *)
+        (*  functions all doing approximately the same job      *)
+        (*  is that different standards require different       *)
+        (*  formats.  The recent tendency is to converge on     *)
+        (*  the format used by CurrentDateAndTimeGMT (see       *)
+        (*  below), but we still have to support older          *)
+        (*  specifications.                                     *)
         (*                                                      *)
         (********************************************************)
 
@@ -92,7 +100,7 @@ PROCEDURE CurrentDateAndTime (VAR (*OUT*) result: ARRAY OF CHAR);
 PROCEDURE CurrentDateAndTimeGMT (VAR (*OUT*) result: ARRAY OF CHAR);
 
     (* Encodes the current date and time in the format                  *)
-    (*        Sat, 04 Apr 2015 16:00:19 GMT"                            *)
+    (*        Sat, 04 Apr 2015 16:00:19 GMT                             *)
     (* This is the format preferred for internet applications (RFC1123).*)
     (* The result array must have room for at least 29 characters.      *)
 

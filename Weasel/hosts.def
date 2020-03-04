@@ -6,7 +6,7 @@ DEFINITION MODULE Hosts;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            9 May 1998                      *)
-        (*  Last edited:        16 August 2018                  *)
+        (*  Last edited:        6 December 2019                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -56,7 +56,7 @@ PROCEDURE NoChunkingHost (VAR (*IN*) name: HostName): BOOLEAN;
 
     (* Returns TRUE if name matches a name in the "nochunking" list.    *)
 
-PROCEDURE RefreshHostLists (LogIt, UseTNI: BOOLEAN);
+PROCEDURE RefreshHostLists (LogIt: BOOLEAN);
 
     (* This procedure is to be called whenever there is a chance that   *)
     (* the INI data might have been updated.  Discards the existing     *)

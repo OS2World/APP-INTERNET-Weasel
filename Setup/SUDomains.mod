@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2020   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SUDomains;
     (*                     Operations on domains                    *)
     (*                                                              *)
     (*        Started:        11 January 2002                       *)
-    (*        Last edited:    22 May 2017                           *)
+    (*        Last edited:    28 February 2020                      *)
     (*        Status:         OK                                    *)
     (*                                                              *)
     (****************************************************************)
@@ -81,6 +81,12 @@ CONST
     Nul = CHR(0);
     DefaultOriginalName = "Please rename this to your real domain name";
 
+TYPE
+    DomainList = POINTER TO RECORD
+                    next: DomainList;
+                    name: DomainName;
+                END (*RECORD*);
+
 VAR
     MailRoot: FilenameString;
     MasterINIFile: FilenameString;
@@ -91,6 +97,36 @@ VAR
 (*       MANIPULATING THE "Domains" ENTRY IN THE MASTER INI FILE        *)
 (************************************************************************)
 
+PROCEDURE FirstDomainName (VAR (*OUT*) first: DomainName);
+
+    (* Returns the first name in our ist of domain names.   *)
+
+    VAR state: StringReadState;
+
+    BEGIN
+        IF OpenINIFile (MasterINIFile) THEN
+            GetStringList ("$SYS", "Domains", state);
+            NextString (state, first);
+            CloseStringList (state);
+            CloseINIFile;
+        END (*IF*);
+    END FirstDomainName;
+
+(************************************************************************)
+
+PROCEDURE NoDomainsDefined(): BOOLEAN;
+
+    (* Returns TRUE if our INI file records no domains. *)
+
+    VAR first: DomainName;
+
+    BEGIN
+        FirstDomainName (first);
+        RETURN first[0] = Nul;
+    END NoDomainsDefined;
+
+(************************************************************************)
+
 PROCEDURE DomainExists (domainname: DomainName): BOOLEAN;
 
     (* Returns TRUE iff this domain exists. *)
@@ -99,7 +135,7 @@ PROCEDURE DomainExists (domainname: DomainName): BOOLEAN;
         current: DomainName;
 
     BEGIN
-        IF (domainname[0] = Nul) OR NOT OpenINIFile (MasterINIFile, UseTNI) THEN
+        IF (domainname[0] = Nul) OR NOT OpenINIFile (MasterINIFile) THEN
             RETURN FALSE;
         END (*IF*);
         GetStringList ("$SYS", "Domains", state);
@@ -121,7 +157,7 @@ PROCEDURE AddDomain (domainname: DomainName);
         bufptr: CharArrayPointer;
 
     BEGIN
-        IF OpenINIFile (MasterINIFile, UseTNI) THEN
+        IF OpenINIFile (MasterINIFile) THEN
             EVAL (ItemSize ("$SYS", "Domains", size1));
             IF size1 > 0 THEN
                 DEC (size1);
@@ -142,62 +178,137 @@ PROCEDURE AddDomain (domainname: DomainName);
 
 (************************************************************************)
 
-PROCEDURE ChangeDomainName (oldname, newname: DomainName);
+PROCEDURE LoadDomainList(): DomainList;
 
-    (* Alters one name in the "Domains" INI file entry. *)
+    (* Loads the list of domain names from the INI file. *)
 
-    TYPE List = POINTER TO RECORD
-                    next: List;
-                    name: DomainName;
-                END (*RECORD*);
-
-    VAR size, j, k: CARDINAL;
-        bufptr: CharArrayPointer;
+    VAR size: CARDINAL;
         state: StringReadState;
         current: DomainName;
-        dlist, p: List;
+        dlist, tail, p: DomainList;
+        originalfound: BOOLEAN;
 
     BEGIN
-        dlist := NIL;
+        dlist := NIL;  tail := NIL;
         size := 1;
-        IF OpenINIFile (MasterINIFile, UseTNI) THEN
+        originalfound := FALSE;
+        IF OpenINIFile (MasterINIFile) THEN
             GetStringList ("$SYS", "Domains", state);
             REPEAT
                 NextString (state, current);
                 IF (current[0] <> Nul) THEN
-                    IF Strings.Equal (current, oldname) THEN
-                        current := newname;
+                    IF Strings.Equal (current, OriginalDomainName) THEN
+                        originalfound := TRUE;
                     END (*IF*);
                     INC (size, LENGTH(current)+1);
                     NEW (p);
-                    p^.next := dlist;
+                    p^.next := NIL;
                     p^.name := current;
-                    dlist := p;
+                    IF tail = NIL THEN
+                        dlist := p;
+                    ELSE
+                        tail^.next := p;
+                    END (*IF*);
+                    tail := p;
                 END (*IF*);
             UNTIL current[0] = Nul;
             CloseStringList (state);
-
-            (* We've now built a list of all domain names, including the *)
-            (* altered one.  Write this back to the INI file.            *)
-
-            ALLOCATE (bufptr, size);
-            k := 0;
-            WHILE dlist <> NIL DO
-                p := dlist;  dlist := p^.next;
-                current := p^.name;
-                DISPOSE (p);
-                FOR j := 0 TO LENGTH(current)-1 DO
-                    bufptr^[k] := current[j];  INC(k);
-                END (*FOR*);
-                bufptr^[k] := Nul;  INC(k);
-            END (*WHILE*);
-            bufptr^[k] := Nul;
-            INIPutBinary ("$SYS", "Domains", bufptr^, size);
-            DEALLOCATE (bufptr, size);
-
             CloseINIFile;
+        END (*IF*);
+
+        IF NOT originalfound THEN
+            (* Set OriginalDomainName to the first domain on the list.  *)
+            (* If there is no first domain, leave OriginalDomainName    *)
+            (* unchanged.                                               *)
+
+            IF (dlist <> NIL) AND (dlist^.name[0] <> Nul) THEN
+                Strings.Assign (dlist^.name, OriginalDomainName);
+            END (*IF*);
 
         END (*IF*);
+
+        RETURN dlist;
+    END LoadDomainList;
+
+(************************************************************************)
+
+PROCEDURE StrOfStrSize (dlist: DomainList): CARDINAL;
+
+    (* Calculates the number of characters needed to store dlist in     *)
+    (* the INI file.                                                    *)
+
+    VAR size: CARDINAL;
+
+    BEGIN
+        size := 1;
+        WHILE dlist <> NIL DO
+            INC (size, LENGTH(dlist^.name)+1);
+            dlist := dlist^.next;
+        END (*WHILE*);
+        RETURN size;
+    END StrOfStrSize;
+
+(************************************************************************)
+
+PROCEDURE StoreDomainList (VAR (*INOUT*) dlist: DomainList);
+
+    (* Writes back the domain list to the INI file, also discards the   *)
+    (* list.                                                            *)
+
+    VAR size, j, k: CARDINAL;
+        p: DomainList;
+        current: DomainName;
+        bufptr: CharArrayPointer;
+
+    BEGIN
+
+        size := StrOfStrSize(dlist);
+        ALLOCATE (bufptr, size);
+        k := 0;
+        WHILE dlist <> NIL DO
+            p := dlist;  dlist := p^.next;
+            current := p^.name;
+            DISPOSE (p);
+            FOR j := 0 TO LENGTH(current)-1 DO
+                bufptr^[k] := current[j];  INC(k);
+            END (*FOR*);
+            bufptr^[k] := Nul;  INC(k);
+        END (*WHILE*);
+        bufptr^[k] := Nul;
+
+        IF OpenINIFile (MasterINIFile) THEN
+            INIPutBinary ("$SYS", "Domains", bufptr^, size);
+            CloseINIFile;
+        END (*IF*);
+
+        DEALLOCATE (bufptr, size);
+
+    END StoreDomainList;
+
+(************************************************************************)
+
+PROCEDURE ChangeDomainName (oldname, newname: DomainName);
+
+    (* Alters one name in the "Domains" INI file entry. *)
+
+    VAR dlist: DomainList;
+        done: BOOLEAN;
+
+    BEGIN
+        dlist := LoadDomainList();
+
+        done := dlist <> NIL;
+        WHILE NOT done DO
+            IF Strings.Equal (dlist^.name, oldname) THEN
+                dlist^.name := newname;
+                done := TRUE;
+            ELSE
+                done := dlist^.next = NIL;
+            END (*IF*);
+            dlist := dlist^.next;
+        END (*WHILE*);
+
+        StoreDomainList(dlist);
 
         IF Strings.Equal (oldname, OriginalDomainName) THEN
             OriginalDomainName := newname;
@@ -211,55 +322,38 @@ PROCEDURE SubtractDomain (domainname: DomainName);
 
     (* Removes this domain from the "Domains" INI file entry. *)
 
-    TYPE List = POINTER TO RECORD
-                    next: List;
-                    name: DomainName;
-                END (*RECORD*);
-
-    VAR size, j, k: CARDINAL;
-        bufptr: CharArrayPointer;
-        state: StringReadState;
-        current: DomainName;
-        dlist, p: List;
+    VAR prev, dlist, p, next: DomainList;
+        done: BOOLEAN;
 
     BEGIN
-        dlist := NIL;
-        size := 1;
-        IF OpenINIFile (MasterINIFile, UseTNI) THEN
-            GetStringList ("$SYS", "Domains", state);
-            REPEAT
-                NextString (state, current);
-                IF (current[0] <> Nul) AND NOT Strings.Equal (current, domainname) THEN
-                    INC (size, LENGTH(current)+1);
-                    NEW (p);
-                    p^.next := dlist;
-                    p^.name := current;
-                    dlist := p;
-                END (*IF*);
-            UNTIL current[0] = Nul;
-            CloseStringList (state);
+        dlist := LoadDomainList();
 
-            (* We've now built a list of all domain names except for the    *)
-            (* one we're deleting.  Write this back to the INI file.        *)
-
-            ALLOCATE (bufptr, size);
-            k := 0;
-            WHILE dlist <> NIL DO
-                p := dlist;  dlist := p^.next;
-                current := p^.name;
-                DISPOSE (p);
-                FOR j := 0 TO LENGTH(current)-1 DO
-                    bufptr^[k] := current[j];  INC(k);
-                END (*FOR*);
-                bufptr^[k] := Nul;  INC(k);
-            END (*WHILE*);
-            bufptr^[k] := Nul;
-            INIPutBinary ("$SYS", "Domains", bufptr^, size);
-            DEALLOCATE (bufptr, size);
-
-            CloseINIFile;
-
+        IF domainname = OriginalDomainName THEN
+            IF (dlist <> NIL) AND (dlist^.name[0] <> Nul) THEN
+                Strings.Assign (dlist^.name, OriginalDomainName);
+            END (*IF*);
         END (*IF*);
+
+        done := dlist <> NIL;
+        prev := NIL;
+        p := dlist;
+        WHILE NOT done DO
+            next := p^.next;
+            IF p^.name = domainname THEN
+                IF prev = NIL THEN
+                    dlist := next;
+                ELSE
+                    prev^.next := next;
+                END (*IF*);
+                done := TRUE;
+            ELSE
+                prev := p;
+                done := next = NIL;
+            END (*IF*);
+            p := next;
+        END (*WHILE*);
+
+        StoreDomainList(dlist);
 
     END SubtractDomain;
 
@@ -300,7 +394,7 @@ PROCEDURE MoveOneUser (name: UserName;  INIFile1, INIFile2: FilenameString);
         (* INI file.                                                    *)
 
         keylist := NIL;
-        IF OpenINIFile (INIFile1, UseTNI) THEN
+        IF OpenINIFile (INIFile1) THEN
             GetStringList (name, "", state);
             REPEAT
                 NextString (state, key);
@@ -325,7 +419,7 @@ PROCEDURE MoveOneUser (name: UserName;  INIFile1, INIFile2: FilenameString);
 
         (* Now open the second INI file and write the data to it. *)
 
-        IF OpenINIFile (INIFile2, UseTNI) THEN
+        IF OpenINIFile (INIFile2) THEN
             WHILE keylist <> NIL DO
                 listelt := keylist;
                 keylist := listelt^.next;
@@ -343,7 +437,7 @@ PROCEDURE MoveOneUser (name: UserName;  INIFile1, INIFile2: FilenameString);
         (* Now that the copy is complete, remove the user from  *)
         (* the first INI file.                                  *)
 
-        IF OpenINIFile (INIFile1, UseTNI) THEN
+        IF OpenINIFile (INIFile1) THEN
             INIDeleteApp (name);
             CloseINIFile;
         END (*IF*);
@@ -405,7 +499,7 @@ PROCEDURE MoveAllUsers (domain1, domain2: DomainName);
             (* We already have a list from the source INI file.  Now    *)
             (* add names, if any, from the target INI file.             *)
 
-            IF OpenINIFile (INIFile2, UseTNI) THEN
+            IF OpenINIFile (INIFile2) THEN
                 CollectLocalHostNames;
                 CloseINIFile;
             END (*IF*);
@@ -447,7 +541,7 @@ PROCEDURE MoveAllUsers (domain1, domain2: DomainName);
 
             (* Write the buffer to the target INI file. *)
 
-            IF OpenINIFile (INIFile2, UseTNI) THEN
+            IF OpenINIFile (INIFile2) THEN
                 IF BufferSize = 0 THEN
                     INIPutBinary ("$SYS", "Local", j, 0);
                 ELSE
@@ -460,7 +554,7 @@ PROCEDURE MoveAllUsers (domain1, domain2: DomainName);
 
             (* Remove the original list from the source INI file. *)
 
-            IF OpenINIFile (INIFile1, UseTNI) THEN
+            IF OpenINIFile (INIFile1) THEN
                 INIDeleteKey ("$SYS", "Local");
                 CloseINIFile;
             END (*IF*);
@@ -529,7 +623,7 @@ PROCEDURE MoveAllUsers (domain1, domain2: DomainName);
         userlist := NIL;
         hostlist := NIL;
         IMFlagExists := FALSE;
-        IF OpenINIFile (INIFile1, UseTNI) THEN
+        IF OpenINIFile (INIFile1) THEN
 
             (* Take the IMAPForNewUsers flag from the source file. *)
 
@@ -578,7 +672,7 @@ PROCEDURE MoveAllUsers (domain1, domain2: DomainName);
         (* Put the IMAPForNewUsers flag into the destination file, *)
         (* unless it already has such a flag.                      *)
 
-        IF OpenINIFile (INIFile2, UseTNI) THEN
+        IF OpenINIFile (INIFile2) THEN
             IF NOT INIFetch ("$SYS", "IMAPForNewUsers", IMAPFlag) THEN
                 IF IMFlagExists THEN
                     INIPut ("$SYS", "IMAPForNewUsers", IMAPFlag);
@@ -625,7 +719,7 @@ PROCEDURE UserCount (domain: DomainName): CARDINAL;
             END (*IF*);
         END (*IF*);
 
-        IF OpenINIFile (INIFile, UseTNI) THEN
+        IF OpenINIFile (INIFile) THEN
             GetStringList ("", "", state);
             REPEAT
                 NextString (state, current);
@@ -672,7 +766,7 @@ PROCEDURE DeleteAllUsers (MailDir, INIFile: FilenameString);
         current: UserName;
 
     BEGIN
-        IF OpenINIFile (INIFile, UseTNI) THEN
+        IF OpenINIFile (INIFile) THEN
             GetStringList ("", "", state);
             REPEAT
                 NextString (state, current);
@@ -746,17 +840,21 @@ PROCEDURE DeleteDomain (domainname: DomainName;
     (* of a message box, and lang is the language to use in that        *)
     (* message box, if we need one.                                     *)
 
-    VAR Directory, INIFileName, subdir: FilenameString;
+    VAR Directory, INIFileName, INIFileName2, subdir: FilenameString;
         message: ARRAY [0..511] OF CHAR;
 
     BEGIN
         Strings.Assign (MailRoot, Directory);
         Strings.Append (domainname, Directory);
         Strings.Assign (Directory, INIFileName);
+        Strings.Append ("\DOMAIN.", INIFileName);
+        Strings.Assign (INIFileName, INIFileName2);
         IF UseTNI THEN
-            Strings.Append ("\DOMAIN.TNI", INIFileName);
+            Strings.Append ("TNI", INIFileName);
+            Strings.Append ("INI", INIFileName2);
         ELSE
-            Strings.Append ("\DOMAIN.INI", INIFileName);
+            Strings.Append ("INI", INIFileName);
+            Strings.Append ("TNI", INIFileName2);
         END (*IF*);
 
         Strings.Assign (Directory, subdir);
@@ -767,6 +865,7 @@ PROCEDURE DeleteDomain (domainname: DomainName;
         Strings.Assign (Directory, subdir);
         Strings.Append ("\Unknown", subdir);
         EVAL (DeleteDirectory (subdir));
+        EVAL (DeleteFile (INIFileName2));
         EVAL (DeleteFile (INIFileName));
 
         IF NOT DeleteDirectory (Directory) THEN
@@ -820,16 +919,10 @@ PROCEDURE ResetOriginal (VAR (*OUT*) NewOriginalName: DomainName);
     (* domains exist, NewOriginalName is returned as the empty string   *)
     (* but our internal record of the original name is left unchanged.  *)
 
-    VAR state: StringReadState;
-        first: DomainName;
+    VAR first: DomainName;
 
     BEGIN
-        IF OpenINIFile (MasterINIFile, UseTNI) THEN
-            GetStringList ("$SYS", "Domains", state);
-            NextString (state, first);
-            CloseStringList (state);
-            CloseINIFile;
-        END (*IF*);
+        FirstDomainName (first);
         IF first[0] = Nul THEN
             NewOriginalName[0] := Nul;
         ELSE
@@ -889,7 +982,7 @@ BEGIN
     MailRoot := "";
     OriginalDomainName := DefaultOriginalName;
 FINALLY
-    IF OpenINIFile (MasterINIFile, UseTNI) THEN
+    IF OpenINIFile (MasterINIFile) THEN
         StoreOriginalDomainName;
         CloseINIFile;
     END (*IF*);

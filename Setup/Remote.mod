@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Remote;
         (*                Communication with INIRemote              *)
         (*                                                          *)
         (*    Started:        7 October 1999                        *)
-        (*    Last edited:    4 May 2019                            *)
+        (*    Last edited:    29 August 2019                        *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
@@ -68,7 +68,7 @@ FROM Inet2Misc IMPORT
 FROM Storage IMPORT
     (* proc *)  ALLOCATE, DEALLOCATE;
 
-(**************************************************************************)
+(************************************************************************)
 
 CONST
     Nul = CHR(0);  CR = CHR(13);  LF = CHR(10);
@@ -81,11 +81,15 @@ TYPE
                      END (*RECORD*);
 
 VAR
-    (* OurAppTitle is the application name to display in messages. *)
-    (* OurSetupName.INI is the name of the local INI file.         *)
-    (* (Not to be confused with the application's INI file.)       *)
+    (* OurAppTitle is the application name to display in messages.      *)
+    (* OurAppName is the application name used when storing some        *)
+    (* configuration data in the local INI file.  OurINI, whose name is *)
+    (* derived from OurAppName, is the name of this module's INI file.  *)
+    (* (Not to be confused with the application's INI file.  OurINI is  *)
+    (* always a local file, while the applications's INI file could be  *)
+    (* local or remote.)                                                *)
 
-    OurAppTitle, OurSetupName, OurINI: FilenameString;
+    OurAppTitle, OurAppName, OurINI: FilenameString;
 
     (* Language to use for displaying messages.  If none has been  *)
     (* set, NoLanguageSet is TRUE.                                 *)
@@ -114,10 +118,6 @@ VAR
     (* 'L' command to the server.                                       *)
 
     ListingInProgress: BOOLEAN;
-
-    (* A flag to say whether we're in TNI (as opposed to INI) mode.     *)
-
-    UseTNI: BOOLEAN;
 
 (************************************************************************)
 (*                   RETURNING OUR CURRENT DIRECTORY                    *)
@@ -596,7 +596,7 @@ PROCEDURE INIPutDecimal (hini: HINI;  name1, name2: ARRAY OF CHAR;
 (*                     SETUP DATA IN LOCAL INI FILE                     *)
 (************************************************************************)
 
-PROCEDURE InitialSetup (lang: LangHandle;  AppTitle, SetupName,
+PROCEDURE InitialSetup (lang: LangHandle;  AppTitle, AppName,
                                        DefaultRemoteDir: ARRAY OF CHAR;
                                        textmode: BOOLEAN): BOOLEAN;
 
@@ -607,7 +607,7 @@ PROCEDURE InitialSetup (lang: LangHandle;  AppTitle, SetupName,
 
     CONST NilHandle = SYSTEM.CAST (LangHandle, NIL);
 
-    VAR hini: HINI;  RemoteFlag: BOOLEAN;
+    VAR hini: HINI;  RemoteFlag, UseTNI: BOOLEAN;
         key: ARRAY [0..9] OF CHAR;
 
     BEGIN
@@ -615,16 +615,16 @@ PROCEDURE InitialSetup (lang: LangHandle;  AppTitle, SetupName,
         ourlang := lang;
         NoLanguageSet := lang = NilHandle;
         Strings.Assign (AppTitle, OurAppTitle);
-        Strings.Assign (SetupName, OurSetupName);
-        Strings.Assign (SetupName, OurINI);
+        Strings.Assign (AppName, OurAppName);
+        Strings.Assign (AppName, OurINI);
         IF UseTNI THEN
             Strings.Append (".TNI", OurINI);
         ELSE
             Strings.Append (".INI", OurINI);
         END (*IF*);
-        hini := OpenINIFile (OurINI, UseTNI);
+        hini := OpenINIFile (OurINI);
         IF NOT INIValid(hini) THEN
-            hini := CreateINIFile (OurINI, UseTNI);
+            hini := CreateINIFile (OurINI);
         END (*IF*);
 
         (* Set some defaults in case we still can't open INI file. *)
@@ -638,19 +638,19 @@ PROCEDURE InitialSetup (lang: LangHandle;  AppTitle, SetupName,
 
         IF INIValid(hini) THEN
             key := "Remote";
-            RemoteFlag := INIGetNum (hini, SetupName, key) = 1;
+            RemoteFlag := INIGetNum (hini, AppName, key) = 1;
             key := "Directory";
-            EVAL (INIGetString (hini, SetupName, key, RemoteDir));
+            EVAL (INIGetString (hini, AppName, key, RemoteDir));
             CommandSocket := NotASocket;
             key := "Port";
-            ServerPort := INIGetDecimal (hini, SetupName, key);
+            ServerPort := INIGetDecimal (hini, AppName, key);
             IF ServerPort = MAX(CARDINAL) THEN
                 ServerPort := 3560;
             END (*IF*);
             key := "Host";
-            EVAL (INIGetString (hini, SetupName, key, ServerAddress));
+            EVAL (INIGetString (hini, AppName, key, ServerAddress));
             key := "Password";
-            EVAL (INIGetString (hini, SetupName, key, Password));
+            EVAL (INIGetString (hini, AppName, key, Password));
             CloseINIFile (hini);
         END (*IF*);
         RETURN RemoteFlag;
@@ -667,8 +667,8 @@ PROCEDURE SaveRemoteFlag (flag: BOOLEAN);
 
     BEGIN
         IF flag THEN code := 1 ELSE code := 0 END(*IF*);
-        hini := OpenINIFile (OurINI, UseTNI);
-        INIPutDecimal (hini, OurSetupName, "Remote", code);
+        hini := OpenINIFile (OurINI);
+        INIPutDecimal (hini, OurAppName, "Remote", code);
         CloseINIFile (hini);
     END SaveRemoteFlag;
 
@@ -686,7 +686,7 @@ PROCEDURE SetInitialWindowPosition (hwnd: OS2.HWND;  label: ARRAY OF CHAR);
         app: ARRAY [0..9] OF CHAR;
 
     BEGIN
-        hini := OpenINIFile (OurINI, UseTNI);
+        hini := OpenINIFile (OurINI);
         IF INIValid(hini) THEN
             app := "WindowPos";
             IF INIGet (hini, app, label, pos) THEN
@@ -730,7 +730,7 @@ PROCEDURE StoreWindowPosition (hwnd: OS2.HWND;  label: ARRAY OF CHAR;
                 FontName[length] := Nul;
             END (*IF*);
         END (*IF*);
-        hini := OpenINIFile (OurINI, UseTNI);
+        hini := OpenINIFile (OurINI);
         IF INIValid(hini) THEN
             app := "WindowPos";
             INIPut (hini, app, label, pos);
@@ -816,20 +816,20 @@ PROCEDURE StoreData (hwnd: OS2.HWND);
         key: ARRAY [0..10] OF CHAR;
 
     BEGIN
-        hini := OpenINIFile (OurINI, UseTNI);
+        hini := OpenINIFile (OurINI);
 
         OS2.WinQueryDlgItemText (hwnd, DID.ISHostname, 512, ServerAddress);
         key := "Host";
-        INIPutString (hini, OurSetupName, key, ServerAddress);
+        INIPutString (hini, OurAppName, key, ServerAddress);
 
         OS2.WinQueryDlgItemShort (hwnd, DID.ISport, temp, FALSE);
         ServerPort := SYSTEM.CAST(CARDINAL,temp);
         key := "Port";
-        INIPutDecimal (hini, OurSetupName, key, ServerPort);
+        INIPutDecimal (hini, OurAppName, key, ServerPort);
 
         OS2.WinQueryDlgItemText (hwnd, DID.ISpassword, 32, Password);
         key := "Password";
-        INIPutString (hini, OurSetupName, key, Password);
+        INIPutString (hini, OurAppName, key, Password);
 
         OS2.WinQueryDlgItemText (hwnd, DID.ISWdir, 256, RemoteDir);
         temp := LENGTH(RemoteDir);
@@ -840,7 +840,7 @@ PROCEDURE StoreData (hwnd: OS2.HWND);
             END (*IF*);
         END (*IF*);
         key := "Directory";
-        INIPutString (hini, OurSetupName, key, RemoteDir);
+        INIPutString (hini, OurAppName, key, RemoteDir);
 
         CloseINIFile (hini);
 
@@ -860,7 +860,7 @@ PROCEDURE ["SysCall"] DialogueProc(hwnd     : OS2.HWND
         CASE msg OF
            |  OS2.WM_INITDLG:
                    string := "Remote";
-                   INIData.SetInitialWindowPosition (hwnd, OurINI, string, UseTNI);
+                   INIData.SetInitialWindowPosition (hwnd, OurINI, string);
                    SetLanguage (hwnd);
                    LoadData (hwnd);
                    RETURN NIL;
@@ -876,7 +876,7 @@ PROCEDURE ["SysCall"] DialogueProc(hwnd     : OS2.HWND
            |  OS2.WM_CLOSE:
                    StoreData (hwnd);
                    string := "Remote";
-                   INIData.StoreWindowPosition (hwnd, OurINI, string, UseTNI);
+                   INIData.StoreWindowPosition (hwnd, OurINI, string);
                    RETURN OS2.WinDefDlgProc(hwnd, msg, mp1, mp2);
 
         ELSE    (* default *)
@@ -934,7 +934,6 @@ PROCEDURE RememberCurrentDirectory;
 
 BEGIN
     ReceiveBuffer := "";  ReceiveCount := 0;  RBPos := 0;
-    UseTNI := FALSE;
     sock_init();
     RememberCurrentDirectory;
     ListingInProgress := FALSE;

@@ -6,13 +6,13 @@ DEFINITION MODULE HostLists;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            1 September 2002                *)
-        (*  Last edited:        11 April 2012                   *)
+        (*  Last edited:        6 December 2019                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
 
 FROM Names IMPORT
-    (* type *)  FilenameString, HostName;
+    (* type *)  HostName;
 
 FROM TransLog IMPORT
     (* type *)  TransactionLogID;
@@ -25,21 +25,17 @@ PROCEDURE CreateHostList (LogName: ARRAY OF CHAR;  local: BOOLEAN): HostList;
 
     (* Creates an empty list. *)
 
-PROCEDURE RefreshHostList (VAR (*IN*) INIFile: FilenameString;
-                           VAR (*IN*) app, key: ARRAY OF CHAR;
-                           UseTNI: BOOLEAN;
+PROCEDURE RefreshHostList (VAR (*IN*) app, key: ARRAY OF CHAR;
                            VAR (*INOUT*) list: HostList;
                            ExpandNumeric, Log: BOOLEAN);
 
     (* Discards the existing contents of the list, then reloads it      *)
     (* from INI file data.                                              *)
 
-PROCEDURE RefreshHostList2 (VAR (*IN*) INIFile: FilenameString;
-                           VAR (*IN*) app, key: ARRAY OF CHAR;
-                           UseTNI: BOOLEAN;
-                           VAR (*INOUT*) list: HostList;
-                           InitialAddresses: ARRAY OF CARDINAL;
-                           ExpandNumeric, Log: BOOLEAN);
+PROCEDURE RefreshHostList2 (VAR (*IN*) app, key: ARRAY OF CHAR;
+                            VAR (*INOUT*) list: HostList;
+                            InitialAddresses: ARRAY OF CARDINAL;
+                            ExpandNumeric, Log: BOOLEAN);
 
     (* Like RefreshHostList, but uses the IP addresses from a given     *)
     (* array to preload the list before adding the INI file data.       *)

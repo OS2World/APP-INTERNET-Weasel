@@ -7,7 +7,7 @@ DEFINITION MODULE Delivery;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            12 May 1998                     *)
-        (*  Last edited:        22 July 2018                    *)
+        (*  Last edited:        6 December 2019                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -145,7 +145,7 @@ PROCEDURE CopyToRecipients (VAR (*IN*) messagefile: FilenameString;
     (* procedure makes copies for all local recipients, queues the mail *)
     (* for the remote recipients, and then deletes the message file.    *)
 
-PROCEDURE LoadDeliveryINIData (TNImode: BOOLEAN);
+PROCEDURE LoadDeliveryINIData;
 
     (* Loads the values of this module's global variables that reside   *)
     (* in the main INI file.  Also starts the transaction logging.      *)

@@ -34,7 +34,7 @@ IMPLEMENTATION MODULE TaskControl;
         (*                  related procedures.                         *)
         (*                                                              *)
         (*      Programmer:     P. Moylan                               *)
-        (*      Last edited:    8 June 2019                             *)
+        (*      Last edited:    23 December 2019                        *)
         (*      Status:         OK                                      *)
         (*                                                              *)
         (*    Note that most of the PMOS kernel is missing from this    *)
@@ -64,8 +64,10 @@ FROM Storage IMPORT
 FROM LowLevel IMPORT
     (* proc *)  Assert, EVAL, AddOffset;
 
+<* IF EXCEPTQ THEN *>
 FROM Exceptq IMPORT
     (* proc *)  InstallExceptq, UninstallExceptq;
+<* END *>
 
 FROM SplitScreen IMPORT
     (* proc *)  LockScreen, UnlockScreen,
@@ -288,7 +290,9 @@ PROCEDURE TaskWrapper;
         UseParameter: BOOLEAN;
         Proc0: PROC;
         Proc1: PROC1;  param: ADDRESS;
-        exRegRec: OS2.EXCEPTIONREGISTRATIONRECORD;
+        <* IF EXCEPTQ THEN *>
+            exRegRec: OS2.EXCEPTIONREGISTRATIONRECORD;
+        <* END *>
 
     BEGIN
         (* Before starting the task, adjust its stack so that the       *)
@@ -371,8 +375,14 @@ PROCEDURE TaskWrapper;
         (* Enable exceptq tracking for this thread.  The corresponding  *)
         (* unload is done inside procedure TaskExit.                    *)
 
-        T^.eqValid := InstallExceptq (exRegRec);
-        T^.exRegPtr := ADR(exRegRec);
+        <* IF EXCEPTQ THEN *>
+            T^.eqValid := InstallExceptq (exRegRec);
+            T^.exRegPtr := ADR(exRegRec);
+        <* ELSE *>
+            T^.eqValid := FALSE;
+            T^.exRegPtr := NIL;
+        <* END *>
+
         UnlockTaskList;
 
         (* Call the user's task code. *)
@@ -499,9 +509,11 @@ PROCEDURE TaskExit;
         END (*WHILE*);
         IF current <> NIL THEN
 
-            IF current^.eqValid THEN
-                UninstallExceptq (current^.exRegPtr^);
-            END (*IF*);
+            <* IF EXCEPTQ THEN *>
+                IF current^.eqValid THEN
+                    UninstallExceptq (current^.exRegPtr^);
+                END (*IF*);
+            <* END *>
 
             (* Remark: the descriptor for the main task does not have   *)
             (* the eqValid flag set, because the exceptq handler for    *)

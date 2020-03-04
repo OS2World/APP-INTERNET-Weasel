@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Domains;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 July 2002                    *)
-        (*  Last edited:        9 June 2019                     *)
+        (*  Last edited:        6 December 2019                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -51,6 +51,9 @@ FROM WildCard IMPORT
 FROM FileOps IMPORT
     (* type *)  DirectoryEntry, FileAttribute,
     (* proc *)  FirstDirEntry, NextDirEntry, DirSearchDone, Exists;
+
+FROM WINI IMPORT
+    (* proc *)  INIForDomain, OpenINI, CloseINI;
 
 FROM INIData IMPORT
     (* type *)  StringReadState,
@@ -106,9 +109,6 @@ FROM Storage IMPORT
 CONST
     Nul = CHR(0);
 
-VAR
-    MasterINIFileName: FilenameString;
-
 TYPE
     Domain = POINTER TO DomainData;
 
@@ -127,7 +127,7 @@ TYPE
     (* fields are pointers to domain records in the master list.  When  *)
     (* we have to discard a DomainList, we dispose of the list elements *)
     (* but not the domain records.  An object of type Domain is never   *)
-    (* discard, except internally in this module when we need to        *)
+    (* discarded, except internally in this module when we need to      *)
     (* rebuild the master domain list.                                  *)
 
     DomainList = POINTER TO DLrecord;
@@ -193,10 +193,6 @@ VAR
     (* A flag saying that we want more detail written to the log file. *)
 
     ExtraLogging: BOOLEAN;
-
-    (* Use TNI rather than INI file. *)
-
-    UseTNI: BOOLEAN;
 
     (* A flag saying that the "ExtraLogging" task is running. *)
 
@@ -312,29 +308,6 @@ PROCEDURE DomainIsLocal (VAR (*IN*) name: DomainName;
     END DomainIsLocal;
 
 (************************************************************************)
-(*                OTHER INFORMATION ABOUT A DOMAIN                      *)
-(************************************************************************)
-
-PROCEDURE GetININame (D: Domain;  VAR (*OUT*) name: ARRAY OF CHAR);
-
-    (* Sets "name" to be the INI file name for this domain. *)
-
-    BEGIN
-        (*LogTransactionL (LogID, "Entering GetININame");*)
-        IF (D = NIL) OR NOT MultidomainMode THEN
-            Strings.Assign (MasterINIFileName, name);
-        ELSE
-            Strings.Assign (D^.DomainMailRoot, name);
-            Strings.Append ("Domain", name);
-            IF UseTNI THEN
-                Strings.Append (".TNI", name);
-            ELSE
-                Strings.Append (".INI", name);
-            END (*IF*);
-        END (*IF*);
-    END GetININame;
-
-(************************************************************************)
 (*                    INFORMATION ABOUT A USER                          *)
 (************************************************************************)
 
@@ -348,13 +321,10 @@ PROCEDURE IsValidUsername (VAR (*IN*) name: ARRAY OF CHAR;  D: Domain;
     (* FALSE for inactive accounts.                                     *)
 
     VAR hini: INIData.HINI;  result: BOOLEAN;  size: CARDINAL;
-        INIFileName: FilenameString;
         key: ARRAY [0..6] OF CHAR;
-        (*message: ARRAY [0..255] OF CHAR;*)
 
     BEGIN
-        GetININame (D, INIFileName);
-        hini := OpenINIFile (INIFileName, UseTNI);
+        hini := OpenDomainINI (D);
 
         IF NOT INIValid (hini) THEN
             result := FALSE;
@@ -371,7 +341,7 @@ PROCEDURE IsValidUsername (VAR (*IN*) name: ARRAY OF CHAR;  D: Domain;
                 EVAL (INIGet (hini, name, key, result));
 
             END (*IF*);
-            CloseINIFile (hini);
+            CloseDomainINI (D, hini);
         END (*IF*);
 
         RETURN result;
@@ -386,13 +356,11 @@ PROCEDURE SMTPAuthAllowed (VAR (*IN*) name: ARRAY OF CHAR;  D: Domain): BOOLEAN;
     (* transactions using the AUTH command.                             *)
 
     VAR hini: INIData.HINI;  result: BOOLEAN;
-        INIFileName: FilenameString;
         app: ARRAY [0..4] OF CHAR;
         key: ARRAY [0..16] OF CHAR;
 
     BEGIN
-        GetININame (D, INIFileName);
-        hini := OpenINIFile (INIFileName, UseTNI);
+        hini := OpenDomainINI(D);
 
         IF NOT INIValid (hini) THEN
             result := FALSE;
@@ -414,7 +382,7 @@ PROCEDURE SMTPAuthAllowed (VAR (*IN*) name: ARRAY OF CHAR;  D: Domain): BOOLEAN;
                     result := FALSE;
                 END (*IF*);
             END (*IF*);
-            CloseINIFile (hini);
+            CloseDomainINI (D, hini);
         END (*IF*);
 
         RETURN result;
@@ -554,7 +522,6 @@ PROCEDURE NextDomain (VAR (*INOUT*) state: DomainSearchState;
 
     VAR success: BOOLEAN;  hini: INIData.HINI;
         next: DomainList;
-        INIFileName: FilenameString;
         key: ARRAY [0..8] OF CHAR;
 
     BEGIN
@@ -580,18 +547,7 @@ PROCEDURE NextDomain (VAR (*INOUT*) state: DomainSearchState;
                                   ((state^.domainname[0] = Nul)
                                     OR IsInDomain (D, state^.domainname));
                 IF success THEN
-                    IF (D = NIL) OR NOT MultidomainMode THEN
-                        INIFileName := MasterINIFileName;
-                    ELSE
-                        Strings.Assign (D^.DomainMailRoot, INIFileName);
-                        Strings.Append ("Domain", INIFileName);
-                        IF UseTNI THEN
-                            Strings.Append (".TNI", INIFileName);
-                        ELSE
-                            Strings.Append (".INI", INIFileName);
-                        END (*IF*);
-                    END (*IF*);
-                    hini := OpenINIFile (INIFileName, UseTNI);
+                    hini := OpenDomainINI (D);
                     key := "Password";
                     success := INIValid(hini)
                                  AND INIGetString (hini, state^.username,
@@ -606,7 +562,7 @@ PROCEDURE NextDomain (VAR (*INOUT*) state: DomainSearchState;
                         EVAL (INIGet (hini, state^.username, key, success));
                     END (*IF*);
 
-                    CloseINIFile (hini);
+                    CloseDomainINI (D, hini);
                 END (*IF*);
                 IF SingleMatch THEN
                     DiscardSearchState (state);
@@ -699,18 +655,26 @@ PROCEDURE OpenDomainINI (D: Domain): INIData.HINI;
 
     BEGIN
         IF (D = NIL) OR NOT MultidomainMode THEN
-            RETURN OpenINIFile (MasterINIFileName, UseTNI);
+            RETURN OpenINI();
         ELSE
-            Strings.Assign (D^.DomainMailRoot, ININame);
-            Strings.Append ("Domain", ININame);
-            IF UseTNI THEN
-                Strings.Append (".TNI", ININame);
-            ELSE
-                Strings.Append (".INI", ININame);
-            END (*IF*);
-            RETURN OpenINIFile (ININame, UseTNI);
+            INIForDomain (D^.DomainMailRoot, ININame);
+            RETURN OpenINIFile (ININame);
         END (*IF*);
     END OpenDomainINI;
+
+(************************************************************************)
+
+PROCEDURE CloseDomainINI (D: Domain;  hini: INIData.HINI);
+
+    (* Closes the INI or TNI file for this domain. *)
+
+    BEGIN
+        IF (D = NIL) OR NOT MultidomainMode THEN
+            CloseINI();
+        ELSE
+            CloseINIFile (hini);
+        END (*IF*);
+    END CloseDomainINI;
 
 (************************************************************************)
 
@@ -822,7 +786,6 @@ PROCEDURE LoadDomainDetails (D: Domain;  LogIt: BOOLEAN);
     VAR LogMessage: ARRAY [0..255] OF CHAR;
         addresslist: ARRAY [0..IFMIB_ENTRIES] OF CARDINAL;
         j: CARDINAL;
-        INIFileName: FilenameString;
         hini: INIData.HINI;
         SYSapp: ARRAY [0..4] OF CHAR;
         key: ARRAY [0..14] OF CHAR;
@@ -832,35 +795,22 @@ PROCEDURE LoadDomainDetails (D: Domain;  LogIt: BOOLEAN);
         WITH D^ DO
             Strings.Assign (MailRoot, DomainMailRoot);
             IF name[0] = Nul THEN
-                Strings.Assign (MasterINIFileName, INIFileName);
                 IF LogIt THEN
                     LogTransactionL (LogID, "Refreshing host list for unnamed domain");
                 END (*IF*);
                 key := "Local";
-                RefreshHostList2 (INIFileName, SYSapp, key, UseTNI, hosts,
+                RefreshHostList2 (SYSapp, key, hosts,
                                   OurIPAddresses, TRUE, LogIt);
-                (*
-                IF LogIt THEN
-                    LogTransactionL (LogID, "Finished refreshing host list for unnamed domain");
-                END (*IF*);
-                *)
             ELSE
                 Strings.Append (name, DomainMailRoot);
                 Strings.Append ("\", DomainMailRoot);
-                Strings.Assign (DomainMailRoot, INIFileName);
-                Strings.Append ("Domain", INIFileName);
-                IF UseTNI THEN
-                    Strings.Append (".TNI", INIFileName);
-                ELSE
-                    Strings.Append (".INI", INIFileName);
-                END (*IF*);
-                hini := OpenINIFile (INIFileName, UseTNI);
+                hini := OpenDomainINI (D);
                 IF INIValid(hini) THEN
                     key := "StrictMatching";
                     IF NOT INIGet (hini, SYSapp, key, strictnamematching) THEN
                         strictnamematching := FALSE;
                     END (*IF*);
-                    CloseINIFile(hini);
+                    CloseDomainINI(D, hini);
                 END (*IF*);
                 IF LogIt THEN
                     Strings.Assign ("Refreshing host list for domain ", LogMessage);
@@ -868,7 +818,7 @@ PROCEDURE LoadDomainDetails (D: Domain;  LogIt: BOOLEAN);
                     LogTransaction (LogID, LogMessage);
                 END (*IF*);
                 key := "Local";
-                RefreshHostList (INIFileName, SYSapp, key, UseTNI, hosts, FALSE, LogIt);
+                RefreshHostList (SYSapp, key, hosts, FALSE, LogIt);
                 (*
                 IF LogIt THEN
                     Strings.Assign ("Finished refreshing host list for domain ", LogMessage);
@@ -1103,7 +1053,7 @@ PROCEDURE RefreshMasterDomainList (LogIt: BOOLEAN);
 
     BEGIN
         EVAL(RefreshOurIPAddresses());
-        hini := OpenINIFile (MasterINIFileName, UseTNI);
+        hini := OpenINI();
         INIPresent := INIValid (hini);
         SYSapp := "$SYS";
 
@@ -1194,7 +1144,7 @@ PROCEDURE RefreshMasterDomainList (LogIt: BOOLEAN);
 
         END (*IF*);
 
-        CloseINIFile (hini);
+        CloseINI;
 
         (* Clear the Address-to-domain map. *)
 
@@ -1239,21 +1189,6 @@ PROCEDURE SetPrincipalIPAddress (address: CARDINAL);
         OurMainAddress := address;
         Release (OurIPAddressesLock);
     END SetPrincipalIPAddress;
-
-(************************************************************************)
-
-PROCEDURE DomainsSetTNImode (TNImode: BOOLEAN);
-
-    (* Sets TNI mode. *)
-
-    BEGIN
-        UseTNI := TNImode;
-        IF UseTNI THEN
-            MasterINIFileName := "Weasel.TNI";
-        ELSE
-            MasterINIFileName := "Weasel.INI";
-        END (*IF*);
-    END DomainsSetTNImode;
 
 (************************************************************************)
 
@@ -1332,9 +1267,7 @@ BEGIN
     ShutdownInProgress := FALSE;
     LogTaskRunning := FALSE;
     LogID := NILID;
-    UseTNI := FALSE;
     ExtraLogging := FALSE;
-    MasterINIFileName := "Weasel.INI";
     MultidomainMode := FALSE;
     RelayEverything := FALSE;
     CreateLock (CountLock);

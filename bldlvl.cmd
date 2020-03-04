@@ -2,7 +2,7 @@
    Appends a build level to WEASEL.EXE.
 
            Author:       Peter Moylan
-           Last revised: 4 January 2013
+           Last revised: 30 June 2019
 
    Usage:
            bldlvl ver
@@ -12,7 +12,7 @@
 ------------------------------------------------------------*/
 
 parse arg ver
-projHost = "PJM2"
+projHost = "PJM3"
 timestamp = LEFT(DATE() TIME(),25)LEFT(projHost,10)
 signature = "@#Peter Moylan:"ver"#@##1## "timestamp"::EN:AU:::@@Weasel SMTP and POP server for OS/2 and eCS"
 outfile = "level.txt"

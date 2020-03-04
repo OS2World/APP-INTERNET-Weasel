@@ -6,7 +6,7 @@ DEFINITION MODULE Domains;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 July 2002                    *)
-        (*  Last edited:        9 June 2019                     *)
+        (*  Last edited:        6 December 2019                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -25,10 +25,6 @@ CONST LockFileName = "LOCK.!!!";
 
 TYPE Domain;          (* is private *)
 
-
-PROCEDURE DomainsSetTNImode (TNImode: BOOLEAN);
-
-    (* Sets TNI mode. *)
 
 PROCEDURE EnableDomainExtraLogging (enable: BOOLEAN);
 
@@ -106,6 +102,10 @@ PROCEDURE MailDirectoryFor (D: Domain;  VAR (*OUT*) DirName: FilenameString);
 PROCEDURE OpenDomainINI (D: Domain): HINI;
 
     (* Opens the INI or TNI file for this domain, as appropriate. *)
+
+PROCEDURE CloseDomainINI (D: Domain;  hini: HINI);
+
+    (* Closes the INI or TNI file for this domain. *)
 
         (********************************************************)
         (*            MATCHING A USER TO A DOMAIN               *)

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE DomainEditor;
         (*    The settings notebook for a domain, and its frame     *)
         (*                                                          *)
         (*    Started:        20 December 2001                      *)
-        (*    Last edited:    6 July 2012                           *)
+        (*    Last edited:    29 August 2019                        *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
@@ -147,7 +147,7 @@ PROCEDURE InitialiseNotebook (hwnd: OS2.HWND);
     BEGIN
         CommonSettings.EnableFontChanges(FALSE);
         MakeNotebookNewStyle (hwnd, NewStyle);
-        hini := INIData.OpenINIFile (INIFileName, UseTNI);
+        hini := INIData.OpenINIFile (INIFileName);
         app := "Font";
         key := "DomainNotebookTabs";
         IF NOT INIData.INIGetString (hini, app, key, TabFontName) THEN
@@ -226,7 +226,7 @@ PROCEDURE ["SysCall"] SubWindowProc (hwnd     : OS2.HWND;
 
                 IF NOT Strings.Equal (NewFontName, TabFontName) THEN
                     TabFontName := NewFontName;
-                    hini := INIData.OpenINIFile (INIFileName, UseTNI);
+                    hini := INIData.OpenINIFile (INIFileName);
                     app := "Font";
                     key := "DomainNotebookTabs";
                     INIData.INIPutString (hini, app, key, TabFontName);
@@ -259,7 +259,7 @@ PROCEDURE ["SysCall"] MainDialogueProc(hwnd     : OS2.HWND
            |  OS2.WM_INITDLG:
                    Title := "DomainEditor";
                    INIData.SetInitialWindowPosition (hwnd, INIFileName,
-                                                     Title, UseTNI);
+                                                                    Title);
                    Title := "Domain = ";
                    Strings.Append (DomName, Title);
                    OS2.WinSetWindowText (hwnd, Title);

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  PMOS/2 software library                                               *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -26,200 +26,276 @@ IMPLEMENTATION MODULE WildCard;
         (*                                                      *)
         (*            String matching with wildcards            *)
         (*                                                      *)
-        (*  Programmer:         P. Moylan                       *)
-        (*  Started:            8 June 1999                     *)
-        (*  Last edited:        28 March 2003                   *)
-        (*  Status:             OK                              *)
+        (*   Yet another approach to scanning from both ends    *)
         (*                                                      *)
-        (*   NOTE: There is a certain amount of code            *)
-        (*   duplication in this module.  This is because       *)
-        (*   WildMatchS adds a rule that can not be implemented *)
-        (*   as efficiently as the WildMatch rules, and I did   *)
-        (*   not want to slow down the WildMatch case with code *)
-        (*   that is not going to be used very often.           *)
+        (*  Programmer:         P. Moylan                       *)
+        (*  Started:            16 November 2019                *)
+        (*  Last edited:        23 December 2019                *)
+        (*  Status:             Seems to be working             *)
         (*                                                      *)
         (********************************************************)
 
 
-CONST NoStoppers = CharSet{};
-
-(************************************************************************)
-(*                         SUBSTRING MATCHING                           *)
-(*                                                                      *)
-(*  These two procedures will make more sense once you've read the      *)
-(*  specification of WildMatchS.                                        *)
-(*                                                                      *)
 (************************************************************************)
 
-PROCEDURE SubstringMatch (VAR (*IN*) input: ARRAY OF CHAR;
-                           j1, k1, minsize: CARDINAL;
-                           VAR (*IN*) template: ARRAY OF CHAR;
-                           j2, k2: CARDINAL;
-                           CheckPercent, leftpercent: BOOLEAN;
-                           Stoppers: CharSet): BOOLEAN;           FORWARD;
+CONST Nul = CHR(0);
 
-    (* Executive overview: succeeds if a substring of input matches     *)
-    (* template.  (This glosses over some technicalities, but           *)
-    (* executives aren't interested in precision.)                      *)
+(************************************************************************)
+
+PROCEDURE CleanTemplate (VAR (*IN*) template: ARRAY OF CHAR;
+                         j2: CARDINAL;  VAR (*INOUT*) k2: CARDINAL);
+
+    (* Reduces sequences of '*' characters to a single one. *)
+
+    VAR js, jd: CARDINAL;
+
+    BEGIN
+        jd := j2;
+        IF k2 > j2 THEN
+            FOR js := j2 TO k2-1 DO
+                IF (template[js] <> '*') OR (template[js+1] <> '*') THEN
+                    template[jd] := template[js];
+                    INC (jd);
+                END (*IF*);
+            END (*FOR*);
+            IF jd <> k2 THEN
+                template[jd] := template[k2];
+                template[jd+1] := Nul;
+                k2 := jd;
+            END (*IF*);
+        END (*IF*);
+    END CleanTemplate;
+
+(************************************************************************)
+
+PROCEDURE Match (VAR (*IN*) input: ARRAY OF CHAR;
+                          j1, k1: CARDINAL;
+                          VAR (*IN*) template: ARRAY OF CHAR;
+                          j2, k2: CARDINAL): BOOLEAN;
+                                                                 FORWARD;
+
+    (* Returns TRUE if input[j1..k1] matches template[j2..k2].          *)
+
+(************************************************************************)
+
+PROCEDURE SubMatch (VAR (*IN*) input: ARRAY OF CHAR;
+                                j1, k1: CARDINAL;
+                                   VAR (*IN*) template: ARRAY OF CHAR;
+                                     j2, k2: CARDINAL): BOOLEAN;  FORWARD;
+
+    (* Succeeds iff a substring of input matches template, i.e. if      *)
+    (* input[j..k] matches template[j2..k2], where j1 <= j <= k <= k1.  *)
 
 (************************************************************************)
 
 PROCEDURE HeadMatch (VAR (*IN*) input: ARRAY OF CHAR;
-                          j1, k1, minsize: CARDINAL;
-                          VAR (*IN*) template: ARRAY OF CHAR;
-                          j2, k2: CARDINAL;  CheckPercent: BOOLEAN;
-                                             Stoppers: CharSet): BOOLEAN;
+                                j1, k1: CARDINAL;
+                                    VAR (*IN*) template: ARRAY OF CHAR;
+                                                j2, k2: CARDINAL): BOOLEAN;
 
-    (* Executive overview: succeeds if a LEADING substring of input     *)
+    (* Executive overview: succeeds if a LEADING substring of input    *)
     (* matches template.                                                *)
 
-    (* Returns TRUE if input[j1..k] matches template[j2..k2], where     *)
-    (* j1 <= k <= k1, and if in addition the match would consume        *)
-    (* at least minsize characters of input.  If the template is empty  *)
-    (* (j2 > k2), we have a match iff minsize = 0.  The Stoppers        *)
-    (* parameter is used iff CheckPercent is TRUE and the template      *)
-    (* contains a '%'.                                                  *)
+    (* The caller guarantees that the template is nonempty and that     *)
+    (* template[j2] <> '*'.                                             *)
 
-    VAR leftpercent: BOOLEAN;
+    (* Returns TRUE if input[j1..k] matches template[j2..k2], where     *)
+    (* j1 <= k <= k1.                                                   *)
 
     BEGIN
-        leftpercent := FALSE;
         LOOP
-            (* From the left, input[j1] and template[j2] are the        *)
-            (* first characters we haven't yet tested for a match.      *)
+            (* Step through the template until we hit a '*' or we can   *)
+            (* return with a definite success or failure.               *)
 
             IF j2 > k2 THEN
 
-                (* No more template left; match by definition iff       *)
-                (* minsize is zero.                                     *)
+                (* Template all used up, so we have matched a leading substring. *)
 
-                RETURN minsize = 0;
+                RETURN TRUE;
 
             ELSIF template[j2] = '*' THEN
 
                 EXIT (*LOOP*);
 
-            ELSIF CheckPercent AND (template[j2] = '%') THEN
-
-                leftpercent := TRUE;
-                EXIT (*LOOP*);
-
             ELSIF j1 > k1 THEN
 
-                (* Input exhausted, first unmatched template char *)
-                (* is not wild, so we have a definite mismatch.   *)
+                (* Some template left but no input left. *)
 
                 RETURN FALSE;
 
-            ELSIF (template[j2] <> '?')
-                    AND (CAP(input[j1]) <> CAP(template[j2])) THEN
+            ELSIF (template[j2] <> '?') AND (CAP(input[j1]) <> CAP(template[j2])) THEN
 
                 RETURN FALSE;
 
             END (*IF*);
+
+            (* If we have passed all of the above, we have matched a character. *)
 
             INC (j1);  INC (j2);
-            IF minsize > 0 THEN
-                DEC (minsize);
-            END (*IF*);
 
         END (*LOOP*);
 
-        (* If we reach here, template[j2] = '*' or template[j2] = '%'. *)
+        (* If we reach this point, then j2 <= k2 and template[j2] = '*'.  *)
 
-        IF CheckPercent THEN
-            WHILE (j2 <= k2) AND ((template[j2] = '*') OR (template[j2] = '%')) DO
-                leftpercent := leftpercent AND (template[j2] = '%');
-                INC (j2);
-            END (*WHILE*);
+        IF j2 = k2 THEN
+            RETURN TRUE;
         ELSE
-            REPEAT
-                INC (j2);
-            UNTIL (j2 > k2) OR (template[j2] <> '*');
-        END (*IF*);
+            (* j2 < k2 and template[j2+1] <> '*'.  *)
 
-        RETURN SubstringMatch (input, j1, k1, minsize, template,
-                             j2, k2, CheckPercent, leftpercent, Stoppers);
+            RETURN SubMatch (input, j1, k1, template, j2+1, k2);
+
+        END (*IF*);
 
     END HeadMatch;
 
 (************************************************************************)
 
-PROCEDURE SubstringMatch (VAR (*IN*) input: ARRAY OF CHAR;
-                           j1, k1, minsize: CARDINAL;
-                           VAR (*IN*) template: ARRAY OF CHAR;
-                           j2, k2: CARDINAL;
-                           CheckPercent, leftpercent: BOOLEAN;
-                           Stoppers: CharSet                   ): BOOLEAN;
+PROCEDURE SubMatch (VAR (*IN*) input: ARRAY OF CHAR;
+                                j1, k1: CARDINAL;
+                                    VAR (*IN*) template: ARRAY OF CHAR;
+                                                j2, k2: CARDINAL): BOOLEAN;
 
-    (* Returns TRUE if any contiguous substring of input[j1..k1]        *)
-    (* matches template[j2..k2], subject to the conditions:             *)
-    (*   - if leftpercent is TRUE, the skipped part at the left of      *)
-    (*     input may not contain characters in Stoppers.                *)
-    (*   - the matching operation must consume at least minsize         *)
-    (*     characters of input.                                         *)
-    (* On entry we are guaranteed that j1 <= k1.                        *)
+    (* Succeeds iff a substring of input matches template, i.e. if      *)
+    (* input[j..k] matches template[j2..k2], where j1 <= j <= k <= k1.  *)
 
     VAR j: CARDINAL;
 
     BEGIN
+        IF j2 > k2 THEN
+
+            (* Empty template matches any empty substring of input. *)
+
+            RETURN TRUE;
+
+        ELSIF j1 > k1 THEN
+            RETURN FALSE;
+        END (*IF*);
+
+        (* We now have a nonempty template. *)
+
+        IF template[j2] = '*' THEN
+            RETURN SubMatch (input, j1, k1, template, j2+1, k2);
+        END (*IF*);
+
+        (* Now template[j2] <> '*'.  *)
+
         j := j1;
-        LOOP
-            IF HeadMatch (input, j, k1, minsize, template, j2, k2,
-                                            CheckPercent, Stoppers) THEN
+        WHILE j <= k1 DO
+            IF (template[j2] = '?') OR (CAP(input[j]) = CAP(template[j2]))
+                    AND HeadMatch (input, j+1, k1, template, j2+1, k2) THEN
                 RETURN TRUE;
-            ELSIF j >= k1 THEN
-                RETURN FALSE;
-            ELSIF leftpercent AND (input[j] IN Stoppers) THEN
-                RETURN FALSE;
+            ELSE
+                INC (j);
             END (*IF*);
-            INC(j);
-            IF minsize > 0 THEN
-                DEC (minsize);
-            END (*IF*);
-        END (*LOOP*);
-    END SubstringMatch;
+
+        END (*WHILE*);
+
+        (* If we get here, we have exhausted the input without  *)
+        (* exhausting the template, and the template does not   *)
+        (* start with '*'.                                      *)
+
+        RETURN FALSE;
+
+    END SubMatch;
 
 (************************************************************************)
-(*                  THE EXTERNALLY CALLABLE PROCEDURES                  *)
-(************************************************************************)
 
-PROCEDURE WildMatch (VAR (*IN*) input, template: ARRAY OF CHAR): BOOLEAN;
+PROCEDURE TailMatch (VAR (*IN*) input: ARRAY OF CHAR;
+                                j1, k1: CARDINAL;
+                                    VAR (*IN*) template: ARRAY OF CHAR;
+                                                j2, k2: CARDINAL): BOOLEAN;
 
-    (* Returns TRUE if template and input are equal, with the extra     *)
-    (* rules:                                                           *)
-    (*   1. Character case is not significant.                          *)
-    (*   2. A '?' in template matches any single character.             *)
-    (*   3. A '*' in template matches any string of zero or more        *)
-    (*      characters.                                                 *)
+    (* Executive overview: succeeds if a TRAILING substring of input    *)
+    (* matches template.                                                *)
 
-    VAR j1, k1, j2, k2: CARDINAL;
+    (* The caller guarantees that the template is nonempty and that     *)
+    (* template[j2] <> '*'.                                             *)
+
+    (* Returns TRUE if input[j..k1] matches template[j2..k2], where     *)
+    (* j1 <= j <= k1.                                                   *)
 
     BEGIN
-        j1 := 0;  k1 := LENGTH (input);
-        j2 := 0;  k2 := LENGTH (template);
+        LOOP
+            (* Step through the template backwards until we hit a '*'   *)
+            (* or we can return with a definite success or failure.     *)
 
-        IF k1 = 0 THEN
+            IF j2 > k2 THEN
+                RETURN TRUE;
+            ELSIF template[k2] = '*' THEN
+                EXIT (*LOOP*);
+            ELSIF j1 > k1 THEN
+                RETURN FALSE;
+
+            ELSIF (template[k2] <> '?') AND (CAP(input[k1]) <> CAP(template[k2])) THEN
+
+                RETURN FALSE;
+
+            (* Watch out for the cases that would drive k1 or k2        *)
+            (* negative.  Having to work out what would happen the next *)
+            (* time around the loop adds some extra checks, but I can't *)
+            (* think of a better way to handle this.                    *)
+
+            ELSIF k1 = 0 THEN
+
+                 (* Empty input; the only thing that can match is an *)
+                 (* empty or all-star template.                      *)
+
+                IF j2+1 = k2 THEN RETURN template[j2] = '*'
+                ELSE RETURN j2+1 > k2
+                END (*IF*);
+
+            ELSIF k2 = 0 THEN
+
+                (* Template exhausted, nonempty input. *)
+
+                RETURN TRUE;
+
+            END (*IF*);
+
+            (* if we reach here we have matched one trailing character. *)
+
+            DEC (k1);  DEC(k2);
+
+        END (*LOOP*);
+
+        (* If we reach this point, then template[k2] = '*'.  *)
+
+        IF j2 = k2 THEN
+            RETURN TRUE;
+        ELSE
+            (* j2 < k2 AND template[k2-1] <> '*'. *)
+
+            RETURN SubMatch (input, j1, k1, template, j2, k2-1);
+        END (*IF*);
+
+    END TailMatch;
+
+(************************************************************************)
+
+PROCEDURE Match (VAR (*IN*) input: ARRAY OF CHAR;
+                          j1, k1: CARDINAL;
+                          VAR (*IN*) template: ARRAY OF CHAR;
+                          j2, k2: CARDINAL): BOOLEAN;
+
+    (* Returns TRUE if input[j1..k1] matches template[j2..k2].  *)
+
+    BEGIN
+        IF j1 > k1 THEN
 
             (* Empty input; the only thing that can match is an *)
             (* empty or all-star template.                      *)
 
-            LOOP
-                IF j2 = k2 THEN RETURN TRUE
-                ELSIF template[j2] = '*' THEN INC(j2)
-                ELSE RETURN FALSE
-                END (*IF*);
-            END (*LOOP*);
+            IF j2 = k2 THEN RETURN template[j2] = '*'
+            ELSE RETURN j2 > k2
+            END (*IF*);
 
-        ELSIF k2 = 0 THEN
+        ELSIF j2 > k2 THEN
 
             (* Empty template, non-empty input. *)
 
             RETURN FALSE;
 
         END (*IF*);
-
-        DEC (k1);  DEC(k2);
 
         (* Having disposed of the "empty" cases, we're now comparing    *)
         (* input[j1..k1] with template[j2..k2].                         *)
@@ -256,60 +332,65 @@ PROCEDURE WildMatch (VAR (*IN*) input, template: ARRAY OF CHAR): BOOLEAN;
 
         END (*LOOP*);
 
-        (* If we reach here, template[j2] = '*'. *)
+        (* If we reach here, template[j2] = '*'.  *)
 
-        LOOP
-            (* From the right, input[k1] and template[k2] are the first *)
-            (* characters we haven't yet checked for a match.           *)
+        INC (j2);
 
-            IF template[k2] = '*' THEN
+        IF j2 > k2 THEN
 
-                EXIT (*LOOP*);
+            (* No more template left, so effective template = '*'.  *)
 
-            ELSIF k1 < j1 THEN
+            RETURN TRUE;
 
-                (* Input exhausted, last unmatched template char *)
-                (* is not '*', so we have a definite mismatch.   *)
+        ELSE
+            (* Now j2 <= k2 and template[j2] <> '*' *)
 
-                RETURN FALSE;
+            RETURN TailMatch (input, j1, k1, template, j2, k2);
 
-            ELSIF (template[k2] <> '?')
-                      AND (CAP(input[k1]) <> CAP(template[k2])) THEN
+        END (*IF*);
 
-                RETURN FALSE;
-
-            END (*IF*);
-
-            (* Special case: if k1=0 then we have to record that we've  *)
-            (* exhausted the input without decrementing k1.  The same   *)
-            (* problem doesn't arise for k2 because at this point we    *)
-            (* know that we'll hit a '*' before exhausting the template.*)
-
-            IF k1 = 0 THEN INC(j1) ELSE DEC (k1) END(*IF*);
-            DEC (k2);
-
-        END (*LOOP*);
-
-        (* If we reach here, k2 >= j2, template[j2] = '*', and          *)
-        (* template[k2] = '*'.  If we have several '*'s in a row, here  *)
-        (* is where we reduce them down.                                *)
-
-        REPEAT
-            INC (j2);
-        UNTIL (j2 > k2) OR (template[j2] <> '*');
-        WHILE (j2 <= k2) AND (template[k2] = '*') DO
-            DEC (k2);
-        END (*WHILE*);
-
-        RETURN SubstringMatch (input, j1, k1, 0, template, j2, k2,
-                                             FALSE, FALSE, NoStoppers);
-
-    END WildMatch;
+    END Match;
 
 (************************************************************************)
 
-PROCEDURE WildMatchS (VAR (*IN*) input, template: ARRAY OF CHAR;
-                                              Stoppers: CharSet): BOOLEAN;
+PROCEDURE SetBounds (VAR (*IN*) input: ARRAY OF CHAR;
+                          VAR (*OUT*) j1, k1: CARDINAL;
+                          VAR (*IN*) template: ARRAY OF CHAR;
+                          VAR (*OUT*) j2, k2: CARDINAL);
+
+    (* Sets the subscript limits for input and template, also removes   *)
+    (* redundant wildcards in template.  This means that the other      *)
+    (* procedures in this module may assume that an '*' is never        *)
+    (* followed by another '*'.                                         *)
+
+    BEGIN
+        j1 := 0;  k1 := LENGTH (input);
+        j2 := 0;  k2 := LENGTH (template);
+
+        (* Deal with the "empty" cases in such a way that will not  *)
+        (* let the k values go negative.                            *)
+
+        IF k1 = 0 THEN
+            j1 := 1;
+        ELSE
+            DEC (k1);
+        END (*IF*);
+
+        IF k2 = 0 THEN
+            j2 := 1;
+        ELSE
+            DEC (k2);
+        END (*IF*);
+
+        CleanTemplate (template, j2, k2);
+
+    END SetBounds;
+
+(************************************************************************)
+(*                  THE EXTERNALLY CALLABLE PROCEDURES                  *)
+(************************************************************************)
+
+PROCEDURE WildMatch (VAR (*IN*) input, template: ARRAY OF CHAR): BOOLEAN;
 
     (* Returns TRUE if template and input are equal, with the extra     *)
     (* rules:                                                           *)
@@ -317,175 +398,33 @@ PROCEDURE WildMatchS (VAR (*IN*) input, template: ARRAY OF CHAR;
     (*   2. A '?' in template matches any single character.             *)
     (*   3. A '*' in template matches any string of zero or more        *)
     (*      characters.                                                 *)
-    (*   4. A '%' in template matches any string of zero or more        *)
-    (*      characters, provided they are not in Stoppers.              *)
 
-    VAR j1, k1, j2, k2, minsize, wstart: CARDINAL;
-        CheckPercent, leftpercent, rightpercent: BOOLEAN;
+    VAR j1, k1, j2, k2: CARDINAL;
 
     BEGIN
-        CheckPercent := Stoppers <> NoStoppers;
-        leftpercent := FALSE;
-        rightpercent := FALSE;
-        j1 := 0;  k1 := LENGTH (input);
-        j2 := 0;  k2 := LENGTH (template);
+        SetBounds (input, j1, k1, template, j2, k2);
+        RETURN Match (input, j1, k1, template, j2, k2);
 
-        IF k1 = 0 THEN
+    END WildMatch;
 
-            (* Empty input; the only thing that can match is an *)
-            (* empty or all-wild template.                      *)
+(************************************************************************)
 
-            LOOP
-                IF j2 = k2 THEN RETURN TRUE
-                ELSIF template[j2] = '*' THEN INC(j2)
-                ELSIF template[j2] = '%' THEN INC(j2)
-                ELSE RETURN FALSE
-                END (*IF*);
-            END (*LOOP*);
+PROCEDURE SubstringMatch (VAR (*IN*) input, template: ARRAY OF CHAR): BOOLEAN;
 
-        ELSIF k2 = 0 THEN
+    (* Returns TRUE if template matches a substring of input, with the  *)
+    (* extra rules:                                                     *)
+    (*   1. Character case is not significant.                          *)
+    (*   2. A '?' in template matches any single character.             *)
+    (*   3. A '*' in template matches any string of zero or more        *)
+    (*      characters.                                                 *)
 
-            (* Empty template, non-empty input. *)
+    VAR j1, k1, j2, k2: CARDINAL;
 
-            RETURN FALSE;
+    BEGIN
+        SetBounds (input, j1, k1, template, j2, k2);
+        RETURN SubMatch (input, j1, k1, template, j2, k2);
 
-        END (*IF*);
-
-        DEC (k1);  DEC(k2);
-
-        (* Having disposed of the "empty" cases, we're now comparing    *)
-        (* input[j1..k1] with template[j2..k2].                         *)
-
-        LOOP
-            (* From the left, input[j1] and template[j2] are the        *)
-            (* first characters we haven't yet tested for a match.      *)
-
-            IF j2 > k2 THEN
-
-                (* No more template left; match iff we've also  *)
-                (* exhausted the input.                         *)
-
-                RETURN j1 > k1;
-
-            ELSIF template[j2] = '*' THEN
-
-                EXIT (*LOOP*);
-
-            ELSIF CheckPercent AND (template[j2] = '%') THEN
-
-                leftpercent := TRUE;
-                EXIT (*LOOP*);
-
-            ELSIF j1 > k1 THEN
-
-                (* Input exhausted, first unmatched template char *)
-                (* is not wild, so we have a definite mismatch.   *)
-
-                RETURN FALSE;
-
-            ELSIF (template[j2] <> '?') AND (CAP(input[j1]) <> CAP(template[j2])) THEN
-
-                RETURN FALSE;
-
-            END (*IF*);
-
-            INC (j1);  INC (j2);
-
-        END (*LOOP*);
-
-        (* If we reach here, template[j2] = '*' or '%'. *)
-
-        LOOP
-            (* From the right, input[k1] and template[k2] are the first *)
-            (* characters we haven't yet checked for a match.           *)
-
-            IF template[k2] = '*' THEN
-
-                EXIT (*LOOP*);
-
-            ELSIF CheckPercent AND (template[j2] = '%') THEN
-
-                rightpercent := TRUE;
-                EXIT (*LOOP*);
-
-            ELSIF k1 < j1 THEN
-
-                (* Input exhausted, last unmatched template char *)
-                (* is not wild, so we have a definite mismatch.  *)
-
-                RETURN FALSE;
-
-            ELSIF (template[k2] <> '?')
-                      AND (CAP(input[k1]) <> CAP(template[k2])) THEN
-
-                RETURN FALSE;
-
-            END (*IF*);
-
-            (* Special case: if k1=0 then we have to record that we've  *)
-            (* exhausted the input without decrementing k1.  The same   *)
-            (* problem doesn't arise for k2 because at this point we    *)
-            (* know that template[j2] is wild and that we haven't yet   *)
-            (* met a wildcard character while working from the right;   *)
-            (* so we must hit the wildcard before exhausting the template.*)
-
-            IF k1 = 0 THEN INC(j1) ELSE DEC (k1) END(*IF*);
-            DEC (k2);
-
-        END (*LOOP*);
-
-        (* If we reach here, k2 >= j2, and both template[j2] and        *)
-        (* template[k2] are wild.  (With one possibility being that     *)
-        (* j2 = k2, i.e. we have a single wildcard rather than one at   *)
-        (* each end.)  If we have several wildcard characters in a row, *)
-        (* here is where we reduce them down, using the rules:          *)
-        (*        **  =>  *                *%  =>  *                    *)
-        (*        %*  =>  *                %%  =>  %                    *)
-        (* Note, by the way, that we don't call '?' a wildcard for our  *)
-        (* present purposes, because it is checked separately.          *)
-
-        IF CheckPercent THEN
-            WHILE (j2 <= k2) AND ((template[j2] = '*') OR (template[j2] = '%')) DO
-                leftpercent := leftpercent AND (template[j2] = '%');
-                INC (j2);
-            END (*WHILE*);
-            WHILE (j2 <= k2) AND ((template[k2] = '*') OR (template[k2] = '%')) DO
-                rightpercent := rightpercent AND (template[k2] = '%');
-                DEC (k2);
-            END (*WHILE*);
-        ELSE
-            REPEAT
-                INC (j2);
-            UNTIL (j2 > k2) OR (template[j2] <> '*');
-            WHILE (j2 <= k2) AND (template[k2] = '*') DO
-                DEC (k2);
-            END (*WHILE*);
-        END (*IF*);
-
-        (* At this point, we have a match provided a substring of input *)
-        (* matches template, with the constraint that the parts of that *)
-        (* input before and after the substring should not contain a    *)
-        (* character in Stoppers if leftpercent/rightpercent, as        *)
-        (* appropriate, is TRUE.                                        *)
-
-        (* If our right wildcard is '%', find a wstart such that        *)
-        (* input[wstart..k1] does not contain a character in Stoppers.  *)
-
-        IF rightpercent THEN
-            wstart := k1 + 1;
-            minsize := wstart - j1;
-            WHILE (minsize > 0) AND NOT (input[wstart-1] IN Stoppers) DO
-                DEC (minsize);
-                DEC (wstart);
-            END (*WHILE*);
-        ELSE
-            minsize := 0;
-        END (*IF*);
-
-        RETURN SubstringMatch (input, j1, k1, minsize, template, j2, k2,
-                                             TRUE, leftpercent, Stoppers);
-
-    END WildMatchS;
+    END SubstringMatch;
 
 (************************************************************************)
 

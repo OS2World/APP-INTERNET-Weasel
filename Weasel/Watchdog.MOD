@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Watchdog;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 December 2017                *)
-        (*  Last edited:        21 June 2019                    *)
+        (*  Last edited:        11 December 2019                *)
         (*  Status:             Appears to be working           *)
         (*                                                      *)
         (********************************************************)
@@ -636,18 +636,18 @@ PROCEDURE KillerThread;
     (* This is the thread that invokes the timeout code of a timed-out  *)
     (* thread.                                                          *)
 
-    VAR p: WatchdogID;
+    VAR ID: WatchdogID;
 
     BEGIN
         WHILE NOT ShutDown DO
-            p := GetFromKillQ();
-            IF p <> NIL THEN
-                p^.tocall (p^.arg);
+            ID := GetFromKillQ();
+            IF ID <> NIL THEN
+                ID^.tocall (ID^.arg);
 
-                (*DISPOSE (p);*)      (* Removed 21 June 2019 *)
+                (*DISPOSE (ID);*)      (* Removed 21 June 2019 *)
 
                 (* We do NOT dispose of the record here, because there  *)
-                (* is still a pointer to it in the client code.  Is     *)
+                (* is still a pointer to it in the client code.  Its    *)
                 (* deletion is the responsibility of the thread that    *)
                 (* has just received its timed-out notification.        *)
 
@@ -732,41 +732,43 @@ PROCEDURE WatchdogThread;
             (* due to time out, but if so we will catch that on the     *)
             (* next pass through this loop body.                        *)
 
-            Obtain (WatchList.access);
-            p := WatchList.head;
-            IF p = NIL THEN
-                (* While the list is empty, we check once per second. *)
-                sleepsecs := 1;
-            ELSE
-                <* IF WATCHTEST THEN *>
-                    DumpWatchdogState (sleepsecs, overshoot);
-                <* END *>
-                IF p^.deltatime > sleepsecs THEN
-                    IF sleepsecs > 0 THEN
-                        DEC (p^.deltatime, sleepsecs);
-                        IF LastTime < sleepsecs THEN
-                            LastTime := 0;          (* should never happen *)
-                        ELSE
-                            DEC (LastTime, sleepsecs);
-                        END (*IF*);
-                    END (*IF*);
-                    sleepsecs := p^.deltatime;
+            IF NOT ShutDown THEN
+                Obtain (WatchList.access);
+                p := WatchList.head;
+                IF p = NIL THEN
+                    (* While the list is empty, we check once per second. *)
+                    sleepsecs := 1;
                 ELSE
-                    (* TIMEOUT. Remove the first element from the list. *)
-
-                    IF sleepsecs > p^.deltatime THEN
-                        INC (overshoot, sleepsecs - p^.deltatime);
+                    <* IF WATCHTEST THEN *>
+                        DumpWatchdogState (sleepsecs, overshoot);
+                    <* END *>
+                    IF p^.deltatime > sleepsecs THEN
+                        IF sleepsecs > 0 THEN
+                            DEC (p^.deltatime, sleepsecs);
+                            IF LastTime < sleepsecs THEN
+                                LastTime := 0;          (* should never happen *)
+                            ELSE
+                                DEC (LastTime, sleepsecs);
+                            END (*IF*);
+                        END (*IF*);
+                        sleepsecs := p^.deltatime;
+                    ELSE
+                        (* TIMEOUT. Remove the first element from the list. *)
+    
+                        IF sleepsecs > p^.deltatime THEN
+                            INC (overshoot, sleepsecs - p^.deltatime);
+                        END (*IF*);
+                        DetachFirstFromList;
+                        AddToKillQ (p);
+                        sleepsecs := 0;
+    
+                        (* sleepsecs will be recalculated on the next pass  *)
+                        (* through this loop body.                          *)
+    
                     END (*IF*);
-                    DetachFirstFromList;
-                    AddToKillQ (p);
-                    sleepsecs := 0;
-
-                    (* sleepsecs will be recalculated on the next pass  *)
-                    (* through this loop body.                          *)
-
                 END (*IF*);
+                Release (WatchList.access);
             END (*IF*);
-            Release (WatchList.access);
         END (*WHILE*);
         Signal (TaskDone);
 

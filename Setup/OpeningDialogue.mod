@@ -172,15 +172,19 @@ PROCEDURE CreateMainDialogue (LocalRemote: CARDINAL; TNImode: BOOLEAN);
 
     (* Creates the main dialogue box. *)
 
-    CONST INIFileName = "Setup.INI";
-
     VAR SetupButtonWindow: OS2.HWND;
         pid: OS2.PID;  tid: OS2.TID;
         lang: LangHandle;
         stringval: ARRAY [0..31] OF CHAR;
+        INIFileName: ARRAY [0..9] OF CHAR;
 
     BEGIN
         UseTNI := TNImode;
+        IF TNImode THEN
+            INIFileName := "Setup.TNI";
+        ELSE
+            INIFileName := "Setup.INI";
+        END (*IF*);
         SetFonts (UseTNI);
         SetInitialLanguage;
         pagehandle := OS2.WinLoadDlg(OS2.HWND_DESKTOP,    (* parent *)
@@ -207,7 +211,7 @@ PROCEDURE CreateMainDialogue (LocalRemote: CARDINAL; TNImode: BOOLEAN);
         OS2.WinCreateSwitchEntry (PMInit.OurHab(), SwitchData);
 
         INIData.SetInitialWindowPosition (pagehandle, INIFileName,
-                                                      "Opening", UseTNI);
+                                                      "Opening");
         CurrentLanguage (lang, stringval);
         RemoteFlag := Remote.InitialSetup (lang, "Weasel", "Setup",
                                               "C:\Servers\Weasel", UseTNI);
@@ -247,7 +251,7 @@ PROCEDURE CreateMainDialogue (LocalRemote: CARDINAL; TNImode: BOOLEAN);
 
         OS2.WinProcessDlg(pagehandle);
         INIData.StoreWindowPosition (pagehandle, INIFileName,
-                                                 "Opening", UseTNI);
+                                                    "Opening");
         OS2.WinDestroyWindow (pagehandle);
 
     END CreateMainDialogue;

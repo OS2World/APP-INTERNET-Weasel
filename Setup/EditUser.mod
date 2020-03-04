@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE EditUser;
         (*               Dialogue to edit user details              *)
         (*                                                          *)
         (*    Started:        8 July 1999                           *)
-        (*    Last edited:    22 May 2017                           *)
+        (*    Last edited:    29 August 2019                        *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
@@ -52,8 +52,7 @@ VAR
     INIFileName: ARRAY [0..9] OF CHAR;
     OldName, NewName: ARRAY [0..NameLength-1] OF CHAR;
     OurLang: LangHandle;
-    ShowIMAPoption, AllowIMAP, SuppressAUTHField, IsInactive,
-                    UseTNI: BOOLEAN;
+    ShowIMAPoption, AllowIMAP, SuppressAUTHField, IsInactive: BOOLEAN;
 
 (************************************************************************)
 (*                    OPERATIONS ON DIALOGUE LABELS                     *)
@@ -277,7 +276,7 @@ PROCEDURE ["SysCall"] DialogueProc(hwnd     : OS2.HWND
            |  OS2.WM_INITDLG:
                    message := "EditUser";
                    INIData.SetInitialWindowPosition (hwnd, INIFileName,
-                                                     message, UseTNI);
+                                                            message);
                    SetLanguage (hwnd, OurLang);
                    OS2.WinSetDlgItemText (hwnd, DID.name, OldName);
                    WSUINI.OpenINIFile;
@@ -401,7 +400,7 @@ PROCEDURE ["SysCall"] DialogueProc(hwnd     : OS2.HWND
                    IsInactive := ComputeActive(hwnd) = 0;
                    message := "EditUser";
                    INIData.StoreWindowPosition (hwnd, INIFileName,
-                                                 message, UseTNI);
+                                                            message);
                    RETURN OS2.WinDefDlgProc(hwnd, msg, mp1, mp2);
 
         ELSE    (* default *)
@@ -422,7 +421,11 @@ PROCEDURE Edit (owner: OS2.HWND;  lang: LangHandle;
     VAR index: CARDINAL;  NameChanged, WasInactive: BOOLEAN;
 
     BEGIN
-        UseTNI := TNImode;
+        IF TNImode THEN
+            INIFileName := "Setup.TNI";
+        ELSE
+            INIFileName := "Setup.INI";
+        END (*IF*);
         OurLang := lang;
         ShowIMAPoption := IMAPvisible;
         AllowIMAP := IMAPasDefault;
@@ -469,7 +472,5 @@ PROCEDURE Edit (owner: OS2.HWND;  lang: LangHandle;
 
 (************************************************************************)
 
-BEGIN
-    INIFileName := "Setup.INI";
 END EditUser.
 

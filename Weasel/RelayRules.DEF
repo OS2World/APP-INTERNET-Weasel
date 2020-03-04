@@ -6,7 +6,7 @@ DEFINITION MODULE RelayRules;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            14 August 2017                  *)
-        (*  Last edited:        24 August 2017                  *)
+        (*  Last edited:        6 December 2019                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -22,7 +22,7 @@ PROCEDURE FindRelay (VAR (*IN*) destination: DomainName;
     (* or domain to which the mail should be sent.  If there is no      *)
     (* applicable rule, copies destination to relay.                    *)
 
-PROCEDURE LoadRelayRules (UseTNI: BOOLEAN);
+PROCEDURE LoadRelayRules;
 
     (* Loads or reloads the relay rules from a file. *)
 

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,8 +28,8 @@ IMPLEMENTATION MODULE RelayRules;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            14 August 2017                  *)
-        (*  Last edited:        24 August 2017                  *)
-        (*  Status:             Finished, untested              *)
+        (*  Last edited:        6 December 2019                 *)
+        (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
 
@@ -51,9 +51,12 @@ FROM FileOps IMPORT
     (* proc *)  OpenOldFile, CloseFile,
                 ReadLine;
 
+FROM WINI IMPORT
+    (* proc *)  OpenINI, CloseINI;
+
 FROM INIData IMPORT
-    (* proc *)  HINI,
-    (* proc *)  OpenINIFile, CloseINIFile, INIValid, INIGetString;
+    (* type *)  HINI,
+    (* proc *)  INIValid, INIGetString;
 
 FROM TaskControl IMPORT
     (* type *)  Lock,
@@ -238,7 +241,7 @@ PROCEDURE GetToken (VAR (*INOUT*) line: ARRAY OF CHAR;
 
 (************************************************************************)
 
-PROCEDURE LoadRelayRules (UseTNI: BOOLEAN);
+PROCEDURE LoadRelayRules;
 
     (* Loads or reloads the relay rules from a file. *)
 
@@ -252,15 +255,14 @@ PROCEDURE LoadRelayRules (UseTNI: BOOLEAN);
         RelayRuleFileName: FilenameString;
 
     BEGIN
-        RelayRuleFileName := "WEASEL.INI";
-        hini := OpenINIFile (RelayRuleFileName, UseTNI);
+        hini := OpenINI();
         IF INIValid(hini) THEN
             SYSapp := "$SYS";
             key := "RelayRuleFileName";
             IF NOT INIGetString (hini, SYSapp, key, RelayRuleFileName) THEN
                 RelayRuleFileName := DefaultRelayRuleFileName;
             END (*IF*);
-            CloseINIFile (hini);
+            CloseINI;
         END (*IF*);
 
         (* Reload data from the file. *)

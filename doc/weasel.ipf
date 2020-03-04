@@ -16,7 +16,7 @@ IMAP can be handled by running a separate IMAP add-on in parallel
 with Weasel. Both Weasel and the IMAP add-on are distributed as freeware,
 subject to the GNU GPL licence.
 
-:p.This documentation is for version 2.56.
+:p.This documentation is for version 2.73.
 
 :p.Weasel can be configured either to handle a single mail domain,
 or to host multiple domains. This choice, together with a variety of other
@@ -43,9 +43,9 @@ with you.
 The author of Weasel is Peter Moylan, peter@pmoylan.org.
 
 :p.
-The latest version of Weasel is normally kept at http&colon.&slash.&slash.pmoylan.org/ftp/Weasel.
+The latest version of Weasel is normally kept at ftp&colon.&slash.&slash.ftp.pmoylan.org/Weasel.
 Information about other software on this site may be found at
-http&colon.&slash.&slash.pmoylan.org/pages/os2.
+http&colon.&slash.&slash.www.pmoylan.org/pages/os2/software.html.
 
 :p.
 :hp2.Getting information about new versions:ehp2.
@@ -69,6 +69,20 @@ using the command "unsubscribe" instead of "subscribe".
 :p.The source code for Weasel can be found at the place where
 you obtained this package. It is governed by the GNU GPL licence,
 which permits copying with some restrictions.
+
+.***********************************
+.*   PREREQUISITES
+.***********************************
+
+:h1 id=prerequisites.Prerequisites
+
+:hp2.Prerequisites:ehp2.
+
+:p.This software assumes that both INIDATA.DLL and XDS230M.DLL are in your
+LIBPATH. If, when trying to run Weasel.exe, you get a message like
+"The system cannot find the file XDS230M", you must install INIData,
+version 1.0 or later. INIData can be found at the same web or FTP site as where
+you found the Weasel zip file.
 
 .***********************************
 .*   REGISTRATION
@@ -668,16 +682,14 @@ of the screen will show either [I] or [T].
 :p.The recommended way to configure Weasel is with the
 :link reftype=hd refid=pmconfiguser.Setup:elink. program.
 If, however you prefer to use a text-mode configuration programs, you can instead run
-:link reftype=hd database='viosetup.inf' refid=1003.VIOSetup:elink.. This does
+VIOSetup. This does
 essentially the same job as Setup, but it runs as a VIO application
 rather than as a PM "notebook" application.
 
-:p.Note, however, that
-(depending on the version) VIOSetup will not necessarily support
-all of the options that Setup supports. In particular, the current
-version of VIOSetup does not support the multidomain
-mode of operation. Because VIOSetup is being phased out, it does not support
-many of the options that have been added to later versions of Setup.
+:p.Because of low demand, VIOSetup is no longer being distributed with
+Weasel, and it is no longer being updated, so it is missing many of the
+options that Setup supports. If you do want to try it out, look for a
+file wviosetup*.zip in the same place where you found Weasel.
 
 .*******************************************************************************
 .*   THE SETUP UTILITY
@@ -1805,6 +1817,11 @@ repeated attempts. This will be only a minor
 inconvenience to genuine users, who will presumably fix the password error
 between attempts, but it will block attackers who keep trying to guess
 passwords.
+:dt.     :hp2.Reject sender on DNS failure:ehp2.
+:dd.If this option is enabled, the domain name supplied in the MAIL FROM
+command is checked, by
+nameserver lookup, to see if it exists. If the lookup fails, that strongly
+suggests that a fake domain name is being used.
 :dt.     :hp2.Reject sender on rDNS failure:ehp2.
 :dd.rDNS means "reverse DNS". A normal domain name request translates a
 domain name to a numeric IP address. An rDNS operation does the opposite,
@@ -4040,6 +4057,53 @@ stages. A more typical situation would be where only one filter is
 used, and the filter name is blank for the other stages.
 
 .***********************************
+.*   THE FILE WEASEL.FMT
+.***********************************
+
+:h1 id=wfmt.The format file WEASEL.FMT
+:hp2.The format file WEASEL.FMT:ehp2.
+
+:p.The information on this page is relevant only if you are storing
+your Setup data in TNI format. If instead you are using INI format,
+the file WEASEL.FMT is never used.
+
+:p.INI data, as stored in the file WEASEL.INI, is completely untyped.
+A value stored in this file is a byte string, and this is all that we
+know about it. It might represent a number, or a character string, or one of
+a number of other possibilities, but the type information is hidden
+inside the Weasel software, and is not necessarily obvious from looking
+into WEASEL.INI. This lack of typing is a feature of the native OS/2 support
+for INI files. If you are interested, look for "Profile functions" in
+the manual called "Presentation Manager Programming Guide and Reference".
+If you don't have that manual, you might have to search the web for
+os2tk45.
+
+:p.WEASEL.TNI, on the other hand, does appear to contain typed
+data. Some of the values are strings, some are decimal numbers, others
+are hexadecimal arrays, and so on. This, however, is based on
+intelligent guesses. A TNI file contains exactly the same information
+as an INI file, so the data are untyped. The apparent typing is only
+a convenience for the human reader. Something that looks like a binary
+string might well be used by Weasel as a character string, and vice versa.
+
+:p.When TNI data are written out by the Setup program, the formats
+are governed by two factors:
+:ul.
+:li.If the file WEASEL.FMT exists, and specifies a format for this item, then that format is used.
+:li.Otherwise, the software makes a guess about the probable type. If the data
+look like they might be character string values, then a character string
+is written out, and so on.
+:eul.
+:p.It does not matter if a guess is wrong. The values will in any case be
+converted into byte data the next time the file is read. Still, some
+guesses are more useful to human readers than others.
+
+:p.A file WEASEL.FMT is included in the Weasel distribution. You can add more
+lines to this if you wish. The rules for this file are covered in the
+manual GENINI.INF, which is part of the GenINI package that can be
+downloaded from ftp&colon.&slash.&slash.ftp.pmoylan.org/software.
+
+.***********************************
 .*   TOOLS AND ACCESSORIES
 .***********************************
 
@@ -4436,7 +4500,7 @@ ask why I don't use Java.)
 :p.
 The short answer is that I don't think much of the "everyone else uses it"
 argument. If popularity was more important to me than technical merit,
-I wouldn't be using eCS.
+I wouldn't be using OS/2.
 :p.
 The long answer is contained in a document called "The Case Against C",
 which can be found at

@@ -1,3 +1,6 @@
+-USEDLL+
+-GENDLL-
+-IMPLIB-
 -lineno+
 -gendebug+
 +pm
@@ -8,6 +11,7 @@
 -stacklimit =   200000
 
 -TRACKTNIUSAGE:-
+-EXCEPTQ:+
 
 -INCL_BASE:+
 -INCL_PM:+

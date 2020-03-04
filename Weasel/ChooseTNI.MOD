@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Utility for use with the Weasel mail server                           *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -31,7 +31,7 @@ MODULE ChooseTNI;
         (*  each other in having the same UseTNI value.         *)
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
-        (*  Last edited:        17 August 2017                  *)
+        (*  Last edited:        30 August 2019                  *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -152,7 +152,7 @@ PROCEDURE SetValue (val: BOOLEAN);
 
         IF haveINI THEN
             name := "Weasel.INI";
-            hini := OpenINIFile (name, FALSE);
+            hini := OpenINIFile (name);
             IF INIValid(hini) THEN
                 INIPut (hini, app, key, val);
                 CloseINIFile (hini);
@@ -161,7 +161,7 @@ PROCEDURE SetValue (val: BOOLEAN);
 
         IF haveTNI THEN
             name := "Weasel.TNI";
-            hini := OpenINIFile (name, TRUE);
+            hini := OpenINIFile (name);
             IF INIValid(hini) THEN
                 INIPut (hini, app, key, val);
                 CloseINIFile (hini);

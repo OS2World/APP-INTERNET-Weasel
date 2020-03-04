@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,19 +28,12 @@ IMPLEMENTATION MODULE OneLine;
         (*            Dialogue to edit a one-line string            *)
         (*                                                          *)
         (*    Started:        11 July 1999                          *)
-        (*    Last edited:    16 December 2009                      *)
+        (*    Last edited:    29 September 2019                     *)
         (*    Status:         Complete                              *)
         (*                                                          *)
         (************************************************************)
 
 IMPORT SYSTEM, OS2, DID, Strings, INIData;
-
-(**************************************************************************)
-
-CONST
-    Nul = CHR(0);
-    NameLength = 256;
-    INIFileName = "Setup.INI";
 
 (************************************************************************)
 (*                   THE EDIT-ONE-STRING DIALOGUE                       *)
@@ -53,6 +46,7 @@ PROCEDURE Edit (owner: OS2.HWND;  title: ARRAY OF CHAR;
     (* Edits the one-line string "item". *)
 
     VAR hwnd: OS2.HWND;
+        INIFileName: ARRAY [0..15] OF CHAR;
 
     BEGIN
         hwnd := OS2.WinLoadDlg(OS2.HWND_DESKTOP, (* parent *)
@@ -61,13 +55,19 @@ PROCEDURE Edit (owner: OS2.HWND;  title: ARRAY OF CHAR;
                        0,                  (* use resources in EXE *)
                        DID.GetOneLine,     (* dialogue ID *)
                        NIL);               (* creation parameters *)
-        INIData.SetInitialWindowPosition (hwnd, INIFileName, "OneLine", UseTNI);
+        INIData.SetInitialWindowPosition (hwnd, INIFileName, "OneLine");
         OS2.WinSetWindowText (hwnd, title);
         OS2.WinSetDlgItemText (hwnd, DID.NameForAlias, item);
 
         OS2.WinProcessDlg(hwnd);
         OS2.WinQueryDlgItemText (hwnd, DID.NameForAlias, SIZE(item), item);
-        INIData.StoreWindowPosition (hwnd, INIFileName, "OneLine", UseTNI);
+        INIFileName := "Setup.";
+        IF UseTNI THEN
+            Strings.Append ("TNI", INIFileName);
+        ELSE
+            Strings.Append ("INI", INIFileName);
+        END (*IF*);
+        INIData.StoreWindowPosition (hwnd, INIFileName, "OneLine");
         OS2.WinDestroyWindow (hwnd);
     END Edit;
 

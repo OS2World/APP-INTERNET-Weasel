@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2017   Peter Moylan                                     *)
+(*  Copyright (C) 2019   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE EditAlias;
         (*            Dialogue to edit an alias definition          *)
         (*                                                          *)
         (*    Started:        11 July 1999                          *)
-        (*    Last edited:    22 May 2017                           *)
+        (*    Last edited:    29 August 2019                        *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
@@ -466,6 +466,11 @@ PROCEDURE Edit (owner: OS2.HWND;  name: ARRAY OF CHAR;
 
     BEGIN
         UseTNI := TNImode;
+        IF TNImode THEN
+            INIFileName := "Setup.TNI";
+        ELSE
+            INIFileName := "Setup.INI";
+        END (*IF*);
         Strings.Assign (name, AliasName);
         hwnd := OS2.WinLoadDlg(OS2.HWND_DESKTOP, owner,
                        DialogueProc,    (* dialogue procedure *)
@@ -473,20 +478,18 @@ PROCEDURE Edit (owner: OS2.HWND;  name: ARRAY OF CHAR;
                        DID.AliasDialog,                (* dialogue ID *)
                        NIL);               (* creation parameters *)
         title := "EditAlias";
-        INIData.SetInitialWindowPosition (hwnd, INIFileName, title, UseTNI);
+        INIData.SetInitialWindowPosition (hwnd, INIFileName, title);
         StrToBufferA (lang, "Editalias.Title", name, title);
         OS2.WinSetWindowText (hwnd, title);
         SetLanguage (hwnd, lang);
         OS2.WinProcessDlg(hwnd);
         title := "EditAlias";
-        INIData.StoreWindowPosition (hwnd, INIFileName, title, UseTNI);
+        INIData.StoreWindowPosition (hwnd, INIFileName, title);
         OS2.WinDestroyWindow (hwnd);
 
     END Edit;
 
 (************************************************************************)
 
-BEGIN
-    INIFileName := "Setup.INI";
 END EditAlias.
 

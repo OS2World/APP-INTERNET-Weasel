@@ -10,7 +10,6 @@
 
 'cd doc'
 'ipfc -i weasel.ipf'
-'ipfc -i viosetup.ipf'
 'ipfc -i weaselpro.ipf'
 'ipfc -i techdata.ipf'
 'cd ..'
@@ -24,7 +23,6 @@
 'copy ..\WSU\Setup.*.lng'
 'xc =p weasel.prj'
 'xc =p ChooseTNI.prj'
-'xc =p viosetup.prj'
 'xc =p endmail.prj'
 copydbg weasel.exe
 '\apps\lxlite\lxlite *.exe'
@@ -51,13 +49,12 @@ mkdir tools
 'copy ..\tools\mloadini.cmd tools'
 'copy ..\tools\mdumpini.cmd tools'
 mkdir doc
-'copy ..\doc\changes.doc doc'
+'copy ..\doc\changes.txt doc'
 'copy ..\doc\ONLINE'
 'copy ..\README'
 'copy ..\README.FILTERS'
 'copy ..\file_id.diz'
 'copy ..\doc\weasel.inf'
-'copy ..\doc\viosetup.inf'
 'copy ..\doc\weaselpro.inf'
 'copy ..\doc\techdata.inf'
 'copy ..\weasel.exe'
@@ -67,7 +64,6 @@ mkdir doc
 'copy ..\weasel.sym'
 'copy ..\weasel.xqs'
 'copy ..\ChooseTNI.exe'
-'copy ..\VIOsetup.exe'
 'copy ..\Setup.exe'
 'copy ..\setup.*.lng'
 'copy ..\CheckRelayRules.cmd'
@@ -91,7 +87,6 @@ rmdir tools
 'mkdir doc'
 'copy ..\doc\weasel.bmp doc'
 'copy ..\doc\weasel.ipf doc'
-'copy ..\doc\viosetup.ipf doc'
 'copy ..\doc\weaselpro.ipf doc'
 'copy ..\doc\techdata.ipf doc'
 'cd ..'
@@ -99,11 +94,10 @@ rmdir tools
 /* Sources for the server and some utilities. */
 
 'del src*.zip /N 2>nul'
-'zip src.zip Decode64.prj endmail.prj VIOSetup.prj Weasel.prj'
+'zip src.zip Decode64.prj endmail.prj Weasel.prj'
 'Imports Decode64 | zip -q -j -u src.zip -@'
-'Imports Weasel | zip -q -j -u src.zip -@'
+'Imports Weasel -x TLS | zip -q -j -u src.zip -@'
 'Imports ChooseTNI | zip -q -j -u src.zip -@'
-'Imports VIOSetup | zip -q -j -u src.zip -@'
 'Imports EndMail | zip -q -j -u src.zip -@'
 'move src.zip temp\Weasel'
 

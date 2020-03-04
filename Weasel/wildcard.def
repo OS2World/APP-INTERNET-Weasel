@@ -5,10 +5,14 @@ DEFINITION MODULE WildCard;
         (*            String matching with wildcards            *)
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
-        (*  Started:            8 June 1999                     *)
-        (*  Last edited:        26 March 2003                   *)
-        (*  Status:             WildMatch OK                    *)
-        (*                      Now working on WildMatchS       *)
+        (*  Started:            12 November 2019                *)
+        (*  Last edited:        17 November 2019                *)
+        (*  Status:             Working                         *)
+        (*                                                      *)
+        (* Yet another approach to both-ends scanning.  This    *)
+        (* turns out to be the fastest of my wildcard string    *)
+        (* matching algorithms, so for now I am setting it as   *)
+        (* the default.                                         *)
         (*                                                      *)
         (********************************************************)
 
@@ -24,12 +28,14 @@ PROCEDURE WildMatch (VAR (*IN*) input, template: ARRAY OF CHAR): BOOLEAN;
     (*   3. A '*' in template matches any string of zero or more        *)
     (*      characters.                                                 *)
 
-PROCEDURE WildMatchS (VAR (*IN*) input, template: ARRAY OF CHAR;
-                                              Stoppers: CharSet): BOOLEAN;
+PROCEDURE SubstringMatch (VAR (*IN*) input, template: ARRAY OF CHAR): BOOLEAN;
 
-    (* Like WildMatch, with the additional rule that '%' is a wildcard  *)
-    (* character that matches any string (of zero or more characters)   *)
-    (* that does not contain any character in Stoppers.                 *)
+    (* Returns TRUE if template matches a substring of input, with the  *)
+    (* extra rules:                                                     *)
+    (*   1. Character case is not significant.                          *)
+    (*   2. A '?' in template matches any single character.             *)
+    (*   3. A '*' in template matches any string of zero or more        *)
+    (*      characters.                                                 *)
 
 END WildCard.
 

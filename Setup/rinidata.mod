@@ -35,7 +35,7 @@ IMPLEMENTATION MODULE RINIData;
         (*     a handle on every call.                              *)
         (*                                                          *)
         (*      Started:        13 January 2002                     *)
-        (*      Last edited:    4 May 2019                          *)
+        (*      Last edited:    29 August 2019                      *)
         (*      Status:         OK                                  *)
         (*                                                          *)
         (************************************************************)
@@ -217,7 +217,7 @@ PROCEDURE CommitTNIDecision (appname: ARRAY OF CHAR;  useTNI: BOOLEAN);
 (*                  OPENING AND CLOSING THE INI FILE                    *)
 (************************************************************************)
 
-PROCEDURE OpenINIFile (filename: ARRAY OF CHAR;  useTNI: BOOLEAN): BOOLEAN;
+PROCEDURE OpenINIFile (filename: ARRAY OF CHAR): BOOLEAN;
 
     (* Opens the INI or TNI file. *)
 
@@ -225,9 +225,9 @@ PROCEDURE OpenINIFile (filename: ARRAY OF CHAR;  useTNI: BOOLEAN): BOOLEAN;
         IF RemoteFlag THEN
             RETURN SelectRemoteFile (filename);
         ELSE
-            Ourhini := INIData.OpenINIFile (filename, useTNI);
+            Ourhini := INIData.OpenINIFile (filename);
             IF NOT INIData.INIValid (Ourhini) THEN
-                Ourhini := INIData.CreateINIFile (filename, useTNI);
+                Ourhini := INIData.CreateINIFile (filename);
             END (*IF*);
             RETURN INIData.INIValid (Ourhini);
         END (*IF*);
