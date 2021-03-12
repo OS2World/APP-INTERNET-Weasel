@@ -16,7 +16,7 @@ IMAP can be handled by running a separate IMAP add-on in parallel
 with Weasel. Both Weasel and the IMAP add-on are distributed as freeware,
 subject to the GNU GPL licence.
 
-:p.This documentation is for version 2.73.
+:p.This documentation is for version 2.75.
 
 :p.Weasel can be configured either to handle a single mail domain,
 or to host multiple domains. This choice, together with a variety of other
@@ -88,9 +88,9 @@ you found the Weasel zip file.
 .*   REGISTRATION
 .***********************************
 
-:h1 id=register.Registration
+:h1 id=register.Registration not required
 
-:hp2.Registration:ehp2.
+:hp2.Registration not required:ehp2.
 
 :p.Weasel, which was formerly shareware, is now distributed as
 freeware. Registration is no longer required.
@@ -2903,6 +2903,24 @@ not have any special status; they are treated like any other character.
 :li.There are restrictions on how you may use wildcards when you specify
 a numeric IP address, as explained above.
 :eul.
+
+:p.:hp2.Comments:ehp2.
+
+:p.If you need to put comments into a hostlist, the following two lines
+show two ways of doing it.
+:xmp.
+      ;abc.def.gh    temporarily deleted entry
+      *.casa         yet another scamming domain
+:exmp.
+If the first non-whitespace character in an entry is a semicolon
+(;), the entry is ignored. It remains visible in Setup, but
+Weasel skips over this entry.
+
+:p.The second example is possible because a valid hostname or IP
+address, or any of the variants mentioned above, cannot contain a
+space or tab character. Therefore, Weasel ignores everything from the
+space or tab onwards. In that example, the entry is *.casa, and the rest of
+the line is treated as a comment.
 
 .*************************************************************************
 .*   MULTIDOMAIN MODE

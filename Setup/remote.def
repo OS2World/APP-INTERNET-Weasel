@@ -3,16 +3,17 @@ DEFINITION MODULE Remote;
         (************************************************************)
         (*                                                          *)
         (*          PM Setup for my networking applications         *)
-        (*                Communication with INIRemote              *)
+        (*                Communication with INIServe               *)
         (*                                                          *)
         (*    Started:        2 July 1999                           *)
-        (*    Last edited:    22 July 2017                          *)
+        (*    Last edited:    22 April 2020                         *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
 
 
 FROM OS2       IMPORT (* type *) HWND;
+FROM Sockets   IMPORT (* type *) Socket;
 FROM Languages IMPORT (* type *) LangHandle;
 
 
@@ -55,6 +56,13 @@ PROCEDURE StoreWindowPosition (hwnd: HWND;  label: ARRAY OF CHAR;
 
     (* Saves the location and (optionally) font of this window in our INI file. *)
 
+PROCEDURE SetCommandSocket (S: Socket);
+
+    (* Specifies the already-created socket that will be used for       *)
+    (* communication with the server.  Normally this is created by      *)
+    (* ConnectToServer, below, but some test programs want to implement *)
+    (* their own version of ConnectToServer.                            *)
+
 PROCEDURE ConnectToServer (hwnd: HWND;  statusbox: CARDINAL): BOOLEAN;
 
     (* Opens the connection to the remote INI server.  The parameters   *)
@@ -67,6 +75,10 @@ PROCEDURE SelectRemoteFile (filename: ARRAY OF CHAR): BOOLEAN;
     (* the current working directory, on the remote server.  A FALSE    *)
     (* reply means either that the file does not exist or it is not a   *)
     (* valid INI or TNI file.                                           *)
+
+PROCEDURE OKReply(): BOOLEAN;
+
+    (* Checks whether the INIServe reply was positive. *)
 
 PROCEDURE SendCommand (cmd: ARRAY OF CHAR): BOOLEAN;
 

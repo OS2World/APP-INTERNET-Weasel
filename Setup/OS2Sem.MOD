@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  PMOS/2 software library                                               *)
-(*  Copyright (C) 2019   Peter Moylan                                     *)
+(*  Copyright (C) 2020   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -27,7 +27,7 @@ IMPLEMENTATION MODULE OS2Sem;
         (*           WAIT ON MUTEX SEMAPHORE OR EVENT SEMAPHORE         *)
         (*                                                              *)
         (*      Programmer:     P. Moylan                               *)
-        (*      Last edited:    17 June 2019                            *)
+        (*      Last edited:    12 October 2020                         *)
         (*      Status:         OK                                      *)
         (*                                                              *)
         (****************************************************************)
@@ -85,7 +85,7 @@ PROCEDURE SemError (kind: SemKind;  errornum: CARDINAL);
         WriteCard (errornum);
         WriteLn;
         UnlockScreen;
-        NilPtr^ := 0;
+        NilPtr^ := errornum;
     END SemError;
 
 (************************************************************************)
@@ -129,7 +129,14 @@ PROCEDURE TimedWaitOnSemaphore (kind: SemKind;  sem, TimeLimit: CARDINAL): BOOLE
                 (* semaphore has already been posted.                   *)
 
                 statusr := OS2.DosResetEventSem (sem, postcount);
-                IF (statusr <> OS2.NO_ERROR) AND (statusr <> OS2.ERROR_ALREADY_RESET) THEN
+                IF statusr = OS2.ERROR_INVALID_HANDLE THEN
+
+                    (* This almost certainly means that the semaphore   *)
+                    (* no longer exists.  For minimum disruption to the *)
+                    (* caller I choose to let this pass, since we       *)
+                    (* have returned from the wait.  No action here.    *)
+
+                ELSIF (statusr <> OS2.NO_ERROR) AND (statusr <> OS2.ERROR_ALREADY_RESET) THEN
                     (* Fatal error - SemError will not return. *)
                     SemError (event, status);
                 END (*IF*);

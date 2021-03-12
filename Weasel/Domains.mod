@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2019   Peter Moylan                                     *)
+(*  Copyright (C) 2021   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Domains;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 July 2002                    *)
-        (*  Last edited:        6 December 2019                 *)
+        (*  Last edited:        11 February 2021                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -42,7 +42,7 @@ FROM SYSTEM IMPORT
 
 FROM HostLists IMPORT
     (* type *)  HostList,
-    (* proc *)  CreateHostList, RefreshHostList, RefreshHostList2,
+    (* proc *)  CreateHostList, RefreshLocalList, RefreshHostList2,
                 DestroyHostList, MatchHostName, FindAllAddresses;
 
 FROM WildCard IMPORT
@@ -810,15 +810,14 @@ PROCEDURE LoadDomainDetails (D: Domain;  LogIt: BOOLEAN);
                     IF NOT INIGet (hini, SYSapp, key, strictnamematching) THEN
                         strictnamematching := FALSE;
                     END (*IF*);
+                    IF LogIt THEN
+                        Strings.Assign ("Refreshing Local list for domain ", LogMessage);
+                        Strings.Append (name, LogMessage);
+                        LogTransaction (LogID, LogMessage);
+                    END (*IF*);
+                    RefreshLocalList (hini, hosts, LogIt);
                     CloseDomainINI(D, hini);
                 END (*IF*);
-                IF LogIt THEN
-                    Strings.Assign ("Refreshing host list for domain ", LogMessage);
-                    Strings.Append (name, LogMessage);
-                    LogTransaction (LogID, LogMessage);
-                END (*IF*);
-                key := "Local";
-                RefreshHostList (SYSapp, key, hosts, FALSE, LogIt);
                 (*
                 IF LogIt THEN
                     Strings.Assign ("Finished refreshing host list for domain ", LogMessage);
@@ -1212,7 +1211,7 @@ PROCEDURE ClearMailboxLocks;
             basedir := p^.this^.DomainMailRoot;
             searchname := basedir;
             Strings.Append ("*", searchname);
-            OK := FirstDirEntry (searchname, TRUE, TRUE, D);
+            OK := FirstDirEntry (searchname, FALSE, TRUE, TRUE, D);
             WHILE OK DO
                 IF directory IN D.attr THEN
                     filename := basedir;

@@ -6,7 +6,7 @@ DEFINITION MODULE HostLists;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            1 September 2002                *)
-        (*  Last edited:        6 December 2019                 *)
+        (*  Last edited:        26 September 2020               *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -17,6 +17,8 @@ FROM Names IMPORT
 FROM TransLog IMPORT
     (* type *)  TransactionLogID;
 
+FROM INIData IMPORT
+    (* type *)  HINI;
 
 TYPE HostList;          (* is private *)
 
@@ -24,6 +26,13 @@ TYPE HostList;          (* is private *)
 PROCEDURE CreateHostList (LogName: ARRAY OF CHAR;  local: BOOLEAN): HostList;
 
     (* Creates an empty list. *)
+
+PROCEDURE RefreshLocalList (hini: HINI;
+                           VAR (*INOUT*) list: HostList;  Log: BOOLEAN);
+
+    (* Discards the existing contents of the list, then reloads it      *)
+    (* from INI file data.  We assume that the caller has opened the    *)
+    (* INI file.                                                        *)
 
 PROCEDURE RefreshHostList (VAR (*IN*) app, key: ARRAY OF CHAR;
                            VAR (*INOUT*) list: HostList;

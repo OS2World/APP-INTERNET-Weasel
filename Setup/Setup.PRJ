@@ -17,6 +17,8 @@
 -INCL_PM:+
 -INCL_DOSDEVIOCTL:+
 
+-link    = "xlink /MAP @%s",mkfname#mkfext;
+
 !module Setup.mod
 !module SO32DLL.lib
 !module TCP32DLL.lib

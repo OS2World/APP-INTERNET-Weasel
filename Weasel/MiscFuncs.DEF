@@ -7,7 +7,7 @@ DEFINITION MODULE MiscFuncs;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            21 May 2017                     *)
-        (*  Last edited:        1 October 2019                  *)
+        (*  Last edited:        22 June 2020                    *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -81,6 +81,10 @@ PROCEDURE ConvertCard (number: CARDINAL;  VAR (*OUT*) result: ARRAY OF CHAR;
     (* On return pos is updated to the next unused array index.                 *)
 
 PROCEDURE AppendCard (number: CARDINAL;  VAR (*OUT*) message: ARRAY OF CHAR);
+
+    (* Converts number to decimal, appends it to the existing message.  *)
+
+PROCEDURE AppendInt (number: INTEGER;  VAR (*OUT*) message: ARRAY OF CHAR);
 
     (* Converts number to decimal, appends it to the existing message.  *)
 

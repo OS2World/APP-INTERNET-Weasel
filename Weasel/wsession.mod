@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2019   Peter Moylan                                     *)
+(*  Copyright (C) 2020   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE WSession;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            28 April 1998                   *)
-        (*  Last edited:        2 May 2019                      *)
+        (*  Last edited:        6 May 2020                      *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -64,7 +64,8 @@ FROM Inet2Misc IMPORT
     (* proc *)  IPToString, Synch;
 
 FROM MiscFuncs IMPORT
-    (* proc *)  ConvertCard, ConvertCardRJ, LockScreen, UnlockScreen, AddEOL;
+    (* proc *)  ConvertCard, ConvertCardRJ, AppendCard,
+                LockScreen, UnlockScreen, AddEOL;
 
 FROM Watchdog IMPORT
     (* type *)  WatchdogID,
@@ -145,10 +146,10 @@ CONST
                                 "421 User limit exceeded, try again later",
                                 "421 User limit exceeded, try again later",
                                 "* BYE Too many users, try again later"};
-    TempLockedOut = StringArray {"-ERR Temporarily locked out, try again later",
-                                "421 Temporarily locked out, try again later",
-                                "421 Temporarily locked out, try again later",
-                                "* BYE Temporarily locked out, try again later"};
+    TempLockedOut = StringArray {"-ERR Temporarily locked out, try again ",
+                                "421 Temporarily locked out, try again ",
+                                "421 Temporarily locked out, try again ",
+                                "* BYE Temporarily locked out, try again "};
     InitialMessage = StringArray {"+OK ", "220 ", "220 ", "* OK IMAP4rev1 ready"};
 
 VAR
@@ -413,6 +414,43 @@ PROCEDURE Reply (s: Socket;  ID: TransactionLogID;  message: ARRAY OF CHAR);
 
 (************************************************************************)
 
+PROCEDURE AppendPenalty (VAR (*INOUT*) message: ARRAY OF CHAR;
+                                                delay: CARDINAL);
+
+    (* Appends a string to the effect of "in delay seconds" to the message. *)
+
+    CONST maxsecs = 300;  maxmins = 300;  maxhours = 24;
+
+    VAR unit: ARRAY [0..7] OF CHAR;
+
+    BEGIN
+        IF delay >= 60*60*maxhours THEN
+            Strings.Append ("later", message);
+        ELSE
+
+            Strings.Append ("in ", message);
+            IF delay < maxsecs THEN
+                unit := " seconds";
+            ELSE
+                delay := (delay + 30) DIV 60;      (* convert to minutes *)
+                IF delay < maxmins THEN
+                    unit := " minutes";
+                ELSE
+                    delay := (delay + 30) DIV 60;      (* convert to hours *)
+                    IF delay < maxhours THEN
+                        unit := " hours";
+                    END (*IF*);
+                END (*IF*);
+            END (*IF*);
+
+            AppendCard (delay, message);
+            Strings.Append (unit, message);
+
+        END (*IF*);
+    END AppendPenalty;
+
+(************************************************************************)
+
 PROCEDURE SessionHandler (arg: ADDRESS);
 
     (* The task that handles a client session, i.e. this is where all   *)
@@ -461,7 +499,7 @@ PROCEDURE SessionHandler (arg: ADDRESS);
     (********************************************************************)
 
     VAR NSP: NewSessionPointer;
-        size: CARDINAL;
+        size, penalty: CARDINAL;
         Quit, ServerAbort: BOOLEAN;
         LogFilePrefix: ARRAY [0..6] OF CHAR;
         IPBuffer: ARRAY [0..16] OF CHAR;
@@ -574,8 +612,10 @@ PROCEDURE SessionHandler (arg: ADDRESS);
         (* briefly.  Multiple password errors suggest an attacker,  *)
         (* in which case the lockout time keeps increasing.         *)
 
-        IF Throttle(sess.ClientIPAddress, sess.LogID) THEN
+        penalty := Throttle(sess.ClientIPAddress, sess.LogID);
+        IF penalty <> 0 THEN
             Strings.Assign (TempLockedOut[sess.service], pCmdBuffer^);
+            AppendPenalty (pCmdBuffer^, penalty);
             Reply (S, sess.LogID, pCmdBuffer^);
             AbandonSession;
         END (*IF*);

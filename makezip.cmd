@@ -21,6 +21,7 @@
 'cd ..\Weasel'
 'copy ..\WSU\Setup.exe'
 'copy ..\WSU\Setup.*.lng'
+'copy ..\WSU\Setup.map'
 'xc =p weasel.prj'
 'xc =p ChooseTNI.prj'
 'xc =p endmail.prj'
@@ -33,6 +34,8 @@ copydbg weasel.exe
 'call PerlEnv.cmd'
 perl 'D:\Apps\scripts\makexqs.pl' weasel.map
 say "weasel.sym and weasel.xqs should now exist"
+perl 'D:\Apps\scripts\makexqs.pl' setup.map
+say "setup.sym and setup.xqs should now exist"
 
 /* Set icons and build level. */
 
@@ -66,6 +69,9 @@ mkdir doc
 'copy ..\ChooseTNI.exe'
 'copy ..\Setup.exe'
 'copy ..\setup.*.lng'
+'copy ..\setup.map'
+'copy ..\setup.sym'
+'copy ..\setup.xqs'
 'copy ..\CheckRelayRules.cmd'
 'copy ..\Sample_RELAYRULES.TXT'
 'copy ..\makefolder.cmd'

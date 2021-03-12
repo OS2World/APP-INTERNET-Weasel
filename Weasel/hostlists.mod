@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2019   Peter Moylan                                     *)
+(*  Copyright (C) 2021   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE HostLists;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            1 September 2002                *)
-        (*  Last edited:        6 December 2019                 *)
+        (*  Last edited:        10 February 2021                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -90,7 +90,7 @@ FROM Storage IMPORT
 (************************************************************************)
 
 CONST
-    Nul = CHR(0);
+    Nul = CHR(0);  Tab = CHR(9);  Space = ' ';
 
 TYPE
     (* List identifier for log messages. *)
@@ -927,9 +927,10 @@ PROCEDURE DecodeRange (VAR (*IN*) Name: HostName;
 
 (************************************************************************)
 
-PROCEDURE UpdateList (VAR (*IN*) app, key: ARRAY OF CHAR;
-                      VAR (*OUT*) list: HostList;
-                      ExpandNumeric, ConfirmToLog: BOOLEAN);
+PROCEDURE UpdateList (hini: INIData.HINI;
+                        VAR (*IN*) app, key: ARRAY OF CHAR;
+                        VAR (*OUT*) list: HostList;
+                        ExpandNumeric, ConfirmToLog: BOOLEAN);
 
     (* Adds data from the INI file to the list.  *)
 
@@ -937,9 +938,47 @@ PROCEDURE UpdateList (VAR (*IN*) app, key: ARRAY OF CHAR;
 
     PROCEDURE ProcessOneName (ThisName: HostName);
 
+        (****************************************************************)
+
+        PROCEDURE CheckComment;
+
+            VAR k: CARDINAL;  found: BOOLEAN;
+                tabstr: ARRAY [0..0] OF CHAR;
+
+            BEGIN
+                (* Remove leading whitespace if any.  *)
+
+                WHILE (ThisName[0] = Space) OR (ThisName[0] = Tab) DO
+                    Strings.Delete (ThisName, 0, 1);
+                END (*WHILE*);
+
+                (* Semicolon means whole line is to be ignored. *)
+
+                IF ThisName[0] = ';' THEN
+                    ThisName[0] := Nul;
+                ELSE
+                    (* Truncate line at first space or tab. *)
+
+                    Strings.FindNext (Space, ThisName, 0, found, k);
+                    IF found THEN
+                        ThisName[k] := Nul;
+                    END (*IF*);
+                    tabstr[0] := Tab;
+                    Strings.FindNext (tabstr, ThisName, 0, found, k);
+                    IF found THEN
+                        ThisName[k] := Nul;
+                    END (*IF*);
+
+                END (*IF*);
+            END CheckComment;
+
+        (****************************************************************)
+
         VAR low, high: CARDINAL;
 
         BEGIN
+            CheckComment;
+
             (* If the new name is not empty, add it to the master list. *)
 
             IF ThisName[0] <> Nul THEN
@@ -969,26 +1008,42 @@ PROCEDURE UpdateList (VAR (*IN*) app, key: ARRAY OF CHAR;
 
     (********************************************************************)
 
-    VAR hini: INIData.HINI;
-        state: StringReadState;  ThisName: HostName;
+    VAR state: StringReadState;  ThisName: HostName;
 
     BEGIN          (* Body of procedure UpdateList *)
 
-        hini := OpenINI();
-        IF INIData.INIValid (hini) THEN
-            GetStringList (hini, app, key, state);
-            LOOP
-                NextString (state, ThisName);
-                IF ThisName[0] = Nul THEN
-                    EXIT (*LOOP*);
-                END (*IF*);
-                ProcessOneName (ThisName);
-            END (*LOOP*);
-            CloseStringList (state);
-            CloseINI;
-        END (*IF*);
+        GetStringList (hini, app, key, state);
+        LOOP
+            NextString (state, ThisName);
+            IF ThisName[0] = Nul THEN
+                EXIT (*LOOP*);
+            END (*IF*);
+            ProcessOneName (ThisName);
+        END (*LOOP*);
+        CloseStringList (state);
 
     END UpdateList;
+
+(************************************************************************)
+
+PROCEDURE RefreshLocalList (hini: INIData.HINI;
+                           VAR (*INOUT*) list: HostList;  Log: BOOLEAN);
+
+    (* Discards the existing contents of the list, then reloads it      *)
+    (* from INI file data.  We assume that the caller has opened the    *)
+    (* INI file.                                                        *)
+
+    VAR app, key: ARRAY [0..5] OF CHAR;
+
+    BEGIN
+        Obtain (list^.access);
+        FlushHostList (list);
+        app := "$SYS";
+        key := "Local";
+        UpdateList (hini, app, key, list, FALSE, Log);
+        ExpandAllAliases (list, FALSE, Log);
+        Release (list^.access);
+    END RefreshLocalList;
 
 (************************************************************************)
 
@@ -999,10 +1054,16 @@ PROCEDURE RefreshHostList (VAR (*IN*) app, key: ARRAY OF CHAR;
     (* Discards the existing contents of the list, then reloads it      *)
     (* from INI file data.                                              *)
 
+    VAR hini: INIData.HINI;
+
     BEGIN
         Obtain (list^.access);
         FlushHostList (list);
-        UpdateList (app, key, list, ExpandNumeric, Log);
+        hini := OpenINI();
+        IF INIData.INIValid(hini) THEN
+            UpdateList (hini, app, key, list, ExpandNumeric, Log);
+            CloseINI;
+        END (*IF*);
         ExpandAllAliases (list, ExpandNumeric, Log);
         Release (list^.access);
     END RefreshHostList;
@@ -1018,7 +1079,8 @@ PROCEDURE RefreshHostList2 (VAR (*IN*) app, key: ARRAY OF CHAR;
     (* array to preload the list before adding the INI file data.       *)
     (* A zero address terminates the InitialAddresses array.            *)
 
-    VAR j, val: CARDINAL;
+    VAR hini: INIData.HINI;
+        j, val: CARDINAL;
 
     BEGIN
         Obtain (list^.access);
@@ -1030,7 +1092,11 @@ PROCEDURE RefreshHostList2 (VAR (*IN*) app, key: ARRAY OF CHAR;
             INC (j);
         END (*WHILE*);
         ExpandAllAliases (list, ExpandNumeric, Log);
-        UpdateList (app, key, list, ExpandNumeric, Log);
+        hini := OpenINI();
+        IF INIData.INIValid(hini) THEN
+            UpdateList (hini, app, key, list, ExpandNumeric, Log);
+            CloseINI;
+        END (*IF*);
         ExpandAllAliases (list, ExpandNumeric, Log);
         Release (list^.access);
     END RefreshHostList2;

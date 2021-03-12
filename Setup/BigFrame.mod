@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE BigFrame;
         (*             The settings notebook and its frame          *)
         (*                                                          *)
         (*    Started:        28 June 1999                          *)
-        (*    Last edited:    28 February 2020                      *)
+        (*    Last edited:    13 April 2020                         *)
         (*    Status:         Working                               *)
         (*                                                          *)
         (************************************************************)
@@ -223,6 +223,7 @@ PROCEDURE InitialiseNotebook (hwnd: OS2.HWND);
 
     VAR swp: OS2.SWP;  scale, LastPageID: CARDINAL;
         owner: OS2.HWND;
+        MailRootDir: FilenameString;
 
     BEGIN
         (* Find OS version to decide what notebook style to use. *)
@@ -252,13 +253,26 @@ PROCEDURE InitialiseNotebook (hwnd: OS2.HWND);
         IDofPage[pimap] := 0;
         pagehandle[pimap] := IMAPPage.CreatePage(hwnd, IDofPage[pimap]);
         InsertionPoint := IDofPage[pimap];
-        pagehandle[puser] := UserPage.CreatePage(hwnd, InsertionPoint,
-                               CommonSettings.MainNotebook, UseTNI, IDofPage[puser]);
-        pagehandle[palias] := AliasPage.CreatePage(hwnd, 0,
-                                    AcceptUnknown AND NOT MultiDomain, UseTNI,
-                                    CommonSettings.MainNotebook, IDofPage[palias]);
-        HostLists.CreatePage(hwnd, local, 0, CommonSettings.MainNotebook,
-                                   FALSE, UseTNI, IDofPage[plocal]);
+
+        (* Now that the basic page has been initialised, we should have a   *)
+        (* value - not necessarily a final one - for the mail root.         *)
+
+        SUPage1.CurrentMailRoot (MailRootDir);
+        SUDomains.SetMailRoot (MailRootDir);
+
+        IF MultiDomain THEN
+            pagehandle[pdomains] := DomainPage.CreatePage(hwnd, InsertionPoint,
+                         AcceptUnknown, NewStyle, UseTNI, IDofPage[pdomains]);
+            AcceptUnknown := FALSE;
+        ELSE
+            pagehandle[puser] := UserPage.CreatePage(hwnd, InsertionPoint,
+                                   CommonSettings.MainNotebook, UseTNI, IDofPage[puser]);
+            pagehandle[palias] := AliasPage.CreatePage(hwnd, 0,
+                                        AcceptUnknown AND NOT MultiDomain, UseTNI,
+                                        CommonSettings.MainNotebook, IDofPage[palias]);
+            HostLists.CreatePage(hwnd, local, 0, CommonSettings.MainNotebook,
+                                       FALSE, UseTNI, IDofPage[plocal]);
+        END (*IF*);
         pagehandle[plog] := SULogging.CreatePage(hwnd, IDofPage[plog]);
         Filter.CreatePage(hwnd, LastPageID);
         IDofPage[pfilters] := LastPageID;
@@ -286,7 +300,7 @@ PROCEDURE InitialiseNotebook (hwnd: OS2.HWND);
         (* For simplicity, we start up in single-domain mode, and then  *)
         (* let UpdateNotebook1 (see below) switch us over if necessary. *)
 
-        MultiDomain := FALSE;
+        (*MultiDomain := FALSE;*)
         SetPageFonts (TRUE);
         SetLanguage;
         OS2.WinPostMsg (hwnd, OS2.BKM_TURNTOPAGE,
@@ -322,9 +336,8 @@ PROCEDURE UpdateNotebook1 (hwnd: OS2.HWND;  NewMultiDomain: BOOLEAN);
         notebook := OS2.WinWindowFromID(hwnd, DID.notebook);
         IF MultiDomain <> NewMultiDomain THEN
 
-            SUPage1.CommitMailRoot (MailRootDir);
+            SUPage1.CurrentMailRoot (MailRootDir);
             SUDomains.SetMailRoot (MailRootDir);
-            DomainPage.SetMailRoot (MailRootDir);
             WSUINI.SetINIDirectory (MailRootDir, "");
             SUDomains.GetOriginalDomainName (OriginalDomainName);
 

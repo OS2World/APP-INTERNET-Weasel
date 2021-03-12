@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2021   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,8 +28,10 @@ IMPLEMENTATION MODULE SUPage1;
         (*                    Page 1 of the notebook                    *)
         (*                                                              *)
         (*        Started:        30 June 1999                          *)
-        (*        Last edited:    25 November 2018                      *)
+        (*        Last edited:    3 January 2021                        *)
         (*        Status:         OK                                    *)
+        (*          Experimental: removed the MULTIDOMAINCHANGE trigger *)
+        (*              in LoadValues.                                  *)
         (*                                                              *)
         (****************************************************************)
 
@@ -60,6 +62,11 @@ FROM Remote IMPORT
 FROM MiscFuncs IMPORT
     (* type *)  CharArrayPointer,
     (* proc *)  EVAL;
+
+FROM FileOps IMPORT
+    (* type *)  DirectoryEntry,
+    (* proc *)  MoveFile, CopyFile, DeleteFile, DeleteDir,
+                FirstDirEntry, NextDirEntry, DirSearchDone;
 
 (**************************************************************************)
 
@@ -161,19 +168,85 @@ PROCEDURE CheckUserDirectories (VAR (*IN*) MailRoot: ARRAY OF CHAR;
 (*                      COMMITTING MAILROOT CHANGES                     *)
 (************************************************************************)
 
-PROCEDURE CommitMailRoot (VAR (*OUT*) MailRootDir: ARRAY OF CHAR);
+PROCEDURE MoveSubtree (srcdir, dstdir: ARRAY OF CHAR);
 
-    (* Stores the current MailRoot value back to the INI file,          *)
-    (* unconditionally; ensures that this directory exists; and returns *)
-    (* the directory name (including a final '\') to the caller.  We    *)
-    (* assume that the caller has already opened the INI file.          *)
+    (* Moves a directory tree.  The two arguments have no trailing '\'. *)
+    (* We assume that dstdir <> srcdir.                                 *)
 
-    VAR j: CARDINAL;  stringval: DirectoryString;
+    (********************************************************************)
+
+    PROCEDURE MakeSubName (dir, name: ARRAY OF CHAR;
+                            VAR (*OUT*) result: ARRAY OF CHAR);
+
+        BEGIN
+            Strings.Assign (dir, result);
+            Strings.Append ("\", result);
+            Strings.Append (name, result);
+        END MakeSubName;
+
+    (********************************************************************)
+
+    VAR mask, srcname, dstname: DirectoryString;
+        D: DirectoryEntry;
+        found: BOOLEAN;
 
     BEGIN
+        (* Make sure that the destination directory exists. *)
 
-        (* Mail root directory.  Make sure that MailRoot has no leading *)
-        (* or trailing spaces.                                          *)
+        MakeDirectory (dstdir);
+
+        (* Move all non-directory files. *)
+
+        Strings.Assign (srcdir, mask);
+        Strings.Append ("\*", mask);
+        found := FirstDirEntry (mask, FALSE, FALSE, TRUE, D);
+        WHILE found DO
+            MakeSubName (srcdir, D.name, srcname);
+            MakeSubName (dstdir, D.name, dstname);
+            EVAL (MoveFile (srcname, dstname));
+            found := NextDirEntry(D);
+        END (*WHILE*);
+        DirSearchDone (D);
+
+        (* Now move the subdirectories. *)
+
+        found := FirstDirEntry (mask, FALSE, TRUE, TRUE, D);
+        WHILE found DO
+            IF ((D.name[0] = '.') AND (D.name[1] = '.') AND (D.name[2] = Nul))
+                        OR ((D.name[0] = '.') AND (D.name[1] = Nul)) THEN
+
+                (* Ignore '.' and '..' entries. *)
+
+            ELSE
+                MakeSubName (srcdir, D.name, srcname);
+                MakeSubName (dstdir, D.name, dstname);
+                MoveSubtree (srcname, dstname);
+            END (*IF*);
+            found := NextDirEntry(D);
+        END (*WHILE*);
+        DirSearchDone (D);
+
+        DeleteDir (srcdir);
+
+    END MoveSubtree;
+
+(************************************************************************)
+
+PROCEDURE CurrentMailRoot (VAR (*OUT*) MailRootDir: ARRAY OF CHAR);
+
+    (* Returns the current MailRoot value.  As a side-effect, if the    *)
+    (* value has changed since the last time it was committed to the    *)
+    (* INI file, moves all files from the old MailRoot to the new one.  *)
+    (* A new directory is created if necessary.  The returned value     *)
+    (* includes a final '\'.                                            *)
+
+    VAR j: CARDINAL;  stringval, OldMailRoot, MailRoot0: DirectoryString;
+
+    BEGIN
+        Strings.Assign (MailRoot, OldMailRoot);
+
+        (* Let stringval be new mail root.  Make sure that it has no    *)
+        (* leading or trailing spaces.                                  *)
 
         OS2.WinQueryDlgItemText (pagehandle, DID.RootDirectory,
                                                        512, stringval);
@@ -186,9 +259,7 @@ PROCEDURE CommitMailRoot (VAR (*OUT*) MailRootDir: ARRAY OF CHAR);
             stringval[j] := Nul;
         END (*WHILE*);
 
-        (* Create the mailroot directory if it doesn't already exist.   *)
-        (* Note that we temporarily have to remove the trailing '\'     *)
-        (* from the directory name.                                     *)
+        (* Remove trailing slash or backslash from stringval if present. *)
 
         j := Strings.Length (stringval);
         IF (j > 0) THEN
@@ -196,17 +267,30 @@ PROCEDURE CommitMailRoot (VAR (*OUT*) MailRootDir: ARRAY OF CHAR);
             IF (stringval[j] = '/') OR (stringval[j] = '\') THEN
                 stringval[j] := Nul;
             END (*IF*);
-            MakeDirectory (stringval);
-            Strings.Append ('\', stringval);
         END (*IF*);
 
-        (* Store the final directory name. *)
+        Strings.Assign (OldMailRoot, MailRoot0);
 
-        INIPutString ('$SYS', 'MailRoot', stringval);
-        Strings.Assign (stringval, MailRoot);
-        Strings.Assign (stringval, MailRootDir);
+        (* If MailRoot0 is not the empty string, it will have a *)
+        (* trailing '\' which must be removed.                  *)
 
-    END CommitMailRoot;
+        IF MailRoot0[0] <> Nul THEN
+            MailRoot0[LENGTH(MailRoot0)-1] := Nul;
+        END (*IF*);
+
+        IF NOT Strings.Equal (stringval, MailRoot0) THEN
+            IF (MailRoot0[0] <> Nul) AND (stringval[0] <> Nul) THEN
+                MoveSubtree (MailRoot0, stringval);
+            END (*IF*);
+            Strings.Assign (stringval, MailRoot);
+            Strings.Append ('\', MailRoot);
+            OpenINIFile;
+            INIPutString ('$SYS', 'MailRoot', MailRoot);
+            CloseINIFile;
+        END (*IF*);
+        Strings.Assign (MailRoot, MailRootDir);
+
+    END CurrentMailRoot;
 
 (************************************************************************)
 (*                    OPERATIONS ON DIALOGUE LABELS                     *)
@@ -418,10 +502,12 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
         END (*IF*);
         OS2.WinSendDlgItemMsg (hwnd, DID.MultiDomainEnabled, OS2.BM_SETCHECK,
                                     OS2.MPFROMSHORT(ORD(OldMultiDomainEnabled)), NIL);
+        (*
         IF OldMultiDomainEnabled THEN
             OS2.WinPostMsg (hwndParent, CommonSettings.WM_MULTIDOMAIN_CHANGE,
                             OS2.MPFROMLONG(1), OS2.MPFROMLONG(0));
         END (*IF*);
+        *)
 
         CloseINIFile;
         LoadCompleted := TRUE;
@@ -599,16 +685,9 @@ PROCEDURE StoreData (hwnd1: OS2.HWND;  Multidomain: BOOLEAN);
             INIPutString ('$SYS', 'Language', langval);
         END (*IF*);
 
-        (* Debugging message. *)
-        (*
-        Strings.Assign ("About to commit mail root", debugmes);
-        OS2.WinSetDlgItemText (hwnd1, DID.RootDirectory, debugmes);
-        Sleep (2000);
-        *)
-
         (* Mail root directory. *)
 
-        CommitMailRoot (MailRoot);
+        CurrentMailRoot (MailRoot);
 
         (* Debugging message. *)
         (*

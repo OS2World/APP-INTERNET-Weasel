@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support module for a variety of applications                          *)
-(*  Copyright (C) 2019   Peter Moylan                                     *)
+(*  Copyright (C) 2020   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -29,7 +29,7 @@ IMPLEMENTATION MODULE MiscFuncs;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            21 May 2017                     *)
-        (*  Last edited:        1 October 2019                  *)
+        (*  Last edited:        22 June 2020                    *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -469,6 +469,26 @@ PROCEDURE AppendCard (number: CARDINAL;  VAR (*OUT*) message: ARRAY OF CHAR);
             message[pos] := Nul;
         END (*IF*);
     END AppendCard;
+
+(********************************************************************************)
+
+PROCEDURE AppendInt (number: INTEGER;  VAR (*OUT*) message: ARRAY OF CHAR);
+
+    (* Converts number to decimal, appends it to the existing message.  *)
+
+    VAR pos: CARDINAL;
+
+    BEGIN
+        pos := Strings.Length(message);
+        IF number < 0 THEN
+            message[pos] := '-';  INC (pos);
+            number := -number;
+        END (*IF*);
+        ConvertCard (number, message, pos);
+        IF pos <= HIGH(message) THEN
+            message[pos] := Nul;
+        END (*IF*);
+    END AppendInt;
 
 (********************************************************************************)
 

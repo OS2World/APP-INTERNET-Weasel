@@ -6,7 +6,7 @@ DEFINITION MODULE DomainPage;
         (*             The 'our domains' page of the notebook           *)
         (*                                                              *)
         (*        Started:        19 December 2001                      *)
-        (*        Last edited:    7 September 2014                      *)
+        (*        Last edited:    15 April 2020                         *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -21,10 +21,6 @@ FROM Languages IMPORT LangHandle;
 PROCEDURE StoreData;
 
     (* Stores back the domain list if it has changed. *)
-
-PROCEDURE SetMailRoot (CurrentMailRoot: ARRAY OF CHAR);
-
-    (* The caller tells us what the global mail root directory is.    *)
 
 PROCEDURE CreatePage (notebook: HWND;  AfterPage: CARDINAL;
                           CreateWildAliases, NewStyle, TNImode: BOOLEAN;

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2019   Peter Moylan                                     *)
+(*  Copyright (C) 2020   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE HammerCheck;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            6 November 2017                 *)
-        (*  Last edited:        2 May 2019                      *)
+        (*  Last edited:        15 May 2020                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -61,7 +61,7 @@ FROM Storage IMPORT
 
 CONST
     testing = FALSE;
-    InitialThrottleTime = 5;       (* seconds *)
+    InitialThrottleTime = 3;        (* seconds *)
     ThrottleTimeIncrement = 10;     (* seconds *)
 
 TYPE
@@ -346,15 +346,66 @@ PROCEDURE NotePasswordError (IPAddress: CARDINAL);
 
 (************************************************************************)
 
-PROCEDURE Throttle (IPAddress: CARDINAL;  ID: TransactionLogID): BOOLEAN;
+PROCEDURE ClearPasswordError (IPAddress: CARDINAL);
 
-    (* Returns TRUE iff this IP address is on the list of addresses to  *)
-    (* be blocked because of recent suspect behaviour.                  *)
+    (* Removes this IP address from the list, if it is present.      *)
 
     VAR t: CARDINAL;  found: BOOLEAN;
+        previous, current: HammerListPointer;
+
+    BEGIN
+        t := time();          (* seconds *)
+        Obtain (HammerList.access);
+
+        (* First delete all the expired entries in the list. *)
+
+        current := HammerList.head;
+        WHILE (current <> NIL) AND (current^.time < t) DO
+            HammerList.head := current^.next;
+            DISPOSE (current);
+            current := HammerList.head;
+        END (*WHILE*);
+
+        (* Now see whether this IP address is on the list. *)
+
+        found := FALSE;
+        previous := NIL;
+        WHILE (current <> NIL) AND NOT found DO
+            found := current^.address = IPAddress;
+            IF NOT found THEN
+                previous := current;
+                current := current^.next;
+            END (*IF*);
+        END (*WHILE*);
+
+        (* If it is on the list, remove it. *)
+
+        IF found THEN
+            IF previous = NIL THEN
+                HammerList.head := current^.next;
+            ELSE
+                previous^.next := current^.next;
+            END (*IF*);
+            DISPOSE (current);
+        END (*IF*);
+
+        Release (HammerList.access);
+
+    END ClearPasswordError;
+
+(************************************************************************)
+
+PROCEDURE Throttle (IPAddress: CARDINAL;  ID: TransactionLogID): CARDINAL;
+
+    (* If this IP address is on the list of addresses to be blocked     *)
+    (* because of recent suspect behaviour, returns the blocking time   *)
+    (* in seconds.  Otherwise, returns 0.                               *)
+
+    VAR t, newpenalty: CARDINAL;  found: BOOLEAN;
         current: HammerListPointer;
 
     BEGIN
+        newpenalty := 0;
         t := time();          (* seconds *)
         Obtain (HammerList.access);
 
@@ -385,6 +436,7 @@ PROCEDURE Throttle (IPAddress: CARDINAL;  ID: TransactionLogID): BOOLEAN;
 
         IF found THEN
             IncPenalty (current);
+            newpenalty := current^.penalty;
         END (*IF*);
 
         Release (HammerList.access);
@@ -393,7 +445,7 @@ PROCEDURE Throttle (IPAddress: CARDINAL;  ID: TransactionLogID): BOOLEAN;
             ResortList (current);
         END (*IF*);
 
-        RETURN found;
+        RETURN newpenalty;
 
     END Throttle;
 

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2019   Peter Moylan                                     *)
+(*  Copyright (C) 2020   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Hosts;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            9 May 1998                      *)
-        (*  Last edited:        6 December 2019                 *)
+        (*  Last edited:        18 October 2020                 *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -403,7 +403,7 @@ PROCEDURE OnDomainBlacklist (name: DomainName;  ID: TransactionLogID;
     CONST patience = 60;        (* seconds *)
 
     VAR query: HostName;
-        start, seconds: CARDINAL;
+        start, end, seconds: CARDINAL;
         j: BlacklistType;  rejected: BOOLEAN;
 
     BEGIN
@@ -416,7 +416,12 @@ PROCEDURE OnDomainBlacklist (name: DomainName;  ID: TransactionLogID;
                 Strings.Append (DBLCheckSuffix[j], query);
                 start := time();
                 rejected := gethostbyname(query) <> NIL;
-                seconds := time() - start;
+                end := time();
+                IF start < end THEN
+                    seconds := 0;
+                ELSE
+                    seconds := end - start;
+                END (*IF*);
                 Strings.Assign (DBLCheckSuffix[j], message);
                 Strings.Append (" check took ", message);
                 AppendCard (seconds, message);

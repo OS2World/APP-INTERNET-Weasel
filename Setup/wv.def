@@ -5,13 +5,21 @@ DEFINITION MODULE WV;
         (*                    Weasel version number                     *)
         (*                                                              *)
         (*    Started:        6 March 2004                              *)
-        (*    Last edited:    21 February 2020                          *)
+        (*    Last edited:    See date constant below                   *)
         (*    Status:         OK                                        *)
         (*                                                              *)
         (****************************************************************)
 
 
-CONST version = "2.73";
+CONST
+    version = "2.75";
+    date = "2021-02-12";
+
+TYPE FourChar = ARRAY [0..3] OF CHAR;
+
+PROCEDURE year(): FourChar;
+
+    (* Returns the year part of the date constant. *)
 
 END WV.
 

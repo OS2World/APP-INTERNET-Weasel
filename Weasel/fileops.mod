@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  PMOS/2 software library                                               *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2020   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -32,7 +32,7 @@ IMPLEMENTATION MODULE FileOps;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            17 October 2001                 *)
-        (*  Last edited:        26 January 2018                 *)
+        (*  Last edited:        26 November 2020                *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (*    The original version of this module used          *)
@@ -58,7 +58,7 @@ FROM Conversions IMPORT
     (* proc *)  CardinalToString, Card64ToString;
 
 FROM LowLevel IMPORT
-    (* proc *)  IAND, IOR;
+    (* proc *)  IAND, IOR, EVAL;
 
 (************************************************************************)
 
@@ -468,6 +468,16 @@ PROCEDURE DeleteFile (name: ARRAY OF CHAR);
 
 (************************************************************************)
 
+PROCEDURE DeleteDir (name: ARRAY OF CHAR);
+
+    (* Deletes a named directory. *)
+
+    BEGIN
+        EVAL (FileSys.RemoveDirectory (name));
+    END DeleteDir;
+
+(************************************************************************)
+
 PROCEDURE CreateFile (name: ARRAY OF CHAR);
 
     (* Creates an empty file.  Deletes any existing file with the same name. *)
@@ -486,16 +496,104 @@ PROCEDURE CreateFile (name: ARRAY OF CHAR);
 
 PROCEDURE MoveFile (oldname, newname: ARRAY OF CHAR): BOOLEAN;
 
-    (* Renames a file, returns TRUE iff successful.  The source and     *)
-    (* destination files must be on the same drive.  This procedure is  *)
-    (* also a mechanism for renaming a file.                            *)
+    (* Moves a file to a new location, returns TRUE iff successful.     *)
+    (* The source and destination files do not need to be on the same   *)
+    (* drive.  This procedure is also a mechanism for renaming a file.  *)
 
-    VAR code: CARDINAL;
+    VAR samedrive, done: BOOLEAN;
+        status: CARDINAL;
 
     BEGIN
-        code := OS2.DosMove (oldname, newname);
-        RETURN code = 0;
+        (* Assume the same drive unless both oldname and newname have a drive   *)
+        (* specification.                                               *)
+
+        IF (oldname[1] = ':') AND (newname[1] = ':') THEN
+            samedrive := CAP(oldname[0]) = CAP(newname[0]);
+        ELSE
+            samedrive := TRUE;
+        END (*IF*);
+
+        IF samedrive THEN
+            status := OS2.DosMove (oldname, newname);
+        ELSE
+            status := OS2.DosCopy (oldname, newname, 0);
+            IF status = 0 THEN
+                FileSys.Remove (oldname, done);
+                IF NOT done THEN
+                    status := 1;
+                END (*IF*);
+            END (*IF*);
+        END (*IF*);
+
+        RETURN status = 0;
+
     END MoveFile;
+
+(************************************************************************)
+
+PROCEDURE MoveDirectory (srcdir, dstdir: ARRAY OF CHAR): BOOLEAN;
+
+    (* Moves a directory tree.  The two arguments should have no        *)
+    (* trailing '\'.  We assume that dstdir <> srcdir.                  *)
+
+    (********************************************************************)
+
+    PROCEDURE MakeSubName (dir, name: ARRAY OF CHAR;
+                            VAR (*OUT*) result: ARRAY OF CHAR);
+
+        BEGIN
+            Strings.Assign (dir, result);
+            Strings.Append ("\", result);
+            Strings.Append (name, result);
+        END MakeSubName;
+
+    (********************************************************************)
+
+    VAR mask, srcname, dstname: FilenameString;
+        D: DirectoryEntry;
+        found, success: BOOLEAN;
+
+    BEGIN
+        (* Make sure that the destination directory exists. *)
+
+        EVAL (FileSys.CreateDirectory (dstdir));
+        success := TRUE;
+
+        (* Move all non-directory files. *)
+
+        Strings.Assign (srcdir, mask);
+        Strings.Append ("\*", mask);
+        found := FirstDirEntry (mask, FALSE, FALSE, TRUE, D);
+        WHILE found AND success DO
+            MakeSubName (srcdir, D.name, srcname);
+            MakeSubName (dstdir, D.name, dstname);
+            success := MoveFile (srcname, dstname);
+            found := NextDirEntry(D);
+        END (*WHILE*);
+        DirSearchDone (D);
+
+        (* Now move the subdirectories. *)
+
+        found := FirstDirEntry (mask, FALSE, TRUE, TRUE, D);
+        WHILE found DO
+            IF ((D.name[0] = '.') AND (D.name[1] = '.') AND (D.name[2] = Nul))
+                        OR ((D.name[0] = '.') AND (D.name[1] = Nul)) THEN
+
+                (* Ignore '.' and '..' entries. *)
+
+            ELSE
+                MakeSubName (srcdir, D.name, srcname);
+                MakeSubName (dstdir, D.name, dstname);
+                success := success AND MoveDirectory (srcname, dstname);
+            END (*IF*);
+            found := NextDirEntry(D);
+        END (*WHILE*);
+        DirSearchDone (D);
+
+        DeleteDir (srcdir);
+        RETURN success;
+
+    END MoveDirectory;
 
 (************************************************************************)
 
@@ -641,7 +739,7 @@ PROCEDURE GetFileSize (name: ARRAY OF CHAR): CARD64;
         D: DirectoryEntry;
 
     BEGIN
-        IF FirstDirEntry (name, FALSE, TRUE, D) THEN
+        IF FirstDirEntry (name, FALSE, FALSE, TRUE, D) THEN
             result := D.size;
         ELSE
             result.high := 0;
@@ -992,29 +1090,30 @@ PROCEDURE FirstDirEntryL (mask: ARRAY OF CHAR;  attrib: CARDINAL;
 (************************************************************************)
 
 PROCEDURE FirstDirEntry (mask: ARRAY OF CHAR;
-                             Subdirectory, AllowHidden: BOOLEAN;
+                         Either, Subdirectory, AllowHidden: BOOLEAN;
                                   VAR (*OUT*) D: DirectoryEntry): BOOLEAN;
 
     (* Gets the first directory entry satisfying the conditions:        *)
-    (*  (a) if Subdirectory is FALSE, we want the first entry that      *)
-    (*      matches "mask".                                             *)
+    (*  (a) if Subdirectory is FALSE, we want the first non-directory   *)
+    (*      entry that matches "mask".                                  *)
     (*  (b) if Subdirectory is TRUE, we want the first directory that   *)
     (*      matches "mask".                                             *)
-    (* In either case "mask" is a filename specification that may       *)
-    (* include wildcards.  Hidden files are included in the search iff  *)
-    (* AllowHidden is TRUE.                                             *)
-
-    CONST ResultBufLen = SIZE(OS2.FILEFINDBUF3);
+    (* If Either is TRUE then both directories and files are allowed,   *)
+    (* and Subdirectory is ignored.  In all cases "mask" is a filename  *)
+    (* specification that may include wildcards.  Hidden files are      *)
+    (* included in the search iff AllowHidden is TRUE.                  *)
 
     VAR attrib: CARDINAL;
 
     BEGIN
         OS2.DosError (OS2.FERR_DISABLEHARDERR);
         D.dirHandle := OS2.HDIR_CREATE;
-        IF Subdirectory THEN
+        IF Either THEN
+            attrib := 035H;
+        ELSIF Subdirectory THEN
             attrib := 1035H;
         ELSE
-            attrib := 035H;
+            attrib := 025H;
         END (*IF*);
         IF AllowHidden THEN
             INC (attrib, 2);
@@ -1025,6 +1124,35 @@ PROCEDURE FirstDirEntry (mask: ARRAY OF CHAR;
             RETURN FirstDirEntryS (mask, attrib, D);
         END (*IF*);
     END FirstDirEntry;
+
+(************************************************************************)
+
+PROCEDURE FileExists (mask: ARRAY OF CHAR;
+                             VAR (*OUT*) IsDirectory: BOOLEAN): BOOLEAN;
+
+    (* Returns TRUE if the specified file or directory exists.  *)
+    (* Returns with IsDirectory TRUE iff it is a directory.     *)
+    (* System and hidden files are included in the search.      *)
+    (* If the mask contains wildcard characters, the returned   *)
+    (* result is for the first match.                           *)
+
+    CONST attrib = 037H;
+
+    VAR exists: BOOLEAN;
+        D: DirectoryEntry;
+
+    BEGIN
+        OS2.DosError (OS2.FERR_DISABLEHARDERR);
+        D.dirHandle := OS2.HDIR_CREATE;
+        IF LongSupport THEN
+            exists := FirstDirEntryL (mask, attrib, D);
+        ELSE
+            exists := FirstDirEntryS (mask, attrib, D);
+        END (*IF*);
+        IsDirectory := exists AND (directory IN D.attr);
+        OS2.DosFindClose (D.dirHandle);
+        RETURN exists;
+    END FileExists;
 
 (************************************************************************)
 

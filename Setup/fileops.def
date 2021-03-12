@@ -10,7 +10,7 @@ DEFINITION MODULE FileOps;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            17 October 2001                 *)
-        (*  Last edited:        26 January 2018                 *)
+        (*  Last edited:        26 November 2020                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (*    The original version of this module used          *)
@@ -146,15 +146,19 @@ PROCEDURE DeleteFile (name: ARRAY OF CHAR);
 
     (* Deletes a named file. *)
 
+PROCEDURE DeleteDir (name: ARRAY OF CHAR);
+
+    (* Deletes a named directory. *)
+
 PROCEDURE CreateFile (name: ARRAY OF CHAR);
 
     (* Creates an empty file.  Deletes any existing file with the same name. *)
 
 PROCEDURE MoveFile (oldname, newname: ARRAY OF CHAR): BOOLEAN;
 
-    (* Renames a file, returns TRUE iff successful.  The source and     *)
-    (* destination files must be on the same drive.  This procedure is  *)
-    (* also a mechanism for renaming a file.                            *)
+    (* Moves a file to a new location, returns TRUE iff successful.     *)
+    (* The source and destination files do not need to be on the same   *)
+    (* drive.  This procedure is also a mechanism for renaming a file.  *)
 
 PROCEDURE CopyFile (src, dst: ARRAY OF CHAR): BOOLEAN;
 
@@ -163,6 +167,11 @@ PROCEDURE CopyFile (src, dst: ARRAY OF CHAR): BOOLEAN;
 PROCEDURE AppendFile (src, dst: ARRAY OF CHAR): BOOLEAN;
 
     (* Appends src to dst, returns TRUE iff successful. *)
+
+PROCEDURE MoveDirectory (srcdir, dstdir: ARRAY OF CHAR): BOOLEAN;
+
+    (* Moves a directory tree.  The two arguments should have no        *)
+    (* trailing '\'.  We assume that dstdir <> srcdir.                  *)
 
 (************************************************************************)
 (*                         FILE POSITION/SIZE                           *)
@@ -263,18 +272,28 @@ PROCEDURE FWriteLJCard64 (cid: ChanId;  value: CARD64);
 (*                       DIRECTORY SEARCHES                             *)
 (************************************************************************)
 
+PROCEDURE FileExists (mask: ARRAY OF CHAR;
+                             VAR (*OUT*) IsDirectory: BOOLEAN): BOOLEAN;
+
+    (* Returns TRUE if the specified file or directory exists.  *)
+    (* Returns with IsDirectory TRUE iff it is a directory.     *)
+    (* System and hidden files are included in the search.      *)
+    (* If the mask contains wildcard characters, the returned   *)
+    (* result is for the first match.                           *)
+
 PROCEDURE FirstDirEntry (mask: ARRAY OF CHAR;
-                             Subdirectory, AllowHidden: BOOLEAN;
+                         Either, Subdirectory, AllowHidden: BOOLEAN;
                                   VAR (*OUT*) D: DirectoryEntry): BOOLEAN;
 
     (* Gets the first directory entry satisfying the conditions:        *)
-    (*  (a) if Subdirectory is FALSE, we want the first entry that      *)
-    (*      matches "mask".                                             *)
+    (*  (a) if Subdirectory is FALSE, we want the first non-directory   *)
+    (*      entry that matches "mask".                                  *)
     (*  (b) if Subdirectory is TRUE, we want the first directory that   *)
     (*      matches "mask".                                             *)
-    (* In either case "mask" is a filename specification that may       *)
-    (* include wildcards.  Hidden files are included in the search iff  *)
-    (* AllowHidden is TRUE.                                             *)
+    (* If Either is TRUE then both directories and files are allowed,   *)
+    (* and Subdirectory is ignored.  In all cases "mask" is a filename  *)
+    (* specification that may include wildcards.  Hidden files are      *)
+    (* included in the search iff AllowHidden is TRUE.                  *)
 
 PROCEDURE NextDirEntry (VAR (*INOUT*) D: DirectoryEntry): BOOLEAN;
 

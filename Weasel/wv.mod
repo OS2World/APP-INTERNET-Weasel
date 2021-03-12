@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2021   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -27,11 +27,28 @@ IMPLEMENTATION MODULE WV;
         (*                    Weasel version number                     *)
         (*                                                              *)
         (*    Started:        6 March 2004                              *)
-        (*    Last edited:    6 March 2004                              *)
+        (*    Last edited:    12 February 2021                          *)
         (*    Status:         OK                                        *)
         (*                                                              *)
         (****************************************************************)
 
+
+IMPORT Strings;
+
+(************************************************************************)
+
+PROCEDURE year(): FourChar;
+
+    (* Returns the year part of the date constant. *)
+
+    VAR result: FourChar;
+
+    BEGIN
+        Strings.Assign (date, result);
+        RETURN result;
+    END year;
+
+(************************************************************************)
 
 END WV.
 

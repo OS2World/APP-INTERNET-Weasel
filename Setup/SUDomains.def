@@ -6,7 +6,7 @@ DEFINITION MODULE SUDomains;
     (*                     Operations on domains                    *)
     (*                                                              *)
     (*        Started:        11 January 2002                       *)
-    (*        Last edited:    28 February 2020                      *)
+    (*        Last edited:    15 April 2020                         *)
     (*        Status:         OK                                    *)
     (*                                                              *)
     (*    IMPORTANT CONVENTION: The procedures in this module       *)
@@ -57,6 +57,12 @@ PROCEDURE SetOriginalDomainName (VAR (*IN*) name: DomainName);
     (* Called by another module that wishes to set the name that will   *)
     (* be recorded as the original domain name.                         *)
 
+PROCEDURE OriginalNotRenamed (VAR (*OUT*) name: DomainName): BOOLEAN;
+
+    (* Returns TRUE iff OriginalDomainName is still equal to the        *)
+    (* default.  The returned value of name is also set to the current  *)
+    (* value of OriginalDomainName.                                     *)
+
 PROCEDURE NoDomainsDefined(): BOOLEAN;
 
     (* Returns TRUE if our INI file records no domains. *)
@@ -98,7 +104,8 @@ PROCEDURE DeleteUser (user: UserName;  MailRoot: FilenameString);
     (* and also deletes the user's mail directory provided that it is   *)
     (* empty.  (If it is not empty, we want the directory deletion      *)
     (* to fail, so that the system manager can decide what to do about  *)
-    (* the problem.)  Note: MailRoot includes a trailing '\'.           *)
+    (* the problem.)  The domain is implicitly defined by the MailRoot  *)
+    (* value.  Note: MailRoot includes a trailing '\'.                  *)
     (* Assumption: the INI file is already open.                        *)
 
 PROCEDURE MoveAllUsers (domain1, domain2: DomainName);

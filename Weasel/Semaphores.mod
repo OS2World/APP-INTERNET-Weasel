@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  PMOS/2 software library                                               *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2020   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Semaphores;
         (*      semaphores.                                     *)
         (*                                                      *)
         (*      Programmer:     P. Moylan                       *)
-        (*      Last edited:    14 February 2001                *)
+        (*      Last edited:    22 June 2020                    *)
         (*      Status:         OK                              *)
         (*                                                      *)
         (*      Observation: the kernel overheads in semaphore  *)
@@ -38,6 +38,9 @@ IMPLEMENTATION MODULE Semaphores;
         (*      I should look at ways to improve this.          *)
         (*                                                      *)
         (********************************************************)
+
+
+FROM STextIO IMPORT WriteString, WriteLn;
 
 FROM SYSTEM IMPORT
     (* proc *)  CAST;
@@ -55,6 +58,8 @@ FROM OS2 IMPORT
 
 (************************************************************************)
 
+CONST MarkerVal = 1;
+
 TYPE
     BlockedListPointer = POINTER TO
                              RECORD
@@ -65,6 +70,7 @@ TYPE
     Semaphore = POINTER TO
                     RECORD
                         value: INTEGER;
+                        marker: CARDINAL;
                         access: Lock;
                         BlockedList: RECORD
                                          head, tail: BlockedListPointer;
@@ -84,6 +90,7 @@ PROCEDURE CreateSemaphore (VAR (*OUT*) s: Semaphore;
         WITH s^ DO
             CreateLock (access);
             value := InitialValue;
+            marker := MarkerVal;
             WITH BlockedList DO
                 head := NIL;  tail := NIL;
             END (*WITH*);
@@ -102,11 +109,34 @@ PROCEDURE DestroySemaphore (VAR (*INOUT*) s: Semaphore);
     (* destroyed.                                                       *)
 
     BEGIN
-        WITH s^ DO
-            DestroyLock (access);
-        END (*WITH*);
-        DISPOSE (s);
+        IF s <> NIL THEN
+            WITH s^ DO
+                DestroyLock (access);
+            END (*WITH*);
+            DISPOSE (s);
+        END (*IF*);
     END DestroySemaphore;
+
+(************************************************************************)
+
+PROCEDURE IsNilSemaphore (s: Semaphore): BOOLEAN;
+
+    (* Returns TRUE iff s has been destroyed. *)
+
+    BEGIN
+        RETURN s = NIL;
+    END IsNilSemaphore;
+
+(************************************************************************)
+
+PROCEDURE SemVal (s: Semaphore): INTEGER;
+
+    (* Returns the semaphore value.  Not intended for production use,   *)
+    (* but can be useful while debugging.                               *)
+
+    BEGIN
+        RETURN s^.value;
+    END SemVal;
 
 (************************************************************************)
 
@@ -119,6 +149,9 @@ PROCEDURE Wait (s: Semaphore);
 
     BEGIN
         IF s = NIL THEN Crash ("Wait on nonexistent semaphore"); END(*IF*);
+        IF s^.marker <> MarkerVal THEN
+            WriteString ("In Wait, Semaphore corrupted");  WriteLn;
+        END (*IF*);
         WITH s^ DO
             Obtain (access);
             DEC (value);
@@ -172,6 +205,9 @@ PROCEDURE TimedWaitInternal (s: Semaphore;  TimeLimit: INTEGER;
         (* impact on most tasks.                                        *)
 
         IF s = NIL THEN Crash ("Wait on nonexistent semaphore"); END(*IF*);
+        IF s^.marker <> MarkerVal THEN
+            WriteString ("In TimedWaitInternal, Semaphore corrupted");  WriteLn;
+        END (*IF*);
         WITH s^ DO
             Obtain (access);
             DEC (value);
@@ -231,6 +267,9 @@ PROCEDURE Signal (s: Semaphore);
 
     BEGIN
         IF s = NIL THEN Crash ("Signal on nonexistent semaphore"); END(*IF*);
+        IF s^.marker <> MarkerVal THEN
+            WriteString ("In Signal, Semaphore corrupted");  WriteLn;
+        END (*IF*);
         WITH s^ DO
             Obtain (access);
             INC (value);
@@ -256,6 +295,46 @@ PROCEDURE Signal (s: Semaphore);
             END (*IF*);
         END (*WITH*);
     END Signal;
+
+(************************************************************************)
+
+PROCEDURE SSignal (text: ARRAY OF CHAR;  s: Semaphore);
+
+    (* A special version of Signal where we record the calls.   *)
+
+    VAR p: BlockedListPointer;  ThreadToUnblock: TaskID;
+
+    BEGIN
+        WriteString (text);  WriteString (" SSignal");  WriteLn;
+        IF s = NIL THEN Crash ("Signal on nonexistent semaphore"); END(*IF*);
+        IF s^.marker <> MarkerVal THEN
+            WriteString ("In Signal, Semaphore corrupted");  WriteLn;
+        END (*IF*);
+        WITH s^ DO
+            Obtain (access);
+            INC (value);
+            IF value <= 0 THEN
+                WITH BlockedList DO
+                    p := head;  head := p^.next;
+                    IF head = NIL THEN tail := NIL END(*IF*);
+                    ThreadToUnblock := p^.ThreadID;
+                    DISPOSE (p);
+                END (*WITH*);
+
+                (* The recursion below is to handle the possibility     *)
+                (* that we're trying to resume a task that no longer    *)
+                (* exists.  This is not a common situation, but it      *)
+                (* does occur during program shutdown.                  *)
+
+                Release (access);
+                IF NOT ResumeTask (ThreadToUnblock) THEN
+                    Signal (s);
+                END (*IF*);
+            ELSE
+                Release (access);
+            END (*IF*);
+        END (*WITH*);
+    END SSignal;
 
 (************************************************************************)
 

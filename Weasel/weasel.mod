@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2019   Peter Moylan                                     *)
+(*  Copyright (C) 2021   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ MODULE Weasel;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            12 April 1998                   *)
-        (*  Last edited:        11 December 2019                *)
+        (*  Last edited:        12 February 2021                *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -590,7 +590,8 @@ PROCEDURE RunTheServer;
                 Strings.Append ("            ", message);
                 UpdateTopScreenLine (0, message);
                 (*SetOurTitle (message);*)
-                UpdateTopScreenLine (25, "(C) 1998-2019 Peter Moylan");
+                UpdateTopScreenLine (25, "(C) 1998-xxxx Peter Moylan");
+                UpdateTopScreenLine (34, WV.year());
                 UpdateTopScreenLine (54, "Users:");
 
                 EVAL (SetBreakHandler (ControlCHandler));
@@ -715,6 +716,15 @@ PROCEDURE RunTheServer;
                     END (*FOR*);
                     SocketsToTest := DefaultSocketsToTest;
                 END (*WHILE*);
+
+                IF NOT ShutdownInProgress THEN
+
+                    (* select() has failed for some reason other than   *)
+                    (* normal termination.                              *)
+
+                    LogTransactionL (LogID, "Unexpected program termination");
+                    WriteError (LogID);
+                END (*IF*);
 
                 (* Close all open main sockets. *)
 
@@ -1004,7 +1014,7 @@ BEGIN
         abort := NOT LoadINIData();
     END (*IF*);
     IF abort THEN
-        WriteString ("ERROR: can't open INI file.");
+        WriteString ("ERROR: can't open INI file.  Please run Setup");
         WriteLn;
     ELSE
         GetProgramName (ProgVersion);

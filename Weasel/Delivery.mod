@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2019   Peter Moylan                                     *)
+(*  Copyright (C) 2021   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -29,7 +29,7 @@ IMPLEMENTATION MODULE Delivery;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            12 May 1998                     *)
-        (*  Last edited:        11 December 2019                *)
+        (*  Last edited:        11 February 2021                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -4740,7 +4740,7 @@ PROCEDURE CheckUnsentMail (LogID: TransactionLogID;  FirstTime: BOOLEAN);
     BEGIN
         mask := ForwardDirName;
         Strings.Append ("*.FWD", mask);
-        found := FirstDirEntry (mask, FALSE, FirstTime, D);
+        found := FirstDirEntry (mask, FALSE, FALSE, FirstTime, D);
         filesize := D.size;
         WHILE found AND NOT ShutdownRequest DO
             filename := ForwardDirName;
@@ -4977,7 +4977,7 @@ PROCEDURE UnhidePendingFiles;
     BEGIN
         mask := ForwardDirName;
         Strings.Append ("*.FWD", mask);
-        found := FirstDirEntry (mask, FALSE, TRUE, D);
+        found := FirstDirEntry (mask, FALSE, FALSE, TRUE, D);
         WHILE found DO
             filename := ForwardDirName;
             Strings.Append (D.name, filename);

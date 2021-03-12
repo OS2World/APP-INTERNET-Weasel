@@ -13,14 +13,16 @@ DEFINITION MODULE RINIData;
         (*     a handle on every call.                              *)
         (*                                                          *)
         (*      Started:        13 January 2002                     *)
-        (*      Last edited:    29 August 2019                      *)
+        (*      Last edited:    14 December 2020                    *)
         (*      Status:         OK                                  *)
         (*                                                          *)
         (************************************************************)
 
 FROM SYSTEM IMPORT LOC, INT16;
 
-TYPE StringReadState;      (* is private *)
+TYPE StringReadState;       (* is private *)
+
+TYPE SearchState;           (* is private *)
 
 PROCEDURE ServerIPAddress(): CARDINAL;
 
@@ -173,7 +175,12 @@ PROCEDURE MakeDirectory (dirname: ARRAY OF CHAR);
     (* Creates a directory on either the local or remote machine, as    *)
     (* appropriate.  Has no effect if the directory already exists.     *)
 
-PROCEDURE MoveDirectory (srcname, dstname: ARRAY OF CHAR);
+PROCEDURE MoveFile (srcname, dstname: ARRAY OF CHAR): BOOLEAN;
+
+    (* Executes a "move srcname, dstname" on either the local or remote *)
+    (* machine, as appropriate.                                         *)
+
+PROCEDURE MoveDirectory (srcname, dstname: ARRAY OF CHAR): BOOLEAN;
 
     (* Executes a "move srcname, dstname" on either the local or remote *)
     (* machine, as appropriate.                                         *)
@@ -188,6 +195,39 @@ PROCEDURE DeleteDirectory (dirname: ARRAY OF CHAR): BOOLEAN;
     (* Deletes a directory on either the local or remote machine, as    *)
     (* appropriate.  Returns FALSE if the deletion failed.  Note that   *)
     (* only empty directories can be deleted.                           *)
+
+PROCEDURE FirstDirEntry (mask: ARRAY OF CHAR;
+                            Either, Subdirectory, AllowHidden: BOOLEAN;
+                                VAR (*OUT*) S: SearchState;
+                                VAR (*OUT*) name: ARRAY OF CHAR): BOOLEAN;
+
+    (* Gets the first directory entry satisfying the conditions:        *)
+    (*  (a) if Subdirectory is FALSE, we want the first non-directory   *)
+    (*      entry that matches "mask".                                  *)
+    (*  (b) if Subdirectory is TRUE, we want the first directory that   *)
+    (*      matches "mask".                                             *)
+    (* If Either is TRUE then both directories and files are allowed,   *)
+    (* and Subdirectory is ignored.  In all cases "mask" is a filename  *)
+    (* specification that may include wildcards.  Hidden files are      *)
+    (* included in the search iff AllowHidden is TRUE.  (In the remote  *)
+    (* case, the AllowHidden parameter is ignored.)                     *)
+
+    (* Restriction: if the mask contains wildcard characters '*' and/or *)
+    (* '?', these may only be in the "file" part of the specification,  *)
+    (* not in the "directory" part.  That is, the search may not cross  *)
+    (* multiple directories.  Typically you would use a mask of the     *)
+    (* form dirname/*, where dirname is the name of a directory in      *)
+    (* either fully qualified form, or relative to the current directory. *)
+
+PROCEDURE NextDirEntry (S: SearchState;
+                                VAR (*OUT*) name: ARRAY OF CHAR): BOOLEAN;
+
+    (* Read the next directory entry satisfying the search criteria     *)
+    (* specified by the FirstDirEntry call.                             *)
+
+PROCEDURE DirSearchDone (VAR (*INOUT*) S: SearchState);
+
+    (* Terminates the search. *)
 
 END RINIData.
 

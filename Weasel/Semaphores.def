@@ -6,12 +6,18 @@ DEFINITION MODULE Semaphores;
         (*      basic operations on a semaphore.                *)
         (*                                                      *)
         (*      Programmer:     P. Moylan                       *)
-        (*      Last edited:    21 March 2014                   *)
+        (*      Last edited:    22 June 2020                    *)
         (*      Status:         OK                              *)
         (*                                                      *)
         (********************************************************)
 
+
 TYPE Semaphore;         (* is private *)
+
+
+PROCEDURE IsNilSemaphore (s: Semaphore): BOOLEAN;
+
+    (* Returns TRUE iff s has been destroyed. *)
 
 PROCEDURE CreateSemaphore (VAR (*OUT*) s: Semaphore; InitialValue: CARDINAL);
 
@@ -26,6 +32,11 @@ PROCEDURE DestroySemaphore (VAR (*INOUT*) s: Semaphore);
     (* killed?).  At present we take the easy way out and assume that   *)
     (* there are no pending operations on s at the time that it is      *)
     (* destroyed.                                                       *)
+
+PROCEDURE SemVal (s: Semaphore): INTEGER;
+
+    (* Returns the semaphore value.  Not intended for production use,   *)
+    (* but can be useful while debugging.                               *)
 
 PROCEDURE Wait (s: Semaphore);
 
@@ -49,6 +60,10 @@ PROCEDURE Signal (s: Semaphore);
 
     (* Increments the semaphore value.  Unblocks one waiting task,      *)
     (* if there was one.                                                *)
+
+PROCEDURE SSignal (text: ARRAY OF CHAR;  s: Semaphore);
+
+    (* A special version of Signal where we record the calls.   *)
 
 END Semaphores.
 

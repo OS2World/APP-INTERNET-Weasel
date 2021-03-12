@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  PMOS/2 software library                                               *)
-(*  Copyright (C) 2014   Peter Moylan                                     *)
+(*  Copyright (C) 2020   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -27,10 +27,15 @@ IMPLEMENTATION MODULE Timer;
         (*                 Timed operations                     *)
         (*                                                      *)
         (*      Author:         P. Moylan                       *)
-        (*      Last edited:    21 March 2014                   *)
+        (*      Last edited:    7 June 2020                     *)
         (*      Status:         Working                         *)
         (*                                                      *)
         (********************************************************)
+
+
+FROM SYSTEM IMPORT
+    (* type *)  ADDRESS,
+    (* proc *)  CAST;
 
 FROM OS2 IMPORT
     (* proc *)  DosSleep;
@@ -64,7 +69,9 @@ PROCEDURE TimedWait (s: Semaphore;  TimeLimit: INTEGER;
     (* milliseconds.                                                    *)
 
     BEGIN
-        TimedWaitInternal (s, TimeLimit, FALSE, TimedOut);
+        IF CAST (ADDRESS, s) <> NIL THEN
+            TimedWaitInternal (s, TimeLimit, FALSE, TimedOut);
+        END (*IF*);
     END TimedWait;
 
 (************************************************************************)

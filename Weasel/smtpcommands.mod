@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2019   Peter Moylan                                     *)
+(*  Copyright (C) 2020   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SMTPCommands;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            27 April 1998                   *)
-        (*  Last edited:        9 June 2019                     *)
+        (*  Last edited:        15 May 2020                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -99,7 +99,7 @@ FROM Authentication IMPORT
                 AuthenticationDone, SetAuthMethods;
 
 FROM HammerCheck IMPORT
-    (* proc *)  NotePasswordError;
+    (* proc *)  NotePasswordError, ClearPasswordError;
 
 FROM SMTPData IMPORT
     (* type *)  ItemDescriptor,
@@ -141,6 +141,7 @@ TYPE
     (*     desc        Information about the next item to be delivered  *)
     (*     BadCommandCount  number of unknown commands we've received   *)
     (*                      since last good command                     *)
+    (*     BadAuthCount number of authentication errors in this session *)
     (*     authenticated    TRUE iff we have processed a valid AUTH     *)
     (*     whitelisted      TRUE iff the client is on our whitelist     *)
     (*     AcceptRelayMail  TRUE iff we're willing to accept mail to    *)
@@ -423,6 +424,7 @@ PROCEDURE AUTH (session: Session;  VAR (*IN*) args: ARRAY OF CHAR);
                 AuthenticationDone (state, username, domain);
             END (*IF*);
             IF session^.authenticated AND SMTPAuthAllowed (username, domain) THEN
+                ClearPasswordError (session^.ClientAddr);
                 Reply (session, "235 Authentication successful");
             ELSE
                 session^.authenticated := FALSE;

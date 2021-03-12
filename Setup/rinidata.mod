@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2019   Peter Moylan                                     *)
+(*  Copyright (C) 2020   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -35,12 +35,12 @@ IMPLEMENTATION MODULE RINIData;
         (*     a handle on every call.                              *)
         (*                                                          *)
         (*      Started:        13 January 2002                     *)
-        (*      Last edited:    29 August 2019                      *)
+        (*      Last edited:    5 December 2020                     *)
         (*      Status:         OK                                  *)
         (*                                                          *)
         (************************************************************)
 
-IMPORT OS2, Strings, FileSys, INIData, Remote;
+IMPORT OS2, Strings, FileSys, FileOps, INIData, Remote;
 
 FROM SYSTEM IMPORT
     (* type *)  LOC, INT16;
@@ -52,7 +52,11 @@ FROM FileOps IMPORT
 
 FROM Remote IMPORT
     (* proc *)  SelectRemoteFile, OurIPAddress,
-                SendCommand, ExecCommand, ExecCommand2, ReceiveLine;
+                SendCommand, ExecCommand, ExecCommand2, ReceiveLine,
+                StartDirectoryListing, NextDirectoryEntry, FinishDirectoryListing;
+
+FROM WildCard IMPORT
+    (* proc *)  WildMatch;
 
 FROM MiscFuncs IMPORT
     (* type *)  CharArrayPointer,
@@ -723,23 +727,33 @@ PROCEDURE MakeDirectory (dirname: ARRAY OF CHAR);
 
 (************************************************************************)
 
-PROCEDURE MoveDirectory (srcname, dstname: ARRAY OF CHAR);
+PROCEDURE MoveFile (srcname, dstname: ARRAY OF CHAR): BOOLEAN;
 
     (* Executes a "move srcname, dstname" on either the local or remote *)
     (* machine, as appropriate.                                         *)
 
     BEGIN
         IF RemoteFlag THEN
-            EVAL (ExecCommand2 ("A", srcname));
-            EVAL (ExecCommand2 ("R", dstname));
+            RETURN ExecCommand2 ("A", srcname)
+                    AND ExecCommand2 ("R", dstname);
         ELSE
-            OS2.DosMove (srcname, dstname);
+            RETURN FileOps.MoveFile (srcname, dstname);
+        END (*IF*);
+    END MoveFile;
 
-            (* Possible eCS bug: DosMove doesn't seem to remove the     *)
-            (* source directory, so we'd better delete it explicitly.   *)
+(************************************************************************)
 
-            OS2.DosDeleteDir (srcname);
+PROCEDURE MoveDirectory (srcname, dstname: ARRAY OF CHAR): BOOLEAN;
 
+    (* Executes a "move srcname, dstname" on either the local or remote *)
+    (* machine, as appropriate.                                         *)
+
+    BEGIN
+        IF RemoteFlag THEN
+            RETURN ExecCommand2 ("A", srcname)
+                    AND ExecCommand2 ("R", dstname);
+        ELSE
+            RETURN FileOps.MoveDirectory (srcname, dstname);
         END (*IF*);
     END MoveDirectory;
 
@@ -773,6 +787,219 @@ PROCEDURE DeleteDirectory (dirname: ARRAY OF CHAR): BOOLEAN;
             RETURN OS2.DosDeleteDir (dirname) = 0;
         END (*IF*);
     END DeleteDirectory;
+
+(************************************************************************)
+(*                          DIRECTORY SEARCHES                          *)
+(************************************************************************)
+
+TYPE
+    NameList = POINTER TO NameRecord;
+
+    NameRecord  =   RECORD
+                        next: NameList;
+                        this: FilenameString;
+                    END (*RECORD*);
+
+    SearchState = POINTER TO SearchRecord;
+
+    SearchRecord =  RECORD
+                        D: FileOps.DirectoryEntry;
+                        list: NameList;
+                    END (*RECORD*);
+
+(************************************************************************)
+
+PROCEDURE GetRemoteListing (mask: ARRAY OF CHAR;  Subdirectory: BOOLEAN): NameList;
+
+    (* Gets a list of all files or subdirectories matching the criteria *)
+    (* given in FirstDirEntry (see below).  If the mask contains        *)
+    (* wildcard characters '*' and/or '?', these may only be in the     *)
+    (* "file" part of the specification, not in the "directory" part.   *)
+    (* That is, the search may not cross multiple directories.          *)
+
+    VAR slashpos, pos2, L: CARDINAL;
+        found, found2: BOOLEAN;
+        dir, filename: FilenameString;
+        result, tail: NameList;
+
+    BEGIN
+        (* Special case: empty mask means empty result. *)
+
+        IF mask[0] = Nul THEN
+            RETURN NIL;
+        END (*IF*);
+
+        (* Let slashpos be the position of the LAST slash. *)
+
+        L := Strings.Length (mask) - 1;
+        Strings.FindPrev ('/', mask, L, found, slashpos);
+        Strings.FindPrev ('\', mask, L, found2, pos2);
+        IF found THEN
+            IF found2 AND (pos2 > slashpos) THEN
+                slashpos := pos2;
+            END (*IF*);
+        ELSE
+            found := found2;  slashpos := pos2;
+        END (*IF*);
+
+        (* Let dir be the part before the slash, and mask be the part after. *)
+
+        IF found THEN
+            Strings.Assign (mask, dir);
+            dir[slashpos] := Nul;
+            Strings.Delete (mask, 0, slashpos+1);
+        ELSE
+            dir[0] := Nul;
+        END (*IF*);
+
+        (* Ask IniServe for the directory listing. *)
+
+        result := NIL;  tail := NIL;
+        found := StartDirectoryListing (dir);
+        WHILE found DO
+            found := NextDirectoryEntry (filename);
+            IF found THEN
+
+                (* We still have to distinguish between directory   *)
+                (* and non-directory files.                         *)
+
+                L := Strings.Length (filename) - 1;
+                found2 := filename[L] = '/';
+                IF found2 THEN
+                    filename[L] := Nul;
+                END (*IF*);
+                IF (found2 = Subdirectory) AND WildMatch (filename, mask) THEN
+
+                    (* Finally, a name that meets all the criteria. *)
+
+                    IF tail = NIL THEN
+                        NEW (result);
+                        tail := result;
+                    ELSE
+                        NEW (tail^.next);
+                        tail := tail^.next;
+                    END (*IF*);
+                    tail^.next := NIL;
+                    tail^.this := filename;
+                END (*IF*);
+            END (*IF*);
+        END (*WHILE*);
+        FinishDirectoryListing;
+        RETURN result;
+
+    END GetRemoteListing;
+
+(************************************************************************)
+
+PROCEDURE TakeFromList (VAR (*INOUT*) list: NameList;
+                                VAR (*OUT*) name: ARRAY OF CHAR): BOOLEAN;
+
+    (* Removes the first element of a NameList. *)
+
+    VAR p: NameList;
+
+    BEGIN
+        p := list;
+        IF p = NIL THEN
+            name[0] := Nul;
+            RETURN FALSE;
+        ELSE
+            Strings.Assign (p^.this, name);
+            list := p^.next;
+            DISPOSE (p);
+            RETURN TRUE;
+        END (*IF*);
+    END TakeFromList;
+
+(************************************************************************)
+
+PROCEDURE FirstDirEntry (mask: ARRAY OF CHAR;
+                            Either, Subdirectory, AllowHidden: BOOLEAN;
+                                VAR (*OUT*) S: SearchState;
+                                VAR (*OUT*) name: ARRAY OF CHAR): BOOLEAN;
+
+    (* Gets the first directory entry satisfying the conditions:        *)
+    (*  (a) if Subdirectory is FALSE, we want the first non-directory   *)
+    (*      entry that matches "mask".                                  *)
+    (*  (b) if Subdirectory is TRUE, we want the first directory that   *)
+    (*      matches "mask".                                             *)
+    (* If Either is TRUE then both directories and files are allowed,   *)
+    (* and Subdirectory is ignored.  In all cases "mask" is a filename  *)
+    (* specification that may include wildcards.  Hidden files are      *)
+    (* included in the search iff AllowHidden is TRUE.  (In the remote  *)
+    (* case, the AllowHidden parameter is ignored.)                     *)
+
+    (* Restriction: if the mask contains wildcard characters '*' and/or *)
+    (* '?', these may only be in the "file" part of the specification,  *)
+    (* not in the "directory" part.  That is, the search may not cross  *)
+    (* multiple directories.  Typically you would use a mask of the     *)
+    (* form dirname/*, where dirname is the name of a directory in      *)
+    (* either fully qualified form, or relative to the current directory. *)
+
+    VAR found: BOOLEAN;
+
+    BEGIN
+        NEW (S);
+        IF RemoteFlag THEN
+            S^.list := GetRemoteListing (mask, Subdirectory);
+            found := TakeFromList (S^.list, name);
+        ELSE
+            S^.list := NIL;
+            found := FileOps.FirstDirEntry (mask, Either, Subdirectory,
+                                                AllowHidden, S^.D);
+            IF found THEN
+                Strings.Assign (S^.D.name, name);
+            END (*IF*);
+        END (*IF*);
+        RETURN found;
+    END FirstDirEntry;
+
+(************************************************************************)
+
+PROCEDURE NextDirEntry (S: SearchState;
+                                VAR (*OUT*) name: ARRAY OF CHAR): BOOLEAN;
+
+    (* Read the next directory entry satisfying the search criteria     *)
+    (* specified by the FirstDirEntry call.                             *)
+
+    VAR found: BOOLEAN;
+
+    BEGIN
+        IF S = NIL THEN
+            found := FALSE;
+        ELSIF RemoteFlag THEN
+            found := TakeFromList (S^.list, name);
+        ELSE
+            found := FileOps.NextDirEntry (S^.D);
+            IF found THEN
+                Strings.Assign (S^.D.name, name);
+            END (*IF*);
+        END (*IF*);
+        RETURN found;
+    END NextDirEntry;
+
+(************************************************************************)
+
+PROCEDURE DirSearchDone (VAR (*INOUT*) S: SearchState);
+
+    (* Terminates the search. *)
+
+    VAR p: NameList;
+
+    BEGIN
+        IF S <> NIL THEN
+            IF RemoteFlag THEN
+                p := S^.list;
+                WHILE p <> NIL DO
+                    S^.list := p^.next;
+                    DISPOSE (p);
+                END (*WHILE*);
+            ELSE
+                FileOps.DirSearchDone(S^.D);
+            END (*IF*);
+            DISPOSE (S);
+        END (*IF*);
+    END DirSearchDone;
 
 (************************************************************************)
 

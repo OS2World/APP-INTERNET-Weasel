@@ -7,7 +7,7 @@ DEFINITION MODULE TaskControl;
         (*                  related procedures.                         *)
         (*                                                              *)
         (*      Programmer:     P. Moylan                               *)
-        (*      Last edited:    1 May 2019                              *)
+        (*      Last edited:    17 August 2020                          *)
         (*      Status:         OK                                      *)
         (*                                                              *)
         (****************************************************************)
@@ -21,7 +21,22 @@ FROM OS2 IMPORT HMTX;
 (*                                                                      *)
 (************************************************************************)
 
-CONST MaxPriority = 95;
+CONST MaxPriority = 159;
+
+    (* NOTE: an OS/2 thread has a priority class with values    *)
+    (*      0   null task (?)                                   *)
+    (*      1   idle                                            *)
+    (*      2   regular                                         *)
+    (*      3   time critical                                   *)
+    (*      4   server                                          *)
+    (* and a priority within the class in the range -31..+31.   *)
+    (* The XDS processes module encodes this as                 *)
+    (*   urgency = 32*class + (priority within class)           *)
+    (* giving a maximum value of 4*32+31 = 159 because it makes *)
+    (* no provision for a negative priority within class.       *)
+    (* A different encoding is used inside the tib2 thread      *)
+    (* information block, where the class is stored in the high *)
+    (* byte of the priority value.                              *)
 
 TYPE
     PriorityLevel = [0..MaxPriority];
@@ -62,6 +77,10 @@ PROCEDURE CreateTask (StartAddress: PROC;  taskpriority: PriorityLevel;
     (*        0 - 31        PRTYC_REGULAR                               *)
     (*       32 - 63        PRTYC_TIMECRITICAL                          *)
     (*       64 - 95        PRTYC_FOREGROUNDSERVER                      *)
+    (*                                                                  *)
+    (* NOTE: this might be obsolete information from an earlier version *)
+    (* of XDS Modula-2.  See earlier in this file for the values that   *)
+    (* I found from test.                                               *)
 
 PROCEDURE CreateTask1 (StartAddress: PROC1;  taskpriority: PriorityLevel;
                           taskname: NameString;  param: ADDRESS): BOOLEAN;

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support module for some of my applications                            *)
-(*  Copyright (C) 2019   Peter Moylan                                     *)
+(*  Copyright (C) 2020   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE MyClock;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            26 June 1998                    *)
-        (*  Last edited:        17 October 2019                 *)
+        (*  Last edited:        24 September 2020               *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (*  The reason for the multiplicity of conversion       *)
@@ -395,7 +395,7 @@ PROCEDURE FormatDateTime (Time: DateTime;  format: ARRAY OF CHAR;
                             (* -1 means undefined, other values are minutes *)
 
                             IF zonefound THEN
-                                Convert2 (-Time.zone MOD 60, result, k);
+                                Convert2 (ABS(Time.zone) MOD 60, result, k);
                             ELSE
                                 IF Time.zone > 0 THEN
                                     result[k] := '-';
@@ -403,7 +403,7 @@ PROCEDURE FormatDateTime (Time: DateTime;  format: ARRAY OF CHAR;
                                     result[k] := '+';
                                 END (*IF*);
                                 INC (k);
-                                Convert2 (-Time.zone DIV 60, result, k);
+                                Convert2 (ABS(Time.zone) DIV 60, result, k);
                             END (*IF*);
                         END (*IF*);
                         zonefound := TRUE;

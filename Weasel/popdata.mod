@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2019   Peter Moylan                                     *)
+(*  Copyright (C) 2021   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE POPData;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            22 April 1998                   *)
-        (*  Last edited:        2 May 2019                      *)
+        (*  Last edited:        11 February 2021                *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -342,7 +342,7 @@ PROCEDURE BuildDescriptorArray (M: Mailbox);
         M^.MessageNoOffset := 0;
 
         M^.usingdiskfile := FALSE;
-        MoreToGo := FirstDirEntry (SearchString, FALSE, FALSE, D);
+        MoreToGo := FirstDirEntry (SearchString, FALSE, FALSE, FALSE, D);
         WHILE MoreToGo DO
             count := InitialCacheLoad (M, D);
             MoreToGo := (count = CacheSize) AND NextDirEntry (D);
@@ -776,7 +776,7 @@ PROCEDURE GetUID (M: Mailbox;  MessageNumber: CARDINAL;
             IF lognames THEN
                 LogTransaction (ID, name);
             END (*IF*);
-            EVAL (FirstDirEntry(name, FALSE, FALSE, D));
+            EVAL (FirstDirEntry(name, FALSE, FALSE, FALSE, D));
             DirSearchDone (D);
             ctx := MD5Init();
             MD5Update (ctx, name, LENGTH(name));

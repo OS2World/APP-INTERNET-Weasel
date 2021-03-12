@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE SUDomains;
     (*                     Operations on domains                    *)
     (*                                                              *)
     (*        Started:        11 January 2002                       *)
-    (*        Last edited:    28 February 2020                      *)
+    (*        Last edited:    2 May 2020                            *)
     (*        Status:         OK                                    *)
     (*                                                              *)
     (****************************************************************)
@@ -38,6 +38,9 @@ IMPORT Strings, OS2, FileSys;
 
 FROM SYSTEM IMPORT
     (* proc *)  ADR;
+
+FROM SUPage1 IMPORT
+    (* proc *)  CurrentMailRoot;
 
 FROM Languages IMPORT
     (* type *)  LangHandle,
@@ -569,7 +572,7 @@ PROCEDURE MoveAllUsers (domain1, domain2: DomainName);
                                      user: UserName;
                                  END (*RECORD*);
 
-    VAR SrcRoot, DstRoot, SrcDir, DstDir: FilenameString;
+    VAR MailRoot, SrcRoot, DstRoot, SrcDir, DstDir: FilenameString;
         userlist, listelt: ListOfUsers;
         state: StringReadState;
         current: UserName;
@@ -577,6 +580,8 @@ PROCEDURE MoveAllUsers (domain1, domain2: DomainName);
         IMAPFlag, IMFlagExists: BOOLEAN;
 
     BEGIN
+        CurrentMailRoot(MailRoot);
+
         (* Work out the source directory and source INI file. *)
 
         SrcRoot := MailRoot;
@@ -665,7 +670,7 @@ PROCEDURE MoveAllUsers (domain1, domain2: DomainName);
                 Strings.Append (current, SrcDir);
                 DstDir := DstRoot;
                 Strings.Append (current, DstDir);
-                MoveDirectory (SrcDir, DstDir);
+                EVAL(MoveDirectory (SrcDir, DstDir));
             END (*IF*);
         END (*WHILE*);
 
@@ -695,12 +700,13 @@ PROCEDURE UserCount (domain: DomainName): CARDINAL;
 
     (* Returns the number of users in domain. *)
 
-    VAR INIFile: FilenameString;
+    VAR MailRoot, INIFile: FilenameString;
         count: CARDINAL;
         state: StringReadState;
         current: UserName;
 
     BEGIN
+        CurrentMailRoot (MailRoot);
         count := 0;
 
         (* Work out the source directory and source INI file. *)
@@ -745,7 +751,8 @@ PROCEDURE DeleteUser (user: UserName;  MailRoot: FilenameString);
     (* and also deletes the user's mail directory provided that it is   *)
     (* empty.  (If it is not empty, we want the directory deletion      *)
     (* to fail, so that the system manager can decide what to do about  *)
-    (* the problem.)  Note: MailRoot includes a trailing '\'.           *)
+    (* the problem.)  The domain is implicitly defined by the MailRoot  *)
+    (* value.  Note: MailRoot includes a trailing '\'.                  *)
     (* Assumption: the INI file is already open.                        *)
 
     BEGIN
@@ -826,7 +833,7 @@ PROCEDURE RenameDomain (oldname, newname: DomainName);
         Strings.Append (oldname, srcdir);
         Strings.Assign (MailRoot, dstdir);
         Strings.Append (newname, dstdir);
-        MoveDirectory (srcdir, dstdir);
+        EVAL(MoveDirectory (srcdir, dstdir));
         ChangeDomainName (oldname, newname);
     END RenameDomain;
 
@@ -930,6 +937,19 @@ PROCEDURE ResetOriginal (VAR (*OUT*) NewOriginalName: DomainName);
             NewOriginalName := first;
         END (*IF*);
     END ResetOriginal;
+
+(************************************************************************)
+
+PROCEDURE OriginalNotRenamed (VAR (*OUT*) name: DomainName): BOOLEAN;
+
+    (* Returns TRUE iff OriginalDomainName is still equal to the        *)
+    (* default.  The returned value of name is also set to the current  *)
+    (* value of OriginalDomainName.                                     *)
+
+    BEGIN
+        name := OriginalDomainName;
+        RETURN Strings.Equal (name, DefaultOriginalName);
+    END OriginalNotRenamed;
 
 (************************************************************************)
 

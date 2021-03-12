@@ -6,7 +6,7 @@ DEFINITION MODULE HammerCheck;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            6 November 2017                 *)
-        (*  Last edited:        16 November 2017                *)
+        (*  Last edited:        15 May 2020                     *)
         (*  Status:             OK                              *)
         (*                                                      *)
         (********************************************************)
@@ -22,10 +22,15 @@ PROCEDURE NotePasswordError (IPAddress: CARDINAL);
     (* behaviour, should be locked out for a short time.  For a         *)
     (* persistent attacker, that "short time" will increase.            *)
 
-PROCEDURE Throttle (IPAddress: CARDINAL;  ID: TransactionLogID): BOOLEAN;
+PROCEDURE ClearPasswordError (IPAddress: CARDINAL);
 
-    (* Returns TRUE iff this IP address is on the list of addresses to  *)
-    (* be blocked because of recent suspect behaviour.                  *)
+    (* Removes this IP address from the list, if it is present.         *)
+
+PROCEDURE Throttle (IPAddress: CARDINAL;  ID: TransactionLogID): CARDINAL;
+
+    (* If this IP address is on the list of addresses to be blocked     *)
+    (* because of recent suspect behaviour, returns the blocking time   *)
+    (* in seconds.  Otherwise, returns 0.                               *)
 
 END HammerCheck.
 

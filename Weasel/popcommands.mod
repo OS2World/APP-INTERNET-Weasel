@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  The Weasel mail server                                                *)
-(*  Copyright (C) 2019   Peter Moylan                                     *)
+(*  Copyright (C) 2020   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE POPCommands;
         (*                                                      *)
         (*  Programmer:         P. Moylan                       *)
         (*  Started:            21 April 1998                   *)
-        (*  Last edited:        10 June 2019                    *)
+        (*  Last edited:        15 May 2020                     *)
         (*  Status:             Working                         *)
         (*                                                      *)
         (********************************************************)
@@ -112,7 +112,7 @@ FROM POPData IMPORT
                 ClaimMailbox;
 
 FROM HammerCheck IMPORT
-    (* proc *)  NotePasswordError;
+    (* proc *)  NotePasswordError, ClearPasswordError;
 
 FROM Domains IMPORT
     (* type *)  Domain, NameOfDomain;
@@ -663,6 +663,9 @@ PROCEDURE APOP (session: Session;  VAR (*IN*) args: ARRAY OF CHAR);
                 Reply (session, "-ERR authorisation failure");
             END (*IF*);
             Sleep (3000);
+        ELSE
+            ClearPasswordError (session^.ClientAddr);
+            session^.badpasscount := 0;
         END (*IF*);
 
     END APOP;
@@ -731,6 +734,8 @@ PROCEDURE AUTH (session: Session;  VAR (*IN*) args: ARRAY OF CHAR);
             END (*IF*);
         END (*IF*);
         IF authenticated THEN
+            ClearPasswordError (session^.ClientAddr);
+            session^.badpasscount := 0;
             CASE ClaimMailbox (session^.mailbox, session^.ID, username,
                                                         session^.domain) OF
                |  0:  session^.state := LoggedIn;
@@ -890,6 +895,9 @@ PROCEDURE PASS (session: Session;  VAR (*IN*) password: ARRAY OF CHAR);
                     Reply (session, "-ERR authorisation failure");
                 END (*IF*);
                 Sleep (3000);
+            ELSE
+                ClearPasswordError (session^.ClientAddr);
+                session^.badpasscount := 0;
             END (*IF*);
 
         END (*IF*);

@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Setup for Weasel mail server                                          *)
-(*  Copyright (C) 2018   Peter Moylan                                     *)
+(*  Copyright (C) 2020   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE DomainPage;
         (*             The 'our domains' page of the notebook           *)
         (*                                                              *)
         (*        Started:        19 December 2001                      *)
-        (*        Last edited:    27 May 2018                           *)
+        (*        Last edited:    11 April 2020                         *)
         (*        Status:         OK                                    *)
         (*                                                              *)
         (****************************************************************)
@@ -40,7 +40,10 @@ IMPORT OS2, OS2RTL, DID, Strings, CommonSettings, OneLine, DomainEditor, SUDomai
 
 FROM Languages IMPORT
     (* type *)  LangHandle,
-    (* proc *)  StrToBuffer, StrToBufferN;
+    (* proc *)  StrToBuffer, StrToBufferN, StrToBufferA;
+
+FROM SUPage1 IMPORT
+    (* proc *)  CurrentMailRoot;
 
 FROM WSUINI IMPORT
     (* proc *)  OpenINIFile, CloseINIFile;
@@ -72,7 +75,6 @@ VAR
     OurPageHandle, notebookhandle, hwndParent: OS2.HWND;
     Changed, ChangeInProgress, UseTNI: BOOLEAN;
     PageID, DomainCount: CARDINAL;
-    MailRoot: FilenameString;
     AcceptUnknown: BOOLEAN;
     W4style: BOOLEAN;
     OurLang: LangHandle;
@@ -288,6 +290,7 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
                                     END (*RECORD*);
 
     VAR name: DomainName;
+        MailRoot: FilenameString;
         state: StringReadState;
         head, next: ListOfDomains;
 
@@ -329,6 +332,7 @@ PROCEDURE LoadValues (hwnd: OS2.HWND);
         (* the 'accept mail for unknown users' option, open and close   *)
         (* all domains so that the alias lists can be updated.          *)
 
+        CurrentMailRoot (MailRoot);
         WHILE head <> NIL DO
             next := head^.next;
             DomainEditor.Edit (hwnd, head^.this, MailRoot,
@@ -384,6 +388,7 @@ PROCEDURE ["SysCall"] DialogueProc (hwnd     : OS2.HWND
         listwindow: OS2.HWND;
         oldname, name: DomainName;
         text: ARRAY [0..127] OF CHAR;
+        MailRoot: FilenameString;
 
     BEGIN
 
@@ -413,6 +418,7 @@ PROCEDURE ["SysCall"] DialogueProc (hwnd     : OS2.HWND
         IF msg = OS2.WM_COMMAND THEN
 
             ButtonID := OS2.SHORT1FROMMP(mp1);
+            CurrentMailRoot (MailRoot);
 
             IF ButtonID = DID.AddDomain THEN
                    name := "";
@@ -522,16 +528,6 @@ PROCEDURE ["SysCall"] DialogueProc (hwnd     : OS2.HWND
 
 (**************************************************************************)
 
-PROCEDURE SetMailRoot (CurrentMailRoot: ARRAY OF CHAR);
-
-    (* The caller tells us what the global mail root directory is.    *)
-
-    BEGIN
-        Strings.Assign (CurrentMailRoot, MailRoot);
-    END SetMailRoot;
-
-(**************************************************************************)
-
 PROCEDURE CreatePage (notebook: OS2.HWND;  AfterPage: CARDINAL;
                              CreateWildAliases, NewStyle, TNImode: BOOLEAN;
                                       VAR (*OUT*) ID: CARDINAL): OS2.HWND;
@@ -582,7 +578,16 @@ PROCEDURE Close (notebook: OS2.HWND);
 
     (* Shuts down this window and removes it from the notebook. *)
 
+    VAR name: DomainName;
+        message: ARRAY [0..255] OF CHAR;
+
     BEGIN
+        IF SUDomains.OriginalNotRenamed(name) THEN
+            StrToBufferA (OurLang, "Domains.BadName", name, message);
+            OS2.WinMessageBox (OS2.HWND_DESKTOP, notebook,
+                         message, "", 0,
+                         OS2.MB_OKCANCEL + OS2.MB_INFORMATION);
+        END (*IF*);
         OS2.WinSendMsg (notebook, OS2.BKM_DELETEPAGE,
                         CAST(ADDRESS, PageID),
                         OS2.MPFROMLONG (OS2.BKA_SINGLE));
@@ -594,7 +599,6 @@ PROCEDURE Close (notebook: OS2.HWND);
 
 BEGIN
     UseTNI := FALSE;
-    MailRoot := "";
     AcceptUnknown := FALSE;
     ChangeInProgress := FALSE;
     DomainCount := 0;

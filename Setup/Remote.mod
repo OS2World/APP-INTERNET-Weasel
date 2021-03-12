@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  Support modules for network applications                              *)
-(*  Copyright (C) 2019   Peter Moylan                                     *)
+(*  Copyright (C) 2021   Peter Moylan                                     *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -28,7 +28,7 @@ IMPLEMENTATION MODULE Remote;
         (*                Communication with INIRemote              *)
         (*                                                          *)
         (*    Started:        7 October 1999                        *)
-        (*    Last edited:    29 August 2019                        *)
+        (*    Last edited:    2 January 2021                        *)
         (*    Status:         OK                                    *)
         (*                                                          *)
         (************************************************************)
@@ -302,6 +302,19 @@ PROCEDURE ExecCommand2 (part1: ARRAY OF CHAR;
         DEALLOCATE (bufptr, BufferSize);
         RETURN result;
     END ExecCommand2;
+
+(************************************************************************)
+
+PROCEDURE SetCommandSocket (S: Socket);
+
+    (* Specifies the already-created socket that will be used for       *)
+    (* communication with the server.  Normally this is created by      *)
+    (* ConnectToServer, below, but some test programs want to implement *)
+    (* their own version of ConnectToServer.                            *)
+
+    BEGIN
+        CommandSocket := S;
+    END SetCommandSocket;
 
 (************************************************************************)
 
@@ -904,7 +917,7 @@ PROCEDURE OpenSetupDialogue (owner: OS2.HWND);
 
 (************************************************************************)
 
-PROCEDURE RememberCurrentDirectory;
+PROCEDURE RememberProgramDirectory;
 
     (* Sets the CurrentDir variable to the name of the directory        *)
     (* where the executable resides.                                    *)
@@ -928,14 +941,35 @@ PROCEDURE RememberCurrentDirectory;
             CurrentDir := "";
         END (*IF*);
 
-    END RememberCurrentDirectory;
+    END RememberProgramDirectory;
+
+(************************************************************************)
+
+PROCEDURE RememberWorkingDirectory;
+
+    (* Sets the CurrentDir variable to the name of the current          *)
+    (* working directory.                                               *)
+
+    VAR disknum, map, length: CARDINAL;
+        dir: FilenameString;
+
+    BEGIN
+        OS2.DosQueryCurrentDisk (disknum, map);
+        CurrentDir[0] := CHR(ORD('A') + disknum - 1);
+        CurrentDir[1] := ':';
+        CurrentDir[2] := '\';
+        CurrentDir[3] := Nul;
+        length := SIZE(dir);
+        OS2.DosQueryCurrentDir (disknum, dir, length);
+        Strings.Append (dir, CurrentDir);
+    END RememberWorkingDirectory;
 
 (************************************************************************)
 
 BEGIN
     ReceiveBuffer := "";  ReceiveCount := 0;  RBPos := 0;
     sock_init();
-    RememberCurrentDirectory;
+    RememberWorkingDirectory;
     ListingInProgress := FALSE;
     ourlang := NIL;
     NoLanguageSet := TRUE;
